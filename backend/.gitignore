@@ -1,0 +1,34 @@
+node_modules/
+dist/
+
+# Env files: ignore every .env* variant except the checked-in placeholder
+# template. Order matters — the negation must come after the broad pattern.
+.env
+.env.*
+!.env.example
+
+# Local/ephemeral PostgreSQL data directories (real database files — the
+# persistent dev instance and the disposable e2e-test instance). Never
+# commit these; they are how the local database physically exists on disk.
+.pgdata-dev/
+.pgdata-test/
+
+# Database dumps / exports / local db files. Deliberately NOT a bare
+# "*.sql" rule — that would also match backend/prisma/migrations/**/*.sql,
+# which MUST be committed. These patterns only match dump-shaped filenames.
+*.dump
+*.sqlite
+*.sqlite3
+*.db
+dump.sql
+*.dump.sql
+
+coverage/
+*.log
+*.tsbuildinfo
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

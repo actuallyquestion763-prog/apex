@@ -1,0 +1,39 @@
+// Starts a REAL PostgreSQL server (via the embedded-postgres package, which
+// bundles actual PostgreSQL binaries) for local development in an
+// environment without Docker or a system PostgreSQL install. Unlike
+// scripts/test-db.js, this data directory is PERSISTENT (survives restarts)
+// so it behaves like a normal local dev database. Gitignored.
+const EmbeddedPostgres = require('embedded-postgres').default
+const path = require('path')
+
+const pg = new EmbeddedPostgres({
+  databaseDir: path.join(__dirname, '..', '.pgdata-dev'),
+  user: 'postgres',
+  password: 'devpassword',
+  port: 5432,
+  persistent: true,
+})
+
+async function start() {
+  await pg.initialise()
+  await pg.start()
+  try {
+    await pg.createDatabase('trust_dev')
+  } catch {
+    // already exists from a previous run — fine.
+  }
+  console.log('READY postgresql://postgres:devpassword@localhost:5432/trust_dev?schema=public')
+
+  const shutdown = async () => {
+    try { await pg.stop() } catch { /* already stopped */ }
+    process.exit(0)
+  }
+  process.on('SIGINT', shutdown)
+  process.on('SIGTERM', shutdown)
+  setInterval(() => {}, 60_000)
+}
+
+start().catch((err) => {
+  console.error(err)
+  process.exit(1)
+})

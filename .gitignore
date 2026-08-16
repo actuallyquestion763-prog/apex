@@ -1,0 +1,18 @@
+node_modules/
+
+# Env files: ignore every .env* variant except the checked-in placeholder
+# template. Order matters — the negation must come after the broad pattern.
+.env
+.env.*
+!.env.example
+
+dist/
+build.log
+*.log
+*.tsbuildinfo
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

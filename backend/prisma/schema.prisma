@@ -1,0 +1,506 @@
+// TRUST backend — authoritative data model.
+//
+// This schema is the source of truth for money. The frontend never computes
+// or asserts a balance; every balance is derived by summing LedgerEntry rows
+// for the relevant LedgerAccount. See src/ledger/ledger.service.ts.
+//
+// Monetary amounts use Decimal (-> PostgreSQL NUMERIC), never floating point.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Identity, sessions, roles
+// ---------------------------------------------------------------------------
+
+enum Role {
+  USER
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum AccountStatus {
+  ACTIVE
+  SUSPENDED
+  RESTRICTED
+  PENDING_VERIFICATION
+  CLOSED
+}
+
+enum KycStatus {
+  NOT_STARTED
+  PENDING
+  VERIFIED
+  REJECTED
+  EXPIRED
+}
+
+model User {
+  id              String    @id @default(uuid())
+  email           String    @unique
+  passwordHash    String
+  fullName        String
+  country         String?
+  role            Role      @default(USER)
+  status          AccountStatus @default(ACTIVE)
+  kycStatus       KycStatus @default(NOT_STARTED)
+  twoFactorEnabled Boolean  @default(false)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  sessions          Session[]
+  accounts          Account[]
+  twoFactorCredential TwoFactorCredential?
+  orders            Order[]
+  positions         Position[]
+  deposits          Deposit[]
+  withdrawals       Withdrawal[]
+  kycVerifications  KycVerification[]
+  userPermissions   UserPermission[]
+
+  adminActionsPerformed AdminAction[] @relation("AdminActionActor")
+  adminActionsReceived  AdminAction[] @relation("AdminActionTarget")
+  auditLogsAsActor      AuditLog[]    @relation("AuditLogActor")
+
+  @@index([role])
+  @@index([status])
+}
+
+// Session tokens are opaque random values; only a hash is stored (same
+// principle as a password) so a database read alone can't authenticate.
+model Session {
+  id         String    @id @default(uuid())
+  userId     String
+  tokenHash  String    @unique
+  userAgent  String?
+  ipAddress  String?
+  createdAt  DateTime  @default(now())
+  expiresAt  DateTime
+  revokedAt  DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+// RFC 6238 TOTP secret. `enabled` only flips true after the user verifies a
+// live code during setup (see auth/totp.util.ts) — never on creation alone.
+model TwoFactorCredential {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  secret    String
+  enabled   Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// Foundation for fine-grained permissions beyond the coarse Role enum.
+// Not deeply wired into every guard yet — see backend/README.md.
+model Permission {
+  id          String @id @default(uuid())
+  key         String @unique
+  description String
+
+  userPermissions UserPermission[]
+}
+
+model UserPermission {
+  id           String @id @default(uuid())
+  userId       String
+  permissionId String
+  grantedAt    DateTime @default(now())
+
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, permissionId])
+}
+
+// ---------------------------------------------------------------------------
+// Accounts & double-entry ledger
+// ---------------------------------------------------------------------------
+
+enum AccountType {
+  TRADING
+}
+
+// A customer-facing account container. One user can have more than one
+// Account in the future (e.g. distinct trading accounts); today each user
+// gets exactly one TRADING account, created at registration.
+model Account {
+  id        String        @id @default(uuid())
+  userId    String
+  type      AccountType   @default(TRADING)
+  status    AccountStatus @default(ACTIVE)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ledgerAccounts LedgerAccount[]
+  orders         Order[]
+  positions      Position[]
+
+  @@index([userId])
+}
+
+enum LedgerOwnerType {
+  USER
+  SYSTEM
+}
+
+enum LedgerAccountType {
+  CASH        // user's available cash
+  RESERVED    // user's margin/investment reserved against open positions
+  REVENUE     // system: realized customer losses / spread / fees land here
+  FEES        // system: fees collected
+  SUSPENSE    // system: counterparty for deposits/withdrawals until reconciled
+             // against a real external payment/broker event
+}
+
+// A bookkeeping account. Its balance is NEVER stored directly — it is always
+// derived as SUM(credits) - SUM(debits) over its LedgerEntry rows.
+model LedgerAccount {
+  id        String            @id @default(uuid())
+  accountId String?           // null for SYSTEM ledger accounts
+  ownerType LedgerOwnerType
+  type      LedgerAccountType
+  currency  String            @default("USD")
+  createdAt DateTime          @default(now())
+
+  account Account?      @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  entries LedgerEntry[]
+
+  // Exactly one CASH and one RESERVED ledger account per user Account;
+  // exactly one of each SYSTEM type overall.
+  @@unique([accountId, type])
+  @@index([ownerType, type])
+}
+
+enum LedgerEntryType {
+  DEPOSIT
+  WITHDRAWAL
+  TRADE_RESERVATION
+  TRADE_RELEASE
+  REALIZED_PROFIT
+  REALIZED_LOSS
+  FEE
+  REFUND
+  ADJUSTMENT
+}
+
+enum LedgerDirection {
+  DEBIT
+  CREDIT
+}
+
+// A balanced group of entries. Every financial event (deposit confirmation,
+// withdrawal, trade open/close, admin adjustment) posts exactly one
+// LedgerTransaction whose entries sum to zero per currency
+// (SUM(credits) == SUM(debits)) — enforced in LedgerService, not just by
+// convention. `idempotencyKey` lets a retried request (webhook redelivery,
+// duplicate click) resolve to the same transaction instead of double-posting.
+model LedgerTransaction {
+  id             String   @id @default(uuid())
+  idempotencyKey String?  @unique
+  description    String
+  relatedType    String?  // e.g. "DEPOSIT" | "WITHDRAWAL" | "ORDER" | "ADMIN_ACTION"
+  relatedId      String?
+  createdAt      DateTime @default(now())
+
+  entries      LedgerEntry[]
+  deposits     Deposit[]
+  withdrawals  Withdrawal[]
+  adminActions AdminAction[]
+
+  @@index([relatedType, relatedId])
+}
+
+model LedgerEntry {
+  id            String          @id @default(uuid())
+  transactionId String
+  ledgerAccountId String
+  direction     LedgerDirection
+  amount        Decimal         @db.Decimal(20, 8) // always positive; direction carries the sign
+  currency      String          @default("USD")
+  entryType     LedgerEntryType
+  createdAt     DateTime        @default(now())
+
+  transaction   LedgerTransaction @relation(fields: [transactionId], references: [id])
+  ledgerAccount LedgerAccount     @relation(fields: [ledgerAccountId], references: [id])
+
+  @@index([ledgerAccountId])
+  @@index([transactionId])
+}
+
+// ---------------------------------------------------------------------------
+// Orders, fills, positions — foundation only, no broker connected
+// ---------------------------------------------------------------------------
+
+enum OrderSide {
+  BUY
+  SELL
+}
+
+enum OrderStatus {
+  PENDING
+  SUBMITTED
+  PARTIALLY_FILLED
+  FILLED
+  CANCELLED
+  REJECTED
+}
+
+// This phase does not connect a real broker/exchange. Orders created via the
+// foundation API stay PENDING/REJECTED — nothing transitions them to FILLED
+// except an actual fill record, and nothing in this phase creates one.
+model Order {
+  id              String      @id @default(uuid())
+  userId          String
+  accountId       String
+  symbol          String
+  side            OrderSide
+  quantity        Decimal     @db.Decimal(20, 8)
+  orderType       String      @default("MARKET")
+  requestedPrice  Decimal?    @db.Decimal(20, 8)
+  executedPrice   Decimal?    @db.Decimal(20, 8)
+  filledQuantity  Decimal     @default(0) @db.Decimal(20, 8)
+  fee             Decimal     @default(0) @db.Decimal(20, 8)
+  status          OrderStatus @default(PENDING)
+  externalOrderId String?     // broker/exchange order ID once one exists
+  rejectionReason String?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  user    User     @relation(fields: [userId], references: [id])
+  account Account  @relation(fields: [accountId], references: [id])
+  fills   Fill[]
+  position Position?
+
+  @@index([userId])
+  @@index([status])
+}
+
+model Fill {
+  id             String   @id @default(uuid())
+  orderId        String
+  price          Decimal  @db.Decimal(20, 8)
+  quantity       Decimal  @db.Decimal(20, 8)
+  fee            Decimal  @default(0) @db.Decimal(20, 8)
+  executedAt     DateTime @default(now())
+  externalFillId String?
+
+  order Order @relation(fields: [orderId], references: [id])
+
+  @@index([orderId])
+}
+
+enum PositionStatus {
+  OPEN
+  CLOSED
+}
+
+model Position {
+  id            String         @id @default(uuid())
+  userId        String
+  accountId     String
+  orderId       String?        @unique // opening order, if any
+  symbol        String
+  side          OrderSide
+  quantity      Decimal        @db.Decimal(20, 8)
+  avgEntryPrice Decimal        @db.Decimal(20, 8)
+  currentPrice  Decimal?       @db.Decimal(20, 8)
+  realizedPnl   Decimal        @default(0) @db.Decimal(20, 8)
+  fees          Decimal        @default(0) @db.Decimal(20, 8)
+  status        PositionStatus @default(OPEN)
+  openedAt      DateTime       @default(now())
+  closedAt      DateTime?
+
+  user    User    @relation(fields: [userId], references: [id])
+  account Account @relation(fields: [accountId], references: [id])
+  order   Order?  @relation(fields: [orderId], references: [id])
+
+  @@index([userId])
+  @@index([status])
+}
+
+// ---------------------------------------------------------------------------
+// Deposits & withdrawals — foundation only, no payment provider connected
+// ---------------------------------------------------------------------------
+
+enum DepositStatus {
+  PENDING
+  PROCESSING
+  CONFIRMED
+  FAILED
+  REVERSED
+}
+
+// A frontend "success" screen must NEVER move this to CONFIRMED. Only
+// DepositsService.confirm() (an admin action in this phase; a verified
+// payment-provider webhook in a future phase) may do that, and it does so
+// inside the same DB transaction as the LedgerTransaction that credits cash.
+model Deposit {
+  id                 String        @id @default(uuid())
+  userId             String
+  amount             Decimal       @db.Decimal(20, 8)
+  currency           String        @default("USD")
+  method             String
+  providerReference  String?
+  status             DepositStatus @default(PENDING)
+  ledgerTransactionId String?      @unique
+  createdAt          DateTime      @default(now())
+  confirmedAt        DateTime?
+
+  user              User               @relation(fields: [userId], references: [id])
+  ledgerTransaction LedgerTransaction? @relation(fields: [ledgerTransactionId], references: [id])
+
+  @@index([userId])
+  @@index([status])
+}
+
+enum WithdrawalStatus {
+  PENDING
+  REVIEW
+  APPROVED
+  PROCESSING
+  COMPLETED
+  REJECTED
+  FAILED
+  REVERSED
+}
+
+model Withdrawal {
+  id                  String           @id @default(uuid())
+  userId              String
+  amount              Decimal          @db.Decimal(20, 8)
+  currency            String           @default("USD")
+  destination         String
+  status              WithdrawalStatus @default(PENDING)
+  riskFlags           String[]         @default([])
+  approvedByAdminId   String?
+  ledgerTransactionId String?          @unique
+  createdAt           DateTime         @default(now())
+  completedAt         DateTime?
+
+  user              User               @relation(fields: [userId], references: [id])
+  ledgerTransaction LedgerTransaction? @relation(fields: [ledgerTransactionId], references: [id])
+
+  @@index([userId])
+  @@index([status])
+}
+
+// ---------------------------------------------------------------------------
+// KYC — status tracking only, no verification provider connected
+// ---------------------------------------------------------------------------
+
+model KycVerification {
+  id                String    @id @default(uuid())
+  userId            String
+  status            KycStatus @default(PENDING)
+  providerReference String?
+  submittedAt       DateTime  @default(now())
+  reviewedAt        DateTime?
+  reviewedByAdminId String?
+  rejectionReason   String?
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([status])
+}
+
+// ---------------------------------------------------------------------------
+// Admin actions & audit log
+// ---------------------------------------------------------------------------
+
+// A record of a specific privileged action an admin took, always linked to
+// its audit log entry and (when financial) its LedgerTransaction. This is
+// distinct from AuditLog: AdminAction is the "what admins did" table used by
+// the admin UI; AuditLog is the append-only security/compliance trail that
+// also records non-admin security events (logins, failed logins, etc).
+model AdminAction {
+  id                  String   @id @default(uuid())
+  adminId             String
+  action              String   // e.g. "FINANCIAL_ADJUSTMENT" | "USER_SUSPENDED" | ...
+  targetUserId        String?
+  reason              String?
+  previousState       Json?
+  newState            Json?
+  ledgerTransactionId String?
+  createdAt           DateTime @default(now())
+
+  admin             User               @relation("AdminActionActor", fields: [adminId], references: [id])
+  targetUser        User?              @relation("AdminActionTarget", fields: [targetUserId], references: [id])
+  ledgerTransaction LedgerTransaction? @relation(fields: [ledgerTransactionId], references: [id])
+
+  @@index([adminId])
+  @@index([targetUserId])
+  @@index([action])
+}
+
+// Append-only from the application's perspective: no service method in this
+// codebase updates or deletes an AuditLog row. actorId is null for
+// system-generated events (e.g. automated settlement, if implemented later).
+model AuditLog {
+  id            String   @id @default(uuid())
+  actorId       String?
+  action        String
+  targetType    String?
+  targetId      String?
+  ipAddress     String?
+  userAgent     String?
+  previousState Json?
+  newState      Json?
+  reason        String?
+  metadata      Json?
+  createdAt     DateTime @default(now())
+
+  actor User? @relation("AuditLogActor", fields: [actorId], references: [id])
+
+  @@index([actorId])
+  @@index([action])
+  @@index([createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Platform-wide and per-market controls (server-enforced kill switches)
+// ---------------------------------------------------------------------------
+
+// Singleton row (id is always "singleton"). Read by guards on the
+// orders/deposits/withdrawals/auth-registration endpoints before allowing
+// the operation — flipping these actually blocks the corresponding API,
+// it is not a UI-only switch.
+model PlatformSettings {
+  id                   String   @id @default("singleton")
+  tradingEnabled       Boolean  @default(true)
+  depositsEnabled      Boolean  @default(true)
+  withdrawalsEnabled   Boolean  @default(true)
+  registrationsEnabled Boolean  @default(true)
+  updatedAt            DateTime @updatedAt
+  updatedByAdminId     String?
+}
+
+enum MarketDataSource {
+  LIVE       // real external feed (e.g. GoldAPI for XAU/USD)
+  SIMULATED  // internally generated price, must never be presented as LIVE
+}
+
+model MarketConfig {
+  id              String           @id @default(uuid())
+  symbol          String           @unique
+  dataSource      MarketDataSource
+  tradingEnabled  Boolean          @default(true)
+  maintenanceMode Boolean          @default(false)
+  updatedAt       DateTime         @updatedAt
+
+  @@index([symbol])
+}
