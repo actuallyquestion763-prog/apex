@@ -17,7 +17,9 @@ import { ProfilePage } from './pages/ProfilePage'
 import { DepositPage } from './pages/DepositPage'
 import { WithdrawPage } from './pages/WithdrawPage'
 import { KycPage } from './pages/KycPage'
+import { SupportPage } from './pages/SupportPage'
 import { AdminPage } from './pages/AdminPage'
+import { CmsPageView } from './pages/CmsPageView'
 
 function Protected({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth()
@@ -40,6 +42,7 @@ export default function App() {
       <Route path="/" element={<LandingPage />} />
       <Route path="/signup" element={<SignupPage />} />
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/pages/:slug" element={<CmsPageView />} />
       <Route path="/verify-email" element={<Protected><VerifyEmailPage /></Protected>} />
       <Route path="/2fa-setup" element={<Protected><TwoFactorSetupPage /></Protected>} />
       <Route path="/2fa-verify" element={<TwoFactorVerifyPage />} />
@@ -54,6 +57,7 @@ export default function App() {
         <Route path="/deposit" element={<DepositPage />} />
         <Route path="/withdraw" element={<WithdrawPage />} />
         <Route path="/kyc" element={<KycPage />} />
+        <Route path="/support" element={<SupportPage />} />
       </Route>
       <Route path="/admin" element={<AdminOnly><AdminPage /></AdminOnly>} />
       <Route path="*" element={<Navigate to="/" replace />} />

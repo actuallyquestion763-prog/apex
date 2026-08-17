@@ -63,10 +63,29 @@ model User {
   withdrawals       Withdrawal[]
   kycVerifications  KycVerification[]
   userPermissions   UserPermission[]
+  idempotencyKeys   IdempotencyKey[]
 
   adminActionsPerformed AdminAction[] @relation("AdminActionActor")
   adminActionsReceived  AdminAction[] @relation("AdminActionTarget")
   auditLogsAsActor      AuditLog[]    @relation("AuditLogActor")
+
+  // ---- CMS (Phase 3) — which admin created/uploaded/changed content -------
+  createdCmsPages         CmsPage[]         @relation("CmsPageCreatedBy")
+  createdCmsAnnouncements CmsAnnouncement[] @relation("CmsAnnouncementCreatedBy")
+  createdCmsFaqs          CmsFaq[]          @relation("CmsFaqCreatedBy")
+  uploadedCmsMedia        CmsMedia[]        @relation("CmsMediaUploadedBy")
+  cmsRevisionsMade        CmsRevision[]     @relation("CmsRevisionChangedBy")
+
+  // ---- Support (Phase 3) ---------------------------------------------------
+  supportTicketsAsCustomer   SupportTicket[]     @relation("SupportTicketCustomer")
+  supportTicketsAsAgent      SupportTicket[]     @relation("SupportTicketAgent")
+  supportMessagesAuthored    SupportMessage[]    @relation("SupportMessageAuthor")
+  supportAssignmentsAsAgent  SupportAssignment[] @relation("SupportAssignmentAgent")
+  supportAssignmentsMade     SupportAssignment[] @relation("SupportAssignmentAssignedBy")
+
+  // ---- Support notifications & attachments (Phase 4) -----------------------
+  supportNotifications       SupportNotification[]
+  supportAttachmentsUploaded SupportAttachment[]   @relation("SupportAttachmentUploader")
 
   @@index([role])
   @@index([status])
@@ -419,6 +438,39 @@ model KycVerification {
 }
 
 // ---------------------------------------------------------------------------
+// Client-supplied idempotency (Phase 2.1) — a reusable mechanism, not three
+// bespoke ones. Any endpoint that creates a financial record (deposits,
+// withdrawals, orders) may be called with an Idempotency-Key header; see
+// src/common/idempotency/idempotency.service.ts for how this table is used.
+// Scoped per (userId, scope, key) — different users never share state, and
+// different endpoints ("scope") never collide even if a client reused the
+// same key value across them.
+// ---------------------------------------------------------------------------
+
+enum IdempotencyStatus {
+  PROCESSING
+  COMPLETED
+}
+
+model IdempotencyKey {
+  id           String             @id @default(uuid())
+  userId       String
+  scope        String             // e.g. "deposits.create", "withdrawals.create", "orders.create"
+  key          String             // the client-supplied Idempotency-Key header value
+  requestHash  String             // hash of the request's financially-meaningful fields — a retry with
+                                   // the same key but different fields is rejected, never silently reused
+  status       IdempotencyStatus  @default(PROCESSING)
+  responseBody Json?              // the exact response returned the first time, replayed verbatim on retry
+  createdAt    DateTime           @default(now())
+  completedAt  DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, scope, key])
+  @@index([userId, scope])
+}
+
+// ---------------------------------------------------------------------------
 // Admin actions & audit log
 // ---------------------------------------------------------------------------
 
@@ -503,4 +555,313 @@ model MarketConfig {
   updatedAt       DateTime         @updatedAt
 
   @@index([symbol])
+}
+
+// ---------------------------------------------------------------------------
+// CMS (Phase 3) - customer-facing content, database-driven, never
+// hand-editable-HTML from an admin (see CmsPage.sections: structured JSON
+// content blocks, not raw HTML - the frontend renderer maps known block
+// types to components; there is no arbitrary HTML field anywhere here).
+// Deliberately NOT one megatable with a kind discriminator (as an earlier,
+// vaguer-requirements audit had proposed) - Pages/Announcements/FAQs each
+// have genuinely different fields now that the requirements are concrete
+// (scheduling+priority+audience for announcements, category+ordering for
+// FAQs, SEO+sections for pages), so purpose-built tables are the smaller,
+// cleaner design here, not the reverse.
+// ---------------------------------------------------------------------------
+
+enum CmsContentStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum CmsPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+// One row per site page (Homepage, About, FAQ, Terms, etc.), addressed by
+// slug. sections is an ordered JSON array of { type, fields } content
+// blocks - e.g. { type: "hero", fields: { title, subtitle, ctaLabel,
+// ctaHref } }. Validated server-side against known block types
+// (cms.service.ts) before save; never raw HTML.
+model CmsPage {
+  id               String           @id @default(uuid())
+  slug             String           @unique
+  title            String
+  sections         Json
+  seoTitle         String?
+  seoDescription   String?
+  status           CmsContentStatus @default(DRAFT)
+  publishedAt      DateTime?
+  createdByAdminId String
+  updatedByAdminId String?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  createdBy User @relation("CmsPageCreatedBy", fields: [createdByAdminId], references: [id])
+
+  @@index([status])
+}
+
+model CmsAnnouncement {
+  id               String           @id @default(uuid())
+  title            String
+  body             String
+  priority         CmsPriority      @default(NORMAL)
+  status           CmsContentStatus @default(DRAFT)
+  loggedInOnly     Boolean          @default(false)
+  startAt          DateTime?
+  endAt            DateTime?
+  publishedAt      DateTime?
+  createdByAdminId String
+  updatedByAdminId String?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  createdBy User @relation("CmsAnnouncementCreatedBy", fields: [createdByAdminId], references: [id])
+
+  @@index([status])
+  @@index([startAt, endAt])
+}
+
+model CmsFaq {
+  id               String           @id @default(uuid())
+  question         String
+  answer           String
+  category         String           @default("General")
+  order            Int              @default(0)
+  status           CmsContentStatus @default(DRAFT)
+  createdByAdminId String
+  updatedByAdminId String?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  createdBy User @relation("CmsFaqCreatedBy", fields: [createdByAdminId], references: [id])
+
+  @@index([status])
+  @@index([category])
+}
+
+enum CmsMediaKind {
+  IMAGE
+  DOCUMENT
+  LOGO
+  BANNER
+}
+
+// Metadata only - the actual file bytes live outside PostgreSQL (local disk
+// in development, behind a small storage-abstraction interface designed so
+// a production deployment can swap in real object storage later without a
+// schema change; see media-storage.service.ts). storageKey is opaque to
+// everything except that storage layer.
+model CmsMedia {
+  id                String       @id @default(uuid())
+  filename          String
+  mimeType          String
+  size              Int
+  storageKey        String
+  kind              CmsMediaKind
+  uploadedByAdminId String
+  createdAt         DateTime     @default(now())
+
+  uploadedBy User @relation("CmsMediaUploadedBy", fields: [uploadedByAdminId], references: [id])
+
+  @@index([kind])
+}
+
+// Validated destinations only (internal paths, or an explicit external
+// allowlist) - see cms.service.ts. Prevents CMS-managed navigation from
+// becoming a way to inject an arbitrary/unsafe route.
+model CmsNavigationItem {
+  id          String   @id @default(uuid())
+  label       String
+  destination String
+  order       Int      @default(0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([isActive])
+}
+
+// Generic revision store shared by every CMS content type - one table, not
+// one per type. Holds the FULL content snapshot as it was immediately
+// BEFORE the change being recorded, so restore is just apply this
+// snapshot. Distinct from the immutable financial AuditLog: this is
+// business content history, not a compliance/security trail (AuditLog
+// still separately records CONTENT_* events for who/what/when).
+model CmsRevision {
+  id               String   @id @default(uuid())
+  entityType       String
+  entityId         String
+  snapshot         Json
+  changedByAdminId String
+  reason           String?
+  createdAt        DateTime @default(now())
+
+  changedBy User @relation("CmsRevisionChangedBy", fields: [changedByAdminId], references: [id])
+
+  @@index([entityType, entityId])
+}
+
+// ---------------------------------------------------------------------------
+// Customer Support (Phase 3) - a separate permission domain from financial
+// admin (see backend/src/common/permissions.ts). A support agent is never
+// implicitly a financial admin, and vice versa.
+// ---------------------------------------------------------------------------
+
+model SupportCategory {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String?
+  isActive    Boolean  @default(true)
+  order       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tickets SupportTicket[]
+
+  @@index([isActive])
+}
+
+enum SupportTicketStatus {
+  OPEN
+  IN_PROGRESS
+  WAITING_FOR_CUSTOMER
+  WAITING_INTERNAL
+  RESOLVED
+  CLOSED
+}
+
+enum SupportPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+// priority is the authoritative, staff-controlled field (defaults to the
+// customer's requested priority but only staff with support.tickets.update
+// may change it thereafter). requestedPriority is what the customer picked
+// at creation time - preserved as-is, purely informational, never used to
+// gate anything server-side.
+model SupportTicket {
+  id                String              @id @default(uuid())
+  userId            String
+  categoryId        String
+  subject           String
+  status            SupportTicketStatus @default(OPEN)
+  priority          SupportPriority     @default(NORMAL)
+  requestedPriority SupportPriority     @default(NORMAL)
+  assignedAgentId   String?
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  resolvedAt        DateTime?
+  closedAt          DateTime?
+
+  user          User                  @relation("SupportTicketCustomer", fields: [userId], references: [id], onDelete: Restrict)
+  category      SupportCategory       @relation(fields: [categoryId], references: [id])
+  assignedAgent User?                 @relation("SupportTicketAgent", fields: [assignedAgentId], references: [id])
+  messages      SupportMessage[]
+  assignments   SupportAssignment[]
+  notifications SupportNotification[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([assignedAgentId])
+  @@index([categoryId])
+}
+
+enum SupportMessageVisibility {
+  PUBLIC
+  INTERNAL
+}
+
+model SupportMessage {
+  id         String                   @id @default(uuid())
+  ticketId   String
+  authorId   String
+  body       String
+  visibility SupportMessageVisibility @default(PUBLIC)
+  createdAt  DateTime                 @default(now())
+  editedAt   DateTime?
+
+  ticket      SupportTicket       @relation(fields: [ticketId], references: [id])
+  author      User                @relation("SupportMessageAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+  attachments SupportAttachment[]
+
+  @@index([ticketId])
+  @@index([visibility])
+}
+
+// A file attached to a support message (Phase 4, Part 15). Reuses the exact
+// same storage abstraction as CmsMedia (MediaStorageService) - metadata in
+// Postgres, bytes on local disk, allowlisted + magic-byte-verified content,
+// server-generated storage keys, original filename never trusted for
+// anything but display. Unlike CmsMedia (intentionally public - it only ever
+// backs public site content), an attachment's bytes are only ever served
+// through SupportService.getAttachmentFile(), which requires either ticket
+// ownership or the support.tickets.read permission - never a public URL.
+model SupportAttachment {
+  id               String   @id @default(uuid())
+  messageId        String
+  filename         String
+  mimeType         String
+  size             Int
+  storageKey       String
+  uploadedByUserId String
+  createdAt        DateTime @default(now())
+
+  message        SupportMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  uploadedByUser User           @relation("SupportAttachmentUploader", fields: [uploadedByUserId], references: [id], onDelete: Restrict)
+
+  @@index([messageId])
+}
+
+// Server-backed notification record (Phase 4, Part 16) - reuses no separate
+// system; this IS the one notification mechanism for support events. Works
+// for both customers and staff since both are User rows and a ticket's
+// "recipient" for a given event may be either (see SupportService's private
+// notify() helper for exactly which event notifies which recipient).
+// `message` is always a short, non-sensitive preview (ticket subject/status
+// only) - message BODIES are never copied into a notification row.
+model SupportNotification {
+  id        String    @id @default(uuid())
+  userId    String
+  ticketId  String
+  event     String
+  message   String
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user   User          @relation(fields: [userId], references: [id])
+  ticket SupportTicket @relation(fields: [ticketId], references: [id])
+
+  @@index([userId, readAt])
+  @@index([ticketId])
+}
+
+// Append-only assignment history - reassigning a ticket inserts a new row
+// and stamps unassignedAt on the previous one; nothing is ever deleted.
+// SupportTicket.assignedAgentId is a denormalized current-assignee pointer
+// for fast queries, kept in sync whenever a new row is inserted here - this
+// table is the authoritative history.
+model SupportAssignment {
+  id                String    @id @default(uuid())
+  ticketId          String
+  agentId           String
+  assignedByAdminId String
+  assignedAt        DateTime  @default(now())
+  unassignedAt      DateTime?
+
+  ticket     SupportTicket @relation(fields: [ticketId], references: [id])
+  agent      User          @relation("SupportAssignmentAgent", fields: [agentId], references: [id])
+  assignedBy User          @relation("SupportAssignmentAssignedBy", fields: [assignedByAdminId], references: [id])
+
+  @@index([ticketId])
+  @@index([agentId])
 }

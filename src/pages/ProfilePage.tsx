@@ -3,7 +3,7 @@ import { useAuth } from '../store/auth'
 import { cosmeticReferralCode } from '../store/useStore'
 import {
   ArrowDownToLine, ArrowUpFromLine, Wallet, PieChart,
-  ShieldCheck, KeyRound, Settings, LogOut, ChevronRight, BadgeCheck,
+  ShieldCheck, KeyRound, Settings, LogOut, ChevronRight, BadgeCheck, Headset,
 } from 'lucide-react'
 
 const QUICK_ACTIONS = [
@@ -35,6 +35,7 @@ export function ProfilePage() {
     { to: '/wallet', label: 'Transaction records', icon: Wallet },
     { to: '/kyc', label: 'Identity verification', icon: ShieldCheck },
     { to: '/2fa-setup', label: 'Two-factor security', icon: KeyRound },
+    { to: '/support', label: 'Support', icon: Headset },
     ...(user.role !== 'USER' ? [{ to: '/admin', label: 'Admin panel', icon: Settings }] : []),
   ]
 

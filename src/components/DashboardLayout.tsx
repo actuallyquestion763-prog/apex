@@ -5,7 +5,8 @@ import { Logo } from './Logo'
 import { NotificationBell } from './NotificationBell'
 import { LiveChat } from './LiveChat'
 import { PriceTicker } from './PriceTicker'
-import { LayoutDashboard, Wallet, TrendingUp, ShieldCheck, LogOut, Settings, BarChart2, PieChart } from 'lucide-react'
+import { AnnouncementBanner } from './AnnouncementBanner'
+import { LayoutDashboard, Wallet, TrendingUp, ShieldCheck, LogOut, Settings, BarChart2, PieChart, Headset } from 'lucide-react'
 import BottomNav from './BottomNav'
 
 export function DashboardLayout() {
@@ -23,6 +24,7 @@ export function DashboardLayout() {
     { to: '/assets', label: 'Assets', icon: PieChart },
     { to: '/wallet', label: 'Wallet', icon: Wallet },
     { to: '/kyc', label: 'Verification', icon: ShieldCheck },
+    { to: '/support', label: 'Support', icon: Headset },
   ]
 
   async function handleSignOut() { await signOut(); navigate('/') }
@@ -65,6 +67,7 @@ export function DashboardLayout() {
           </div>
         </div>
       </header>
+      <AnnouncementBanner />
       <main className="mx-auto max-w-7xl px-4 py-6 pb-[76px] lg:pb-6"><Outlet /></main>
       <BottomNav />
       <LiveChat />

@@ -140,7 +140,7 @@ export interface Notification {
   body: string
   read: boolean
   createdAt: number
-  kind: 'price' | 'system' | 'deposit' | 'withdrawal' | 'kyc'
+  kind: 'price' | 'system' | 'deposit' | 'withdrawal' | 'kyc' | 'support'
 }
 
 export interface Candle {
@@ -158,4 +158,148 @@ export interface TickerPrice {
   price: number
   change24h: number
   changePct: number
+}
+
+// ---- CMS (Phase 3) --------------------------------------------------------
+
+export type CmsContentStatus = 'DRAFT' | 'PUBLISHED' | 'ARCHIVED'
+export type CmsPriority = 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT'
+
+export interface CmsSection {
+  type: string
+  fields: Record<string, string | number | boolean>
+}
+
+export interface CmsPage {
+  id: ID
+  slug: string
+  title: string
+  sections: CmsSection[]
+  seoTitle: string | null
+  seoDescription: string | null
+  status: CmsContentStatus
+  publishedAt: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface CmsAnnouncement {
+  id: ID
+  title: string
+  body: string
+  priority: CmsPriority
+  status: CmsContentStatus
+  loggedInOnly: boolean
+  startAt: string | null
+  endAt: string | null
+  publishedAt: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface CmsFaq {
+  id: ID
+  question: string
+  answer: string
+  category: string
+  order: number
+  status: CmsContentStatus
+  createdAt: string
+  updatedAt: string
+}
+
+export interface CmsNavigationItem {
+  id: ID
+  label: string
+  destination: string
+  order: number
+  isActive: boolean
+}
+
+export interface CmsRevision {
+  id: ID
+  entityType: string
+  entityId: string
+  snapshot: Record<string, unknown>
+  changedByAdminId: string
+  reason: string | null
+  createdAt: string
+}
+
+// ---- CMS Media (Phase 4) ---------------------------------------------------
+
+export type CmsMediaKind = 'IMAGE' | 'DOCUMENT' | 'LOGO' | 'BANNER'
+
+export interface CmsMedia {
+  id: ID
+  filename: string
+  mimeType: string
+  size: number
+  kind: CmsMediaKind
+  uploadedByAdminId: ID
+  createdAt: string
+}
+
+// ---- Customer Support (Phase 3) --------------------------------------------
+
+export type SupportTicketStatus = 'OPEN' | 'IN_PROGRESS' | 'WAITING_FOR_CUSTOMER' | 'WAITING_INTERNAL' | 'RESOLVED' | 'CLOSED'
+export type SupportPriority = 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT'
+export type SupportMessageVisibility = 'PUBLIC' | 'INTERNAL'
+
+export interface SupportCategory {
+  id: ID
+  name: string
+  description: string | null
+  isActive: boolean
+  order: number
+}
+
+export interface SupportAttachment {
+  id: ID
+  messageId: ID
+  filename: string
+  mimeType: string
+  size: number
+  createdAt: string
+}
+
+export interface SupportMessage {
+  id: ID
+  ticketId: ID
+  authorId: ID
+  body: string
+  visibility: SupportMessageVisibility
+  createdAt: string
+  editedAt: string | null
+  author?: { id: ID; email: string; fullName: string; role?: Role }
+  attachments?: SupportAttachment[]
+}
+
+export interface SupportNotification {
+  id: ID
+  userId: ID
+  ticketId: ID
+  event: string
+  message: string
+  readAt: string | null
+  createdAt: string
+}
+
+export interface SupportTicket {
+  id: ID
+  userId: ID
+  categoryId: ID
+  subject: string
+  status: SupportTicketStatus
+  priority: SupportPriority
+  requestedPriority: SupportPriority
+  assignedAgentId: ID | null
+  createdAt: string
+  updatedAt: string
+  resolvedAt: string | null
+  closedAt: string | null
+  category?: SupportCategory
+  user?: { id: ID; email: string; fullName: string; kycStatus?: KycStatus }
+  assignedAgent?: { id: ID; email: string; fullName: string } | null
+  messages?: SupportMessage[]
 }

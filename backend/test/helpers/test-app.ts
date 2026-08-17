@@ -69,6 +69,20 @@ export function currentTotpCode(secret: string): string {
   return generateTotpCode(secret)
 }
 
+// Grants a fine-grained permission directly via Prisma — bypasses the real
+// PATCH /admin/admins/:id/permissions/:permission/grant endpoint (already
+// covered by authorization.e2e-spec.ts) so CMS/Support tests can set up an
+// ADMIN with exactly the one permission they're testing, without needing a
+// second SUPER_ADMIN + step-up dance in every test file.
+export async function grantPermissionDirect(prisma: PrismaService, userId: string, permissionKey: string): Promise<void> {
+  const permission = await prisma.permission.findUniqueOrThrow({ where: { key: permissionKey } })
+  await prisma.userPermission.upsert({
+    where: { userId_permissionId: { userId, permissionId: permission.id } },
+    create: { userId, permissionId: permission.id },
+    update: {},
+  })
+}
+
 export function extractSessionCookie(res: { headers: Record<string, unknown> }): string {
   const raw = res.headers['set-cookie'] as string[] | string | undefined
   if (!raw) throw new Error('Response did not set a cookie.')

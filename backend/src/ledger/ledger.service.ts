@@ -43,13 +43,34 @@ export class LedgerService {
 
   // ---- System ledger accounts (singletons, created lazily) ----------------
 
+  // System ledger accounts have accountId = NULL, and Postgres treats NULL
+  // as distinct from NULL for uniqueness purposes — @@unique([accountId,
+  // type]) does NOT protect these rows the way it protects per-user ones
+  // (see getOrCreateUserLedgerAccount below). Two concurrent first-time
+  // callers could otherwise both pass the "not found" check and both
+  // create a row. Fixed with a deterministic advisory lock per
+  // (type, currency) instead of a schema change — no migration needed,
+  // and no already-applied migration touched.
   async getSystemLedgerAccount(type: LedgerAccountType, currency = 'USD') {
     const existing = await this.prisma.ledgerAccount.findFirst({
       where: { ownerType: LedgerOwnerType.SYSTEM, type, currency },
     })
     if (existing) return existing
-    return this.prisma.ledgerAccount.create({
-      data: { ownerType: LedgerOwnerType.SYSTEM, type, currency, accountId: null },
+
+    const lockKey = `system-ledger-account:${type}:${currency}`
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`
+
+      // Re-check inside the lock: another caller may have created it while
+      // this one was waiting to acquire the lock.
+      const recheck = await tx.ledgerAccount.findFirst({
+        where: { ownerType: LedgerOwnerType.SYSTEM, type, currency },
+      })
+      if (recheck) return recheck
+
+      return tx.ledgerAccount.create({
+        data: { ownerType: LedgerOwnerType.SYSTEM, type, currency, accountId: null },
+      })
     })
   }
 
@@ -68,9 +89,28 @@ export class LedgerService {
       where: { accountId_type: { accountId, type } },
     })
     if (existing) return existing
-    return this.prisma.ledgerAccount.create({
-      data: { accountId, ownerType: LedgerOwnerType.USER, type, currency },
-    })
+    try {
+      return await this.prisma.ledgerAccount.create({
+        data: { accountId, ownerType: LedgerOwnerType.USER, type, currency },
+      })
+    } catch (err) {
+      // Two concurrent requests touching this account's FIRST-EVER
+      // financial event (e.g. two simultaneous admin adjustments, or an
+      // order and a withdrawal, against a brand-new account) can both see
+      // "no CASH/RESERVED ledger account yet" and both try to create one.
+      // The @@unique([accountId, type]) constraint is the real guard —
+      // catch the race here and return the winner's row instead of a 500,
+      // same pattern already used for idempotencyKey races in
+      // postTransaction(). Verified via a real concurrent-request test
+      // against PostgreSQL (test/concurrency-hardening.e2e-spec.ts).
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        const winner = await this.prisma.ledgerAccount.findUnique({
+          where: { accountId_type: { accountId, type } },
+        })
+        if (winner) return winner
+      }
+      throw err
+    }
   }
 
   // ---- Balance derivation ---------------------------------------------------

@@ -4,10 +4,12 @@ import { api, ApiError } from '../lib/api'
 import { useToast } from '../components/Toast'
 import { StepUpModal } from '../components/StepUpModal'
 import { EmptyState } from '../components/EmptyState'
-import type { User, Deposit, Withdrawal, MarketConfig, PlatformSettings } from '../types'
+import type { User, Deposit, Withdrawal, MarketConfig, PlatformSettings, CmsPage, CmsAnnouncement, CmsFaq, CmsMedia, SupportTicket, SupportCategory } from '../types'
+import { mediaUrl, attachmentUrl } from '../lib/api'
 import {
   LayoutDashboard, Users, ArrowDownToLine, ArrowUpFromLine, ShieldCheck, BarChart2,
-  Settings, ShieldAlert, ScrollText, Lock, Unlock, Inbox, RefreshCw,
+  Settings, ShieldAlert, ScrollText, Lock, Unlock, Inbox, RefreshCw, FileText, Headset, Plus,
+  Upload, Copy, Trash2, Search, Paperclip,
 } from 'lucide-react'
 
 // ---- Admin-only API types --------------------------------------------------
@@ -47,6 +49,8 @@ const TABS = [
   { id: 'withdrawals', label: 'Withdrawals', icon: ArrowUpFromLine },
   { id: 'kyc', label: 'KYC', icon: ShieldCheck },
   { id: 'markets', label: 'Markets', icon: BarChart2 },
+  { id: 'cms', label: 'CMS', icon: FileText },
+  { id: 'support', label: 'Support', icon: Headset },
   { id: 'platform', label: 'System Settings', icon: Settings },
   { id: 'admins', label: 'Admins', icon: ShieldAlert },
   { id: 'audit', label: 'Audit Logs', icon: ScrollText },
@@ -84,6 +88,8 @@ export function AdminPage() {
       {tab === 'withdrawals' && <WithdrawalsTab />}
       {tab === 'kyc' && <KycTab />}
       {tab === 'markets' && <MarketsTab />}
+      {tab === 'cms' && <CmsTab />}
+      {tab === 'support' && <SupportTab />}
       {tab === 'platform' && <PlatformTab />}
       {tab === 'admins' && <AdminsTab />}
       {tab === 'audit' && <AuditTab />}
@@ -598,5 +604,461 @@ function AuditTab() {
         </div>
       )}
     </Panel>
+  )
+}
+
+// ---- CMS ------------------------------------------------------------------------
+
+type CmsSubTab = 'pages' | 'announcements' | 'faqs' | 'media'
+
+function CmsTab() {
+  const [sub, setSub] = useState<CmsSubTab>('pages')
+  return (
+    <div className="space-y-4">
+      <div className="flex gap-1.5">
+        {(['pages', 'announcements', 'faqs', 'media'] as const).map((s) => (
+          <button key={s} onClick={() => setSub(s)} className={`rounded-lg px-3 py-1.5 text-xs font-semibold capitalize transition ${sub === s ? 'bg-gold-500/15 text-gold-300' : 'text-slate-400 hover:bg-ink-800'}`}>{s}</button>
+        ))}
+      </div>
+      {sub === 'pages' && <CmsPagesTab />}
+      {sub === 'announcements' && <CmsAnnouncementsTab />}
+      {sub === 'faqs' && <CmsFaqsTab />}
+      {sub === 'media' && <CmsMediaTab />}
+    </div>
+  )
+}
+
+function CmsPagesTab() {
+  const { push } = useToast()
+  const { data, loading, error, refetch } = useAdmin<CmsPage[]>('/admin/cms/pages')
+  const [creating, setCreating] = useState(false)
+  const [slug, setSlug] = useState('')
+  const [title, setTitle] = useState('')
+  const [editingId, setEditingId] = useState<string | null>(null)
+
+  async function create() {
+    const res = await tryAction(() => api.post('/admin/cms/pages', { slug, title, sections: [] }))
+    if (res.ok) { push('success', 'Draft page created.'); setSlug(''); setTitle(''); setCreating(false); refetch() }
+    else push('error', res.error)
+  }
+
+  async function act(id: string, action: 'publish' | 'unpublish' | 'archive') {
+    const res = await tryAction(() => api.post(`/admin/cms/pages/${id}/${action}`, { reason: `${action} via admin panel` }))
+    if (res.ok) { push('success', `Page ${action}ed.`); refetch() }
+    else push('error', res.error)
+  }
+
+  return (
+    <Panel loading={loading} error={error} refetch={refetch}>
+      <div className="mb-3 flex justify-end">
+        <button onClick={() => setCreating((c) => !c)} className="btn-ghost text-xs"><Plus className="h-3.5 w-3.5" /> New page</button>
+      </div>
+      {creating && (
+        <div className="card mb-3 flex flex-wrap items-end gap-2 p-4">
+          <div className="flex-1 min-w-[140px]"><label className="label">Slug</label><input className="input" value={slug} onChange={(e) => setSlug(e.target.value)} placeholder="about" /></div>
+          <div className="flex-1 min-w-[140px]"><label className="label">Title</label><input className="input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="About Us" /></div>
+          <button onClick={create} className="btn-gold text-xs">Create draft</button>
+        </div>
+      )}
+      {(data ?? []).length === 0 ? <EmptyState icon={FileText} title="No pages yet" /> : (
+        <div className="card overflow-hidden">
+          {(data ?? []).map((p) => (
+            <div key={p.id} className="border-b border-ink-700/40 last:border-b-0">
+              <div className="flex items-center justify-between px-4 py-3">
+                <div>
+                  <p className="text-sm font-semibold text-white">{p.title} <span className="text-xs text-slate-500">/{p.slug}</span></p>
+                  <span className={`chip ${p.status === 'PUBLISHED' ? 'border-bull/30 text-bull' : p.status === 'ARCHIVED' ? 'border-bear/30 text-bear' : ''}`}>{p.status}</span>
+                </div>
+                <div className="flex gap-1.5">
+                  <button onClick={() => setEditingId(editingId === p.id ? null : p.id)} className="btn-ghost text-xs">{editingId === p.id ? 'Close' : 'Edit content'}</button>
+                  {p.status !== 'PUBLISHED' && <button onClick={() => act(p.id, 'publish')} className="btn-ghost text-xs">Publish</button>}
+                  {p.status === 'PUBLISHED' && <button onClick={() => act(p.id, 'unpublish')} className="btn-ghost text-xs">Unpublish</button>}
+                  {p.status !== 'ARCHIVED' && <button onClick={() => act(p.id, 'archive')} className="btn-ghost text-xs">Archive</button>}
+                </div>
+              </div>
+              {editingId === p.id && <CmsPageSectionsEditor page={p} onSaved={() => { setEditingId(null); refetch() }} />}
+            </div>
+          ))}
+        </div>
+      )}
+    </Panel>
+  )
+}
+
+// Sections editor kept deliberately simple — a raw-JSON textarea, not a
+// visual page builder (out of scope for this phase; see the Phase 4 report's
+// Part 9/scope notes). Server-side validation (validateSections in
+// cms.validation.ts) is still the real safety net — this only saves whatever
+// valid JSON the admin submits, and surfaces the backend's rejection message
+// verbatim if it's invalid (unsafe link, unknown section type, etc).
+function CmsPageSectionsEditor({ page, onSaved }: { page: CmsPage; onSaved: () => void }) {
+  const { push } = useToast()
+  const [text, setText] = useState(() => JSON.stringify(page.sections, null, 2))
+  const [saving, setSaving] = useState(false)
+
+  async function save() {
+    let sections: unknown
+    try { sections = JSON.parse(text) } catch { push('error', 'Not valid JSON.'); return }
+    setSaving(true)
+    const res = await tryAction(() => api.patch(`/admin/cms/pages/${page.id}`, { sections, reason: 'Edited content via admin panel' }))
+    setSaving(false)
+    if (res.ok) { push('success', 'Page content saved.'); onSaved() }
+    else push('error', res.error)
+  }
+
+  return (
+    <div className="border-t border-ink-700/60 bg-ink-900/40 p-4">
+      <p className="mb-2 text-xs text-slate-500">Sections JSON — array of {'{ type, fields }'} blocks. Allowed types: hero, feature, stats, cta, text, trust, faq_teaser, footer.</p>
+      <textarea className="input min-h-[220px] font-mono text-xs" value={text} onChange={(e) => setText(e.target.value)} spellCheck={false} />
+      <button onClick={save} disabled={saving} className="btn-gold mt-2 text-xs">{saving ? 'Saving…' : 'Save content'}</button>
+    </div>
+  )
+}
+
+function CmsAnnouncementsTab() {
+  const { push } = useToast()
+  const { data, loading, error, refetch } = useAdmin<CmsAnnouncement[]>('/admin/cms/announcements')
+  const [creating, setCreating] = useState(false)
+  const [title, setTitle] = useState('')
+  const [body, setBody] = useState('')
+
+  async function create() {
+    const res = await tryAction(() => api.post('/admin/cms/announcements', { title, body }))
+    if (res.ok) { push('success', 'Announcement created.'); setTitle(''); setBody(''); setCreating(false); refetch() }
+    else push('error', res.error)
+  }
+
+  async function act(id: string, action: 'publish' | 'unpublish' | 'archive') {
+    const res = await tryAction(() => api.post(`/admin/cms/announcements/${id}/${action}`, { reason: `${action} via admin panel` }))
+    if (res.ok) { push('success', `Announcement ${action}ed.`); refetch() }
+    else push('error', res.error)
+  }
+
+  return (
+    <Panel loading={loading} error={error} refetch={refetch}>
+      <div className="mb-3 flex justify-end">
+        <button onClick={() => setCreating((c) => !c)} className="btn-ghost text-xs"><Plus className="h-3.5 w-3.5" /> New announcement</button>
+      </div>
+      {creating && (
+        <div className="card mb-3 space-y-2 p-4">
+          <input className="input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Title" />
+          <textarea className="input" value={body} onChange={(e) => setBody(e.target.value)} placeholder="Body" rows={2} />
+          <button onClick={create} className="btn-gold text-xs">Create draft</button>
+        </div>
+      )}
+      {(data ?? []).length === 0 ? <EmptyState icon={FileText} title="No announcements yet" /> : (
+        <div className="card overflow-hidden">
+          {(data ?? []).map((a) => (
+            <div key={a.id} className="flex items-center justify-between border-b border-ink-700/40 px-4 py-3 last:border-b-0">
+              <div>
+                <p className="text-sm font-semibold text-white">{a.title}</p>
+                <p className="text-xs text-slate-500">{a.priority} · {a.loggedInOnly ? 'Logged-in only' : 'Public'} · <span className={a.status === 'PUBLISHED' ? 'text-bull' : ''}>{a.status}</span></p>
+              </div>
+              <div className="flex gap-1.5">
+                {a.status !== 'PUBLISHED' && <button onClick={() => act(a.id, 'publish')} className="btn-ghost text-xs">Publish</button>}
+                {a.status === 'PUBLISHED' && <button onClick={() => act(a.id, 'unpublish')} className="btn-ghost text-xs">Unpublish</button>}
+                {a.status !== 'ARCHIVED' && <button onClick={() => act(a.id, 'archive')} className="btn-ghost text-xs">Archive</button>}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </Panel>
+  )
+}
+
+function CmsFaqsTab() {
+  const { push } = useToast()
+  const { data, loading, error, refetch } = useAdmin<CmsFaq[]>('/admin/cms/faqs')
+  const [creating, setCreating] = useState(false)
+  const [question, setQuestion] = useState('')
+  const [answer, setAnswer] = useState('')
+
+  async function create() {
+    const res = await tryAction(() => api.post('/admin/cms/faqs', { question, answer }))
+    if (res.ok) { push('success', 'FAQ created.'); setQuestion(''); setAnswer(''); setCreating(false); refetch() }
+    else push('error', res.error)
+  }
+
+  async function act(id: string, action: 'publish' | 'archive') {
+    const res = await tryAction(() => api.post(`/admin/cms/faqs/${id}/${action}`, { reason: `${action} via admin panel` }))
+    if (res.ok) { push('success', `FAQ ${action}d.`); refetch() }
+    else push('error', res.error)
+  }
+
+  return (
+    <Panel loading={loading} error={error} refetch={refetch}>
+      <div className="mb-3 flex justify-end">
+        <button onClick={() => setCreating((c) => !c)} className="btn-ghost text-xs"><Plus className="h-3.5 w-3.5" /> New FAQ</button>
+      </div>
+      {creating && (
+        <div className="card mb-3 space-y-2 p-4">
+          <input className="input" value={question} onChange={(e) => setQuestion(e.target.value)} placeholder="Question" />
+          <textarea className="input" value={answer} onChange={(e) => setAnswer(e.target.value)} placeholder="Answer" rows={2} />
+          <button onClick={create} className="btn-gold text-xs">Create draft</button>
+        </div>
+      )}
+      {(data ?? []).length === 0 ? <EmptyState icon={FileText} title="No FAQs yet" /> : (
+        <div className="card overflow-hidden">
+          {(data ?? []).map((f) => (
+            <div key={f.id} className="flex items-center justify-between border-b border-ink-700/40 px-4 py-3 last:border-b-0">
+              <div>
+                <p className="text-sm font-semibold text-white">{f.question}</p>
+                <span className={`chip ${f.status === 'PUBLISHED' ? 'border-bull/30 text-bull' : ''}`}>{f.status}</span>
+              </div>
+              <div className="flex gap-1.5">
+                {f.status !== 'PUBLISHED' && <button onClick={() => act(f.id, 'publish')} className="btn-ghost text-xs">Publish</button>}
+                {f.status !== 'ARCHIVED' && <button onClick={() => act(f.id, 'archive')} className="btn-ghost text-xs">Archive</button>}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </Panel>
+  )
+}
+
+// ---- CMS Media (Phase 4, Part 9) --------------------------------------------------
+
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`
+}
+
+const MEDIA_KINDS = ['IMAGE', 'DOCUMENT', 'LOGO', 'BANNER'] as const
+
+function CmsMediaTab() {
+  const { push } = useToast()
+  const { data, loading, error, refetch } = useAdmin<CmsMedia[]>('/admin/cms/media')
+  const [file, setFile] = useState<File | null>(null)
+  const [kind, setKind] = useState<(typeof MEDIA_KINDS)[number]>('IMAGE')
+  const [uploading, setUploading] = useState(false)
+
+  async function upload() {
+    if (!file) { push('error', 'Choose a file first.'); return }
+    const form = new FormData()
+    form.append('file', file)
+    form.append('kind', kind)
+    setUploading(true)
+    try {
+      await api.postForm('/admin/cms/media', form)
+      push('success', 'Media uploaded.')
+      setFile(null)
+      refetch()
+    } catch (e) {
+      push('error', e instanceof ApiError ? e.message : 'Upload failed.')
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  async function remove(id: string) {
+    const res = await tryAction(() => api.del(`/admin/cms/media/${id}`))
+    if (res.ok) { push('success', 'Media deleted.'); refetch() }
+    else push('error', res.error) // e.g. "referenced by published page X" — surfaced verbatim, deletion correctly blocked
+  }
+
+  function copyReference(id: string) {
+    const url = mediaUrl(id)
+    navigator.clipboard?.writeText(url).then(
+      () => push('success', 'Reference copied — paste it into a section\'s image/link field.'),
+      () => push('error', 'Could not copy to clipboard.'),
+    )
+  }
+
+  return (
+    <Panel loading={loading} error={error} refetch={refetch}>
+      <div className="card mb-3 flex flex-wrap items-end gap-2 p-4">
+        <div className="flex-1 min-w-[200px]">
+          <label className="label">File (PNG, JPEG, WEBP, GIF, or PDF — max 5MB)</label>
+          <input type="file" accept="image/png,image/jpeg,image/webp,image/gif,application/pdf" onChange={(e) => setFile(e.target.files?.[0] ?? null)} className="input" />
+        </div>
+        <div>
+          <label className="label">Kind</label>
+          <select className="input" value={kind} onChange={(e) => setKind(e.target.value as typeof kind)}>
+            {MEDIA_KINDS.map((k) => <option key={k} value={k}>{k}</option>)}
+          </select>
+        </div>
+        <button onClick={upload} disabled={uploading} className="btn-gold text-xs"><Upload className="h-3.5 w-3.5" /> {uploading ? 'Uploading…' : 'Upload'}</button>
+      </div>
+
+      {(data ?? []).length === 0 ? <EmptyState icon={Upload} title="No media uploaded yet" /> : (
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {(data ?? []).map((m) => (
+            <div key={m.id} className="card overflow-hidden p-3">
+              {m.mimeType.startsWith('image/') ? (
+                <img src={mediaUrl(m.id)} alt={m.filename} className="mb-2 h-32 w-full rounded-lg object-cover" />
+              ) : (
+                <div className="mb-2 flex h-32 w-full items-center justify-center rounded-lg bg-ink-800 text-slate-500"><FileText className="h-8 w-8" /></div>
+              )}
+              <p className="truncate text-sm font-medium text-white" title={m.filename}>{m.filename}</p>
+              <p className="text-xs text-slate-500">{m.kind} · {formatBytes(m.size)} · {new Date(m.createdAt).toLocaleDateString()}</p>
+              <div className="mt-2 flex gap-1.5">
+                <button onClick={() => copyReference(m.id)} className="btn-ghost flex-1 text-xs"><Copy className="h-3.5 w-3.5" /> Copy reference</button>
+                <button onClick={() => remove(m.id)} className="flex h-8 w-8 items-center justify-center rounded-lg border border-bear/30 text-bear hover:bg-bear/10"><Trash2 className="h-3.5 w-3.5" /></button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </Panel>
+  )
+}
+
+// ---- Support -----------------------------------------------------------------------
+
+const TICKET_STATUSES = ['OPEN', 'IN_PROGRESS', 'WAITING_FOR_CUSTOMER', 'WAITING_INTERNAL', 'RESOLVED', 'CLOSED'] as const
+const TICKET_PRIORITIES = ['LOW', 'NORMAL', 'HIGH', 'URGENT'] as const
+
+// Filtering/search (Part 14) is done client-side over the already-fetched
+// list — at this platform's scale that's simpler and just as fast as a
+// round-trip per filter change, and avoids widening the admin ticket-list
+// API with a combinatorial set of query params for a demo-scale dataset.
+function SupportTab() {
+  const { error, loading, data, refetch } = useAdmin<SupportTicket[]>('/admin/support/tickets')
+  const [selected, setSelected] = useState<string | null>(null)
+  const [status, setStatus] = useState('')
+  const [priority, setPriority] = useState('')
+  const [category, setCategory] = useState('')
+  const [agent, setAgent] = useState('')
+  const [q, setQ] = useState('')
+
+  const categories = Array.from(new Set((data ?? []).map((t) => t.category?.name).filter(Boolean))) as string[]
+  const agents = Array.from(new Map((data ?? []).filter((t) => t.assignedAgent).map((t) => [t.assignedAgent!.id, t.assignedAgent!])).values())
+
+  const filtered = (data ?? []).filter((t) => {
+    if (status && t.status !== status) return false
+    if (priority && t.priority !== priority) return false
+    if (category && t.category?.name !== category) return false
+    if (agent === '__unassigned__' && t.assignedAgentId) return false
+    if (agent && agent !== '__unassigned__' && t.assignedAgentId !== agent) return false
+    if (q && !`${t.subject} ${t.user?.email ?? ''}`.toLowerCase().includes(q.toLowerCase())) return false
+    return true
+  })
+
+  return (
+    <Panel loading={loading} error={error} refetch={refetch}>
+      <div className="card mb-3 flex flex-wrap items-end gap-2 p-3">
+        <div className="min-w-[160px] flex-1">
+          <label className="label">Search</label>
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500" />
+            <input className="input pl-8" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Subject or customer email" />
+          </div>
+        </div>
+        <div><label className="label">Status</label><select className="input" value={status} onChange={(e) => setStatus(e.target.value)}><option value="">All</option>{TICKET_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}</select></div>
+        <div><label className="label">Priority</label><select className="input" value={priority} onChange={(e) => setPriority(e.target.value)}><option value="">All</option>{TICKET_PRIORITIES.map((p) => <option key={p} value={p}>{p}</option>)}</select></div>
+        <div><label className="label">Category</label><select className="input" value={category} onChange={(e) => setCategory(e.target.value)}><option value="">All</option>{categories.map((c) => <option key={c} value={c}>{c}</option>)}</select></div>
+        <div><label className="label">Agent</label><select className="input" value={agent} onChange={(e) => setAgent(e.target.value)}><option value="">All</option><option value="__unassigned__">Unassigned</option>{agents.map((a) => <option key={a.id} value={a.id}>{a.fullName}</option>)}</select></div>
+      </div>
+
+      {filtered.length === 0 ? <EmptyState icon={Headset} title="No support tickets match these filters" /> : (
+        <div className="card overflow-hidden">
+          {filtered.map((t) => (
+            <div key={t.id}>
+              <button onClick={() => setSelected(selected === t.id ? null : t.id)} className="flex w-full items-center justify-between border-b border-ink-700/40 px-4 py-3 text-left last:border-b-0 hover:bg-ink-800/40">
+                <div>
+                  <p className="text-sm font-semibold text-white">{t.subject}</p>
+                  <p className="text-xs text-slate-500">{t.user?.email} · {t.category?.name} · {t.priority} · {t.assignedAgent ? `Assigned to ${t.assignedAgent.fullName}` : 'Unassigned'}</p>
+                </div>
+                <span className="chip">{t.status}</span>
+              </button>
+              {selected === t.id && <SupportTicketDetail ticketId={t.id} onChanged={refetch} />}
+            </div>
+          ))}
+        </div>
+      )}
+    </Panel>
+  )
+}
+
+function SupportTicketDetail({ ticketId, onChanged }: { ticketId: string; onChanged: () => void }) {
+  const { push } = useToast()
+  const { data, loading, error, refetch } = useAdmin<SupportTicket>(`/admin/support/tickets/${ticketId}`)
+  const [reply, setReply] = useState('')
+  const [internal, setInternal] = useState(false)
+  const [file, setFile] = useState<File | null>(null)
+  const [sending, setSending] = useState(false)
+  const [agents, setAgents] = useState<{ id: string; fullName: string; email: string }[] | null>(null)
+
+  useEffect(() => {
+    // Not every viewer has support.tickets.assign — a 403 here just means
+    // "don't show the assign control", not a page-level error.
+    api.get<{ id: string; fullName: string; email: string }[]>('/admin/support/agents').then(setAgents).catch(() => setAgents(null))
+  }, [])
+
+  async function sendReply() {
+    if (!reply.trim() && !file) return
+    setSending(true)
+    let res: { ok: true; data: unknown } | { ok: false; error: string }
+    if (file) {
+      const form = new FormData()
+      form.append('file', file)
+      if (reply.trim()) form.append('body', reply)
+      form.append('visibility', internal ? 'INTERNAL' : 'PUBLIC')
+      res = await tryAction(() => api.postForm(`/admin/support/tickets/${ticketId}/attachments`, form))
+    } else {
+      res = await tryAction(() => api.post(`/admin/support/tickets/${ticketId}/messages`, { body: reply, visibility: internal ? 'INTERNAL' : 'PUBLIC' }))
+    }
+    setSending(false)
+    if (res.ok) { setReply(''); setFile(null); refetch(); onChanged() }
+    else push('error', res.error)
+  }
+
+  async function setStatus(status: string) {
+    const res = await tryAction(() => api.patch(`/admin/support/tickets/${ticketId}/status`, { status, reason: `Set to ${status} via admin panel` }))
+    if (res.ok) { push('success', `Status set to ${status}.`); refetch(); onChanged() }
+    else push('error', res.error)
+  }
+
+  async function assign(agentId: string) {
+    if (!agentId) return
+    const res = await tryAction(() => api.post(`/admin/support/tickets/${ticketId}/assign`, { agentId, reason: 'Assigned via admin panel' }))
+    if (res.ok) { push('success', 'Ticket assigned.'); refetch(); onChanged() }
+    else push('error', res.error)
+  }
+
+  if (loading) return <div className="border-t border-ink-700/40 p-4 text-xs text-slate-500">Loading…</div>
+  if (error || !data) return <div className="border-t border-ink-700/40 p-4 text-xs text-bear">{error?.message ?? 'Could not load ticket.'}</div>
+
+  return (
+    <div className="border-t border-ink-700/60 bg-ink-900/40 p-4">
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        {(['IN_PROGRESS', 'WAITING_FOR_CUSTOMER', 'RESOLVED', 'CLOSED'] as const).map((s) => (
+          <button key={s} onClick={() => setStatus(s)} className="btn-ghost text-[11px]">{s}</button>
+        ))}
+        {agents && (
+          <select className="input ml-auto w-auto text-[11px]" value={data.assignedAgentId ?? ''} onChange={(e) => assign(e.target.value)}>
+            <option value="">Unassigned — assign to…</option>
+            {agents.map((a) => <option key={a.id} value={a.id}>{a.fullName}</option>)}
+          </select>
+        )}
+      </div>
+      <div className="max-h-64 space-y-2 overflow-y-auto">
+        {(data.messages ?? []).map((m) => (
+          <div key={m.id} className={`rounded-lg px-3 py-2 text-xs ${m.visibility === 'INTERNAL' ? 'border border-gold-500/30 bg-gold-500/5 text-gold-200' : 'bg-ink-800 text-slate-200'}`}>
+            <p className="mb-0.5 font-semibold text-white">{m.author?.fullName ?? 'User'} {m.visibility === 'INTERNAL' && <span className="text-gold-400">(internal)</span>}</p>
+            {m.body}
+            {(m.attachments ?? []).map((a) => (
+              <a key={a.id} href={attachmentUrl(a.id)} className="mt-1 flex items-center gap-1.5 text-ocean-300 hover:text-ocean-200" download>
+                <Paperclip className="h-3 w-3" /> {a.filename}
+              </a>
+            ))}
+          </div>
+        ))}
+      </div>
+      <div className="mt-3 space-y-2">
+        <div className="flex items-center gap-2">
+          <input className="input flex-1 text-sm" value={reply} onChange={(e) => setReply(e.target.value)} placeholder="Reply…" onKeyDown={(e) => e.key === 'Enter' && sendReply()} />
+          <label className="flex items-center gap-1.5 text-[11px] text-slate-400"><input type="checkbox" checked={internal} onChange={(e) => setInternal(e.target.checked)} /> Internal</label>
+          <button onClick={sendReply} disabled={sending} className="btn-gold text-xs">{sending ? 'Sending…' : 'Send'}</button>
+        </div>
+        <div className="flex items-center gap-2 text-[11px] text-slate-500">
+          <Paperclip className="h-3.5 w-3.5" />
+          <input type="file" accept="image/png,image/jpeg,image/webp,image/gif,application/pdf" onChange={(e) => setFile(e.target.files?.[0] ?? null)} className="text-[11px]" />
+        </div>
+      </div>
+    </div>
   )
 }

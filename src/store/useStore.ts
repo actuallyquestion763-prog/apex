@@ -105,26 +105,75 @@ export function submitKyc(providerReference?: string) {
   return post<{ id: string; status: string }>('/kyc/submit', providerReference ? { providerReference } : {})
 }
 
-// ---- Local, non-financial notifications -----------------------------------
-// No backend model exists for these yet (foundation-phase gap) — they are
-// UI convenience only and never gate or reflect financial/account state.
+// ---- Notifications -----------------------------------------------------------
+// Two sources, merged for display: local/UI-only notifications (price
+// alerts etc. — still no backend model, still never authoritative for
+// money/identity) and real, server-backed SupportNotification rows (Phase
+// 4 — see backend/src/support/support.service.ts's notify()). The support
+// half is polled on an interval rather than only refetched on navigation
+// (the Phase 3.1-identified gap) — full push/WebSocket delivery was
+// deliberately not built for this (see Part 17 of the Phase 4 spec:
+// real-time infrastructure wasn't judged worth the complexity here;
+// polling is a documented, reasonable middle ground).
+const SUPPORT_POLL_MS = 30_000
+
+interface SupportNotificationRow {
+  id: string; ticketId: string; event: string; message: string; readAt: string | null; createdAt: string
+}
 
 export function useNotifications() {
   const { user } = useAuth()
   const [all, setAll] = useState<Notification[]>(() => loadNotifications())
+  const [supportRows, setSupportRows] = useState<SupportNotificationRow[]>([])
 
   useEffect(() => { setAll(loadNotifications()) }, [user?.id])
 
-  const markNotificationsRead = useCallback((ids: string[]) => {
+  const refetchSupport = useCallback(async () => {
+    if (!user) { setSupportRows([]); return }
+    try {
+      setSupportRows(await api.get<SupportNotificationRow[]>('/support/notifications'))
+    } catch {
+      // Silent — notifications are a convenience surface, not something
+      // that should show an error banner if the poll transiently fails.
+    }
+  }, [user])
+
+  useEffect(() => {
+    refetchSupport()
+    if (!user) return
+    const id = setInterval(refetchSupport, SUPPORT_POLL_MS)
+    return () => clearInterval(id)
+  }, [user, refetchSupport])
+
+  const markNotificationsRead = useCallback(async (ids: string[]) => {
     setAll((prev) => {
       const next = prev.map((n) => (ids.includes(n.id) ? { ...n, read: true } : n))
       saveNotifications(next)
       return next
     })
-  }, [])
+    const supportIds = supportRows.filter((r) => ids.includes(r.id)).map((r) => r.id)
+    if (supportIds.length > 0) {
+      setSupportRows((prev) => prev.map((r) => (supportIds.includes(r.id) ? { ...r, readAt: new Date().toISOString() } : r)))
+      try { await api.patch('/support/notifications/read', { ids: supportIds }) } catch { /* best-effort; next poll reconciles */ }
+    }
+  }, [supportRows])
 
-  const notifications = user ? all.filter((n) => n.userId === user.id) : []
+  const localForUser = user ? all.filter((n) => n.userId === user.id) : []
+  const supportAsNotifications: Notification[] = supportRows.map((r) => ({
+    id: r.id, userId: user?.id ?? '', title: supportEventTitle(r.event), body: r.message,
+    read: r.readAt !== null, createdAt: Date.parse(r.createdAt), kind: 'support',
+  }))
+  const notifications = [...supportAsNotifications, ...localForUser].sort((a, b) => b.createdAt - a.createdAt)
+
   return { notifications, markNotificationsRead }
+}
+
+function supportEventTitle(event: string): string {
+  const labels: Record<string, string> = {
+    AGENT_REPLIED: 'Support replied', CUSTOMER_REPLIED: 'Customer replied', TICKET_ASSIGNED: 'Ticket assigned',
+    STATUS_CHANGED: 'Ticket updated', TICKET_RESOLVED: 'Ticket resolved', TICKET_REOPENED: 'Ticket reopened',
+  }
+  return labels[event] ?? 'Support update'
 }
 
 export function pushLocalNotification(userId: string, notif: { title: string; body: string; kind: Notification['kind'] }) {

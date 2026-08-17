@@ -5,9 +5,10 @@ import { LedgerModule } from '../ledger/ledger.module'
 import { PlatformSettingsModule } from '../platform-settings/platform-settings.module'
 import { MarketsModule } from '../markets/markets.module'
 import { AccountsModule } from '../accounts/accounts.module'
+import { IdempotencyModule } from '../common/idempotency/idempotency.module'
 
 @Module({
-  imports: [LedgerModule, PlatformSettingsModule, MarketsModule, AccountsModule],
+  imports: [LedgerModule, PlatformSettingsModule, MarketsModule, AccountsModule, IdempotencyModule],
   providers: [OrdersService],
   controllers: [OrdersController],
 })

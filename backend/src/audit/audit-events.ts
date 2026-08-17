@@ -37,6 +37,27 @@ export const AuditEvent = {
   MARKET_DISABLED: 'MARKET_DISABLED',
   MARKET_ENABLED: 'MARKET_ENABLED',
   SECURITY_SETTING_CHANGED: 'SECURITY_SETTING_CHANGED',
+
+  // ---- CMS (Phase 3) --------------------------------------------------------
+  CONTENT_CREATED: 'CONTENT_CREATED',
+  CONTENT_UPDATED: 'CONTENT_UPDATED',
+  CONTENT_PUBLISHED: 'CONTENT_PUBLISHED',
+  CONTENT_UNPUBLISHED: 'CONTENT_UNPUBLISHED',
+  CONTENT_ARCHIVED: 'CONTENT_ARCHIVED',
+  CONTENT_RESTORED: 'CONTENT_RESTORED',
+  MEDIA_UPLOADED: 'MEDIA_UPLOADED',
+  MEDIA_DELETED: 'MEDIA_DELETED',
+  NAVIGATION_UPDATED: 'NAVIGATION_UPDATED',
+
+  // ---- Customer Support (Phase 3) --------------------------------------------
+  // Ordinary customer messages are NOT audited here — that's normal support
+  // conversation history, stored in SupportMessage, not a security/compliance
+  // event. Only administrative actions on tickets are.
+  TICKET_ASSIGNED: 'TICKET_ASSIGNED',
+  TICKET_STATUS_CHANGED: 'TICKET_STATUS_CHANGED',
+  TICKET_PRIORITY_CHANGED: 'TICKET_PRIORITY_CHANGED',
+  INTERNAL_NOTE_CREATED: 'INTERNAL_NOTE_CREATED',
+  SUPPORT_CATEGORY_CHANGED: 'SUPPORT_CATEGORY_CHANGED',
 } as const
 
 export type AuditEventName = (typeof AuditEvent)[keyof typeof AuditEvent]

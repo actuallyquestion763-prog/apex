@@ -4,10 +4,13 @@
 // scripts/test-db.js, this data directory is PERSISTENT (survives restarts)
 // so it behaves like a normal local dev database. Gitignored.
 const EmbeddedPostgres = require('embedded-postgres').default
+const fs = require('fs')
 const path = require('path')
 
+const dataDir = path.join(__dirname, '..', '.pgdata-dev')
+
 const pg = new EmbeddedPostgres({
-  databaseDir: path.join(__dirname, '..', '.pgdata-dev'),
+  databaseDir: dataDir,
   user: 'postgres',
   password: 'devpassword',
   port: 5432,
@@ -15,7 +18,15 @@ const pg = new EmbeddedPostgres({
 })
 
 async function start() {
-  await pg.initialise()
+  // initdb (pg.initialise()) refuses to run against a non-empty directory —
+  // correct the FIRST time this ever runs (fresh dir), but this data
+  // directory is persistent by design, so every subsequent restart must
+  // skip re-init and only start the existing cluster. PG_VERSION is the
+  // standard marker Postgres itself uses to know a data directory already
+  // holds an initialized cluster. Never delete/recreate this directory here
+  // — that would be a real database reset, which this script must not do.
+  const alreadyInitialised = fs.existsSync(path.join(dataDir, 'PG_VERSION'))
+  if (!alreadyInitialised) await pg.initialise()
   await pg.start()
   try {
     await pg.createDatabase('trust_dev')

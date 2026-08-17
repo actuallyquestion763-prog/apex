@@ -3,16 +3,29 @@ import { Link } from 'react-router-dom'
 import { Logo } from '../components/Logo'
 import { PriceTicker } from '../components/PriceTicker'
 import { LiveChat } from '../components/LiveChat'
+import { AnnouncementBanner } from '../components/AnnouncementBanner'
 import { useAuth } from '../store/auth'
+import { usePublishedPage, usePublishedFaqs, useCmsNavigation, findSection, findSections, field } from '../lib/cms'
 import { ShieldCheck, Zap, BarChart3, ArrowRight, Check, ChevronDown, Users, Award, Lock, Globe, TrendingUp, Star, Quote, Wallet } from 'lucide-react'
 
-const FAQ = [
-  { q: 'Is TRUST a regulated platform?', a: 'TRUST is registered with the fictional Digital Asset Authority and complies with international AML/KYC standards. Client funds are held in segregated cold-storage wallets.' },
-  { q: 'How long do deposits take?', a: 'USDT deposits confirm within 10–30 minutes on the TRC-20 network. Bank transfers take 1–3 business days, and card deposits are instant.' },
-  { q: 'What are the trading fees?', a: 'Trading fees start at 0.1% per transaction. Fees decrease with higher trading volume.' },
-  { q: 'How much starting balance do I get?', a: 'New accounts start at $0 — deposit funds to fund your account, or ask an administrator about a demo credit for exploring the platform.' },
-  { q: 'How does the referral program work?', a: 'Share your unique referral link. You earn 10% commission on every trade made by users you refer, credited in real time to your balance.' },
-  { q: 'How do I open a position?', a: 'Pick a market on the Trade page, enter your amount, and choose Buy or Sell. Your position updates in real time with the live market price until you close it.' },
+// Structural UI stays in code (icons, layout, animation) — only marketing
+// COPY comes from the CMS (Part 2/4 of the Phase 4 spec: "CMS should
+// control content, not application behavior"). These are the fallback
+// values shown if the CMS's "homepage" page hasn't been published or fails
+// to load — a deliberate resilience choice for non-critical marketing copy,
+// distinct from the FAQ/legal pages below, which show a safe empty/error
+// state instead of ever inventing content (Part 5/7).
+const FALLBACK_HERO = { badge: 'Registered · ISO 27001 Certified', title: 'Trade crypto with confidence', subtitle: 'The institutional-grade trading platform. Deep liquidity, 100x leverage, and bank-grade security — all in one elegant interface.', ctaLabel: 'Open free account', ctaHref: '/signup' }
+const FALLBACK_STATS = { stat1: '2.4M+ traders', stat2: '$18B+ volume', stat3: '140+ countries' }
+const FALLBACK_TRUST = { badge1: 'Regulated', badge2: 'ISO 27001' }
+const FALLBACK_CTA = { title: 'Ready to start trading?', subtitle: 'Join 2.4 million traders. Open your free account in seconds.', ctaLabel: 'Create free account', ctaHref: '/signup' }
+const FALLBACK_FOOTER = { tagline: 'The institutional-grade crypto trading platform. Trade with confidence.' }
+const FEATURE_ICONS = [Zap, BarChart3, Lock, Award]
+const FALLBACK_FEATURES = [
+  { title: 'Instant execution', desc: 'Sub-millisecond order matching with deep liquidity pools.' },
+  { title: 'Pro charts', desc: 'Real-time candlestick charts with 1m, 5m, and 1h timeframes.' },
+  { title: 'Bank-grade security', desc: 'Cold storage, 2FA, and withdrawal whitelisting keep your funds safe.' },
+  { title: 'Low fees', desc: '0.1% per trade. Volume discounts available.' },
 ]
 
 const TESTIMONIALS = [
@@ -29,6 +42,24 @@ export function LandingPage() {
   const [openFaq, setOpenFaq] = useState<number | null>(0)
   const [countdown, setCountdown] = useState('')
 
+  const { data: homepage } = usePublishedPage('homepage')
+  const { data: faqs, loading: faqsLoading, error: faqsError } = usePublishedFaqs()
+  const { data: navItems } = useCmsNavigation()
+
+  const hero = { ...FALLBACK_HERO, ...findSection(homepage, 'hero')?.fields }
+  const stats = { ...FALLBACK_STATS, ...findSection(homepage, 'stats')?.fields }
+  const trust = { ...FALLBACK_TRUST, ...findSection(homepage, 'trust')?.fields }
+  const cta = { ...FALLBACK_CTA, ...findSection(homepage, 'cta')?.fields }
+  const footer = { ...FALLBACK_FOOTER, ...findSection(homepage, 'footer')?.fields }
+  const cmsFeatures = findSections(homepage, 'feature')
+  const features = cmsFeatures.length > 0
+    ? cmsFeatures.map((s, i) => ({ icon: FEATURE_ICONS[i % FEATURE_ICONS.length], title: field(s, 'title', ''), desc: field(s, 'desc', '') }))
+    : FALLBACK_FEATURES.map((f, i) => ({ icon: FEATURE_ICONS[i], ...f }))
+
+  function navHref(label: string, fallbackHref: string): string {
+    return navItems?.find((n) => n.label === label)?.destination ?? fallbackHref
+  }
+
   useEffect(() => {
     const target = new Date(); target.setHours(target.getHours() + 23, target.getMinutes() + 59, 59)
     const id = setInterval(() => {
@@ -42,6 +73,7 @@ export function LandingPage() {
   return (
     <div className="min-h-screen">
       <PriceTicker />
+      <AnnouncementBanner />
       <header className="sticky top-0 z-40 border-b border-ink-700/60 bg-ink-900/80 backdrop-blur-md">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3.5">
           <Link to="/"><Logo /></Link>
@@ -70,17 +102,17 @@ export function LandingPage() {
         <div className="mx-auto max-w-7xl px-4 py-20 lg:py-28">
           <div className="grid items-center gap-12 lg:grid-cols-2">
             <div className="animate-fade-in">
-              <div className="chip mb-6 border-gold-500/30 bg-gold-500/10 text-gold-300"><ShieldCheck className="h-3.5 w-3.5" /> Registered · ISO 27001 Certified</div>
-              <h1 className="text-4xl font-extrabold leading-tight tracking-tight text-white sm:text-5xl lg:text-6xl">Trade crypto with <span className="bg-gradient-to-r from-gold-300 to-gold-500 bg-clip-text text-transparent">confidence</span></h1>
-              <p className="mt-5 max-w-lg text-lg text-slate-400">The institutional-grade trading platform. Deep liquidity, 100x leverage, and bank-grade security — all in one elegant interface.</p>
+              <div className="chip mb-6 border-gold-500/30 bg-gold-500/10 text-gold-300"><ShieldCheck className="h-3.5 w-3.5" /> {hero.badge}</div>
+              <h1 className="text-4xl font-extrabold leading-tight tracking-tight text-white sm:text-5xl lg:text-6xl">{hero.title}</h1>
+              <p className="mt-5 max-w-lg text-lg text-slate-400">{hero.subtitle}</p>
               <div className="mt-8 flex flex-wrap gap-3">
-                <Link to="/signup" className="btn-gold text-base px-6 py-3">Open free account <ArrowRight className="h-5 w-5" /></Link>
+                <Link to={hero.ctaHref} className="btn-gold text-base px-6 py-3">{hero.ctaLabel} <ArrowRight className="h-5 w-5" /></Link>
                 <a href="#how" className="btn-ghost text-base px-6 py-3">See how it works</a>
               </div>
               <div className="mt-10 flex flex-wrap items-center gap-6 text-sm text-slate-500">
-                <span className="flex items-center gap-2"><Users className="h-4 w-4 text-ocean-400" /> 2.4M+ traders</span>
-                <span className="flex items-center gap-2"><TrendingUp className="h-4 w-4 text-bull" /> $18B+ volume</span>
-                <span className="flex items-center gap-2"><Globe className="h-4 w-4 text-gold-400" /> 140+ countries</span>
+                <span className="flex items-center gap-2"><Users className="h-4 w-4 text-ocean-400" /> {stats.stat1}</span>
+                <span className="flex items-center gap-2"><TrendingUp className="h-4 w-4 text-bull" /> {stats.stat2}</span>
+                <span className="flex items-center gap-2"><Globe className="h-4 w-4 text-gold-400" /> {stats.stat3}</span>
               </div>
             </div>
             <div className="animate-slide-up">
@@ -145,12 +177,7 @@ export function LandingPage() {
             <p className="mt-3 text-slate-400">Everything you need to trade with an edge.</p>
           </div>
           <div className="mt-14 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
-            {[
-              { icon: Zap, title: 'Instant execution', desc: 'Sub-millisecond order matching with deep liquidity pools.' },
-              { icon: BarChart3, title: 'Pro charts', desc: 'Real-time candlestick charts with 1m, 5m, and 1h timeframes.' },
-              { icon: Lock, title: 'Bank-grade security', desc: 'Cold storage, 2FA, and withdrawal whitelisting keep your funds safe.' },
-              { icon: Award, title: 'Low fees', desc: '0.1% per trade. Volume discounts available.' },
-            ].map((f) => (
+            {features.map((f) => (
               <div key={f.title} className="card p-6 transition hover:border-ocean-500/40">
                 <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-ocean-500/15 text-ocean-400"><f.icon className="h-5 w-5" /></div>
                 <h3 className="mt-4 font-bold text-white">{f.title}</h3>
@@ -233,18 +260,25 @@ export function LandingPage() {
         </div>
       </section>
 
-      {/* FAQ */}
+      {/* FAQ — sourced from the CMS (published only); never a fabricated
+          fallback list if this fails to load (Part 5 of the Phase 4 spec) */}
       <section id="faq" className="border-t border-ink-700/60 bg-ink-900/40">
         <div className="mx-auto max-w-3xl px-4 py-20">
           <h2 className="text-center text-3xl font-bold text-white sm:text-4xl">Frequently asked questions</h2>
           <div className="mt-10 space-y-3">
-            {FAQ.map((item, i) => (
-              <div key={i} className="card overflow-hidden">
+            {faqsLoading ? (
+              <p className="py-8 text-center text-sm text-slate-500">Loading…</p>
+            ) : faqsError ? (
+              <p className="py-8 text-center text-sm text-slate-500">FAQs are temporarily unavailable. Please check back shortly.</p>
+            ) : (faqs ?? []).length === 0 ? (
+              <p className="py-8 text-center text-sm text-slate-500">No FAQs published yet.</p>
+            ) : (faqs ?? []).map((item, i) => (
+              <div key={item.id} className="card overflow-hidden">
                 <button onClick={() => setOpenFaq(openFaq === i ? null : i)} className="flex w-full items-center justify-between px-5 py-4 text-left">
-                  <span className="font-medium text-white">{item.q}</span>
+                  <span className="font-medium text-white">{item.question}</span>
                   <ChevronDown className={`h-5 w-5 shrink-0 text-slate-400 transition ${openFaq === i ? 'rotate-180' : ''}`} />
                 </button>
-                {openFaq === i && <div className="px-5 pb-4 text-sm leading-relaxed text-slate-400 animate-fade-in">{item.a}</div>}
+                {openFaq === i && <div className="px-5 pb-4 text-sm leading-relaxed text-slate-400 animate-fade-in">{item.answer}</div>}
               </div>
             ))}
           </div>
@@ -254,9 +288,9 @@ export function LandingPage() {
       {/* CTA */}
       <section className="mx-auto max-w-7xl px-4 py-20">
         <div className="relative overflow-hidden rounded-3xl border border-ink-700 bg-gradient-to-br from-ink-850 via-ink-850 to-ocean-700/20 p-12 text-center">
-          <h2 className="text-3xl font-bold text-white sm:text-4xl">Ready to start trading?</h2>
-          <p className="mx-auto mt-3 max-w-md text-slate-400">Join 2.4 million traders. Open your free account in seconds.</p>
-          <Link to="/signup" className="btn-gold mt-8 text-base px-8 py-3">Create free account <ArrowRight className="h-5 w-5" /></Link>
+          <h2 className="text-3xl font-bold text-white sm:text-4xl">{cta.title}</h2>
+          <p className="mx-auto mt-3 max-w-md text-slate-400">{cta.subtitle}</p>
+          <Link to={cta.ctaHref} className="btn-gold mt-8 text-base px-8 py-3">{cta.ctaLabel} <ArrowRight className="h-5 w-5" /></Link>
         </div>
       </section>
 
@@ -266,10 +300,10 @@ export function LandingPage() {
           <div className="grid gap-8 md:grid-cols-4">
             <div>
               <Logo />
-              <p className="mt-4 text-sm text-slate-500">The institutional-grade crypto trading platform. Trade with confidence.</p>
+              <p className="mt-4 text-sm text-slate-500">{footer.tagline}</p>
               <div className="mt-4 flex gap-2">
-                <span className="chip"><ShieldCheck className="h-3 w-3 text-bull" /> Regulated</span>
-                <span className="chip"><Lock className="h-3 w-3 text-ocean-400" /> ISO 27001</span>
+                <span className="chip"><ShieldCheck className="h-3 w-3 text-bull" /> {trust.badge1}</span>
+                <span className="chip"><Lock className="h-3 w-3 text-ocean-400" /> {trust.badge2}</span>
               </div>
             </div>
             <div><p className="mb-3 text-sm font-semibold text-white">Product</p><ul className="space-y-2 text-sm text-slate-500">
@@ -279,12 +313,14 @@ export function LandingPage() {
               <li><a href="#faq" className="hover:text-white">FAQ</a></li>
             </ul></div>
             <div><p className="mb-3 text-sm font-semibold text-white">Company</p><ul className="space-y-2 text-sm text-slate-500">
-              <li><a href="#" className="hover:text-white">About us</a></li><li><a href="#" className="hover:text-white">Careers</a></li>
-              <li><a href="#" className="hover:text-white">Press</a></li><li><a href="#" className="hover:text-white">Partnerships</a></li>
+              <li><Link to={navHref('About', '/pages/about')} className="hover:text-white">About us</Link></li>
+              <li><Link to={navHref('Help', '/pages/help')} className="hover:text-white">Help center</Link></li>
+              <li><Link to={navHref('Contact', '/pages/contact')} className="hover:text-white">Contact</Link></li>
             </ul></div>
             <div><p className="mb-3 text-sm font-semibold text-white">Legal</p><ul className="space-y-2 text-sm text-slate-500">
-              <li><a href="#" className="hover:text-white">Terms of service</a></li><li><a href="#" className="hover:text-white">Privacy policy</a></li>
-              <li><a href="#" className="hover:text-white">AML policy</a></li><li><a href="#" className="hover:text-white">Risk disclosure</a></li>
+              <li><Link to={navHref('Terms', '/pages/terms')} className="hover:text-white">Terms of service</Link></li>
+              <li><Link to={navHref('Privacy', '/pages/privacy')} className="hover:text-white">Privacy policy</Link></li>
+              <li><Link to={navHref('Risk Disclosure', '/pages/risk-disclosure')} className="hover:text-white">Risk disclosure</Link></li>
             </ul></div>
           </div>
           <div className="mt-10 border-t border-ink-700 pt-6 text-center text-xs text-slate-600">

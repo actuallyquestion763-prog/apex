@@ -16,6 +16,8 @@ import { DepositsModule } from './deposits/deposits.module'
 import { WithdrawalsModule } from './withdrawals/withdrawals.module'
 import { KycModule } from './kyc/kyc.module'
 import { AdminModule } from './admin/admin.module'
+import { CmsModule } from './cms/cms.module'
+import { SupportModule } from './support/support.module'
 
 @Module({
   imports: [
@@ -46,6 +48,8 @@ import { AdminModule } from './admin/admin.module'
     WithdrawalsModule,
     KycModule,
     AdminModule,
+    CmsModule,
+    SupportModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })

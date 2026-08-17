@@ -13,6 +13,10 @@ dist/
 .pgdata-dev/
 .pgdata-test/
 
+# Local CMS media storage backend (dev-only — see src/cms/media-storage.service.ts).
+# Uploaded file bytes, not metadata (metadata lives in Postgres, CmsMedia).
+uploads/
+
 # Database dumps / exports / local db files. Deliberately NOT a bare
 # "*.sql" rule — that would also match backend/prisma/migrations/**/*.sql,
 # which MUST be committed. These patterns only match dump-shaped filenames.
