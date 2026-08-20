@@ -1,27 +1,75 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../store/auth'
 import { useAccountSummary, submitDeposit, pushLocalNotification } from '../store/useStore'
+import { useCryptoAssets, useResolvedCryptoAddress, submitCryptoDeposit, uploadDepositProof } from '../store/useCryptoDeposits'
 import { useToast } from '../components/Toast'
 import { QrCode } from '../components/QrCode'
-import { Bitcoin, Landmark, CreditCard, Copy, Clock, Gift, ArrowRight, Check } from 'lucide-react'
+import { CryptoAssetSelector } from '../components/deposits/CryptoAssetSelector'
+import { CryptoNetworkSelector } from '../components/deposits/CryptoNetworkSelector'
+import { CryptoAddressDisplay } from '../components/deposits/CryptoAddressDisplay'
+import { DepositProofUpload } from '../components/deposits/DepositProofUpload'
+import { Landmark, CreditCard, Copy, Clock, Gift, ArrowRight, Check, Repeat, Bitcoin } from 'lucide-react'
 
-const METHODS = [
-  { id: 'usdt', label: 'USDT (TRC-20)', icon: Bitcoin, desc: 'Instant · 1 confirmation', address: 'TJX9aKp7m3QrVb8sN2cWdFzL4hY6tRxEuP', color: 'text-ocean-400' },
+// The existing "Internal Transfer" methods, preserved exactly as before
+// this checkpoint (Part 3 — do not break existing functionality; only the
+// surrounding page structure/tabs changed). Still clearly-labeled demo
+// placeholders for a platform with no real payment provider connected —
+// unrelated to Part 33's crypto-receiving-address requirement, which only
+// governs the NEW crypto deposit flow below.
+const INTERNAL_METHODS = [
   { id: 'bank', label: 'Bank Transfer', icon: Landmark, desc: '1–3 business days', address: 'TRUST-SEC · ACH Routing: 021000021 · Acct: 8841290074', color: 'text-gold-400' },
   { id: 'card', label: 'Credit / Debit Card', icon: CreditCard, desc: 'Instant · Visa/Mastercard', address: '4242 4242 4242 4242 · Exp: 12/28 · CVC: 123', color: 'text-bull' },
 ]
 
 // Marketing copy only — the backend has no bonus concept in this phase.
-// The amount submitted to POST /deposits is always the plain deposit
-// amount; no bonus is ever credited automatically.
 const BONUS_PCT = 20
 const BONUS_MIN = 500
 
+type DepositMode = 'INTERNAL' | 'CRYPTO'
+
 export function DepositPage() {
+  // Crypto Deposit is the primary, default experience on this platform
+  // (USDT Primary Currency checkpoint) — Internal Transfer remains
+  // available, unchanged, as a secondary tab.
+  const [mode, setMode] = useState<DepositMode>('CRYPTO')
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold text-white">Deposit Crypto</h1>
+        <p className="mt-1 text-sm text-slate-400">Fund your account with USDT, BTC, ETH, or another supported crypto asset.</p>
+      </div>
+
+      <div className="flex gap-2 rounded-xl border border-ink-700 bg-ink-900 p-1.5">
+        <button
+          onClick={() => setMode('CRYPTO')}
+          aria-pressed={mode === 'CRYPTO'}
+          className={`flex flex-1 items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-semibold transition ${mode === 'CRYPTO' ? 'bg-gold-500/15 text-gold-300' : 'text-slate-400 hover:text-white'}`}
+        >
+          <Bitcoin className="h-4 w-4" /> Crypto Deposit
+        </button>
+        <button
+          onClick={() => setMode('INTERNAL')}
+          aria-pressed={mode === 'INTERNAL'}
+          className={`flex flex-1 items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-semibold transition ${mode === 'INTERNAL' ? 'bg-gold-500/15 text-gold-300' : 'text-slate-400 hover:text-white'}`}
+        >
+          <Repeat className="h-4 w-4" /> Internal Transfer
+        </button>
+      </div>
+
+      {mode === 'CRYPTO' ? <CryptoDepositPanel /> : <InternalTransferPanel />}
+    </div>
+  )
+}
+
+// ---- Internal Transfer — unchanged financial logic, only relabeled/moved
+// under its own tab (Part 3). ------------------------------------------------
+
+function InternalTransferPanel() {
   const { user } = useAuth()
   const { summary, refetch } = useAccountSummary()
   const { push } = useToast()
-  const [method, setMethod] = useState(METHODS[0])
+  const [method, setMethod] = useState(INTERNAL_METHODS[0])
   const [amount, setAmount] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [submitted, setSubmitted] = useState(false)
@@ -59,7 +107,6 @@ export function DepositPage() {
 
   return (
     <div className="space-y-6">
-      {/* Bonus banner */}
       <div className="relative overflow-hidden rounded-2xl border border-gold-500/30 bg-gradient-to-r from-gold-500/10 via-ink-850 to-ink-850 p-6">
         <div className="absolute right-0 top-0 h-full w-1/3 bg-gold-500/5 blur-3xl" />
         <div className="relative flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
@@ -75,11 +122,10 @@ export function DepositPage() {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
-        {/* Method selection + QR */}
         <div className="card p-6 lg:col-span-2">
-          <h3 className="font-bold text-white">Choose a payment method</h3>
-          <div className="mt-4 grid gap-3 sm:grid-cols-3">
-            {METHODS.map((m) => (
+          <h3 className="font-bold text-white">Choose a transfer method</h3>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            {INTERNAL_METHODS.map((m) => (
               <button key={m.id} onClick={() => setMethod(m)} className={`flex flex-col items-start gap-2 rounded-xl border p-4 text-left transition ${method.id === m.id ? 'border-gold-500/50 bg-gold-500/5' : 'border-ink-600 bg-ink-900 hover:border-ink-500'}`}>
                 <m.icon className={`h-6 w-6 ${m.color}`} />
                 <p className="text-sm font-semibold text-white">{m.label}</p>
@@ -92,19 +138,19 @@ export function DepositPage() {
             <div className="rounded-xl bg-white p-3 shrink-0">
               <QrCode value={`trust-deposit:${method.id}:${user?.id}`} size={150} />
             </div>
-            <div className="flex-1 w-full">
-              <p className="text-sm font-medium text-white">Send your deposit to this address</p>
+            <div className="flex-1 w-full min-w-0">
+              <p className="text-sm font-medium text-white">Send your deposit to this reference</p>
               <p className="mt-1 text-xs text-slate-500">{method.desc}</p>
               <div className="mt-3 flex items-center gap-2">
-                <code className="flex-1 truncate rounded-lg bg-ink-800 px-3 py-2.5 font-mono text-xs text-gold-300">{method.address}</code>
+                <code className="min-w-0 flex-1 break-all rounded-lg bg-ink-800 px-3 py-2.5 font-mono text-xs text-gold-300">{method.address}</code>
                 <button onClick={() => {
-                  try { navigator.clipboard?.writeText(method.address); push('info', 'Address copied.') }
-                  catch { push('error', 'Unable to copy address to clipboard.') }
-                }} className="flex h-9 w-9 items-center justify-center rounded-lg border border-ink-600 bg-ink-800 text-slate-400 hover:text-white">
+                  try { navigator.clipboard?.writeText(method.address); push('info', 'Copied.') }
+                  catch { push('error', 'Unable to copy to clipboard.') }
+                }} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-ink-600 bg-ink-800 text-slate-400 hover:text-white">
                   <Copy className="h-4 w-4" />
                 </button>
               </div>
-              <p className="mt-3 flex items-center gap-1.5 text-xs text-slate-500"><Clock className="h-3.5 w-3.5" /> Funds will be credited after network confirmation.</p>
+              <p className="mt-3 flex items-center gap-1.5 text-xs text-slate-500"><Clock className="h-3.5 w-3.5" /> Funds will be credited after verification.</p>
             </div>
           </div>
 
@@ -115,7 +161,6 @@ export function DepositPage() {
           )}
         </div>
 
-        {/* Amount + summary */}
         <div className="card p-6">
           <h3 className="font-bold text-white">Enter deposit amount</h3>
           <div className="mt-4">
@@ -135,6 +180,114 @@ export function DepositPage() {
           <button onClick={submit} disabled={submitting} className="btn-gold mt-5 w-full py-3">{submitting ? 'Submitting…' : 'Submit deposit'} <ArrowRight className="h-4 w-4" /></button>
           <p className="mt-3 text-center text-xs text-slate-500">Current balance: {summary ? `$${Number(summary.cash).toFixed(2)}` : '—'}</p>
         </div>
+      </div>
+    </div>
+  )
+}
+
+// ---- Crypto Deposit — entirely new, backend-driven flow (Part 4-20). -------
+
+function CryptoDepositPanel() {
+  const { assets, loading: assetsLoading } = useCryptoAssets()
+  const [symbol, setSymbol] = useState<string | null>(null)
+  const [networkCode, setNetworkCode] = useState<string | null>(null)
+  const [amount, setAmount] = useState('')
+  const [proofFile, setProofFile] = useState<File | null>(null)
+  const [submitting, setSubmitting] = useState(false)
+  const [submittedDepositId, setSubmittedDepositId] = useState<string | null>(null)
+  const { push } = useToast()
+  const { refetch: refetchBalance } = useAccountSummary()
+
+  useEffect(() => {
+    if (!symbol && assets.length > 0) setSymbol(assets[0].symbol)
+  }, [assets, symbol])
+
+  const asset = useMemo(() => assets.find((a) => a.symbol === symbol) ?? null, [assets, symbol])
+
+  useEffect(() => {
+    if (asset && asset.networks.length > 0 && !asset.networks.some((n) => n.networkCode === networkCode)) {
+      setNetworkCode(asset.networks[0].networkCode)
+    }
+    if (asset && asset.networks.length === 0) setNetworkCode(null)
+  }, [asset, networkCode])
+
+  const { resolved, loading: resolving, error: resolveError } = useResolvedCryptoAddress(symbol, networkCode)
+
+  const amt = parseFloat(amount)
+  const amountValid = Number.isFinite(amt) && amt > 0
+  const minimum = resolved?.minimumDeposit ? parseFloat(resolved.minimumDeposit) : null
+  const belowMinimum = amountValid && minimum != null && amt < minimum
+  const canSubmit = !!resolved && amountValid && !belowMinimum && !submitting
+
+  async function submit() {
+    if (!symbol || !networkCode || !resolved) return
+    setSubmitting(true)
+    const res = await submitCryptoDeposit({ amount, cryptoAssetSymbol: symbol, networkCode })
+    if (!res.ok) {
+      setSubmitting(false)
+      push('error', res.error)
+      return
+    }
+    if (proofFile) {
+      const proofRes = await uploadDepositProof(res.data.id, proofFile)
+      if (!proofRes.ok) push('error', `Deposit submitted, but the proof upload failed: ${proofRes.error}`)
+    }
+    setSubmitting(false)
+    setSubmittedDepositId(res.data.id)
+    setAmount('')
+    setProofFile(null)
+    push('success', `${symbol} deposit submitted. Pending admin verification.`)
+    refetchBalance()
+  }
+
+  if (assetsLoading) {
+    return <div className="card p-10 text-center text-sm text-slate-500">Loading supported assets…</div>
+  }
+  if (assets.length === 0) {
+    return (
+      <div className="card p-10 text-center">
+        <p className="text-sm font-semibold text-white">No crypto assets are currently available for deposit</p>
+        <p className="mt-2 text-xs text-slate-500">Check back soon, or use Internal Transfer instead.</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="grid gap-6 lg:grid-cols-3">
+      <div className="card space-y-4 p-6 lg:col-span-2">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <CryptoAssetSelector assets={assets} selected={symbol} onSelect={(s) => { setSymbol(s); setNetworkCode(null) }} />
+          {asset && <CryptoNetworkSelector networks={asset.networks} selected={networkCode} onSelect={setNetworkCode} />}
+        </div>
+
+        {resolving && <div className="rounded-xl border border-ink-700 bg-ink-900 p-6 text-center text-sm text-slate-500">Loading receiving address…</div>}
+        {resolveError && <div role="alert" className="rounded-xl border border-bear/30 bg-bear/10 p-4 text-sm text-bear">{resolveError}</div>}
+        {resolved && <CryptoAddressDisplay resolved={resolved} />}
+      </div>
+
+      <div className="card space-y-4 p-6">
+        <h3 className="font-bold text-white">Amount</h3>
+        <div>
+          <label htmlFor="crypto-amount-input" className="label">Amount {symbol ?? ''}</label>
+          <input id="crypto-amount-input" className="input font-mono" type="number" min="0" value={amount} onChange={(e) => setAmount(e.target.value)} />
+          {minimum != null && <p className="mt-1 text-[11px] text-slate-500">Minimum deposit: {minimum} {symbol}</p>}
+        </div>
+        {belowMinimum && (
+          <p role="alert" className="rounded-lg bg-bear/10 px-3 py-2 text-xs text-bear">Minimum deposit is {minimum} {symbol}.</p>
+        )}
+
+        <DepositProofUpload file={proofFile} onSelect={setProofFile} />
+
+        <button onClick={submit} disabled={!canSubmit} className="btn-gold w-full py-3 disabled:cursor-not-allowed disabled:opacity-40">
+          {submitting ? 'Submitting…' : 'Submit Deposit'} <ArrowRight className="h-4 w-4" />
+        </button>
+
+        {submittedDepositId && (
+          <div className="flex items-center gap-2 rounded-xl border border-gold-500/30 bg-gold-500/10 px-4 py-3 text-sm text-gold-300">
+            <Check className="h-4 w-4" /> Deposit submitted — pending admin verification.
+          </div>
+        )}
+        <p className="text-center text-xs text-slate-500">Deposits are credited only after admin verification, per the platform's manual-review process.</p>
       </div>
     </div>
   )

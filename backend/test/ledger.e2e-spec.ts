@@ -2,6 +2,7 @@ import type { INestApplication } from '@nestjs/common'
 import { createTestApp } from './helpers/test-app'
 import { LedgerService } from '../src/ledger/ledger.service'
 import { PrismaService } from '../src/prisma/prisma.service'
+import { generateReferralCode } from '../src/auth/referral-code.util'
 
 describe('LedgerService against real PostgreSQL', () => {
   let app: INestApplication
@@ -21,7 +22,7 @@ describe('LedgerService against real PostgreSQL', () => {
 
   async function freshAccountId() {
     const user = await prisma.user.create({
-      data: { email: `ledger-${Date.now()}-${Math.random().toString(36).slice(2)}@example.com`, passwordHash: 'x', fullName: 'Ledger Test' },
+      data: { email: `ledger-${Date.now()}-${Math.random().toString(36).slice(2)}@example.com`, passwordHash: 'x', fullName: 'Ledger Test', referralCode: generateReferralCode() },
     })
     const account = await prisma.account.create({ data: { userId: user.id } })
     return account.id

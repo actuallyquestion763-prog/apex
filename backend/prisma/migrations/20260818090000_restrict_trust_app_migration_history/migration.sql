@@ -1,0 +1,25 @@
+-- Phase 6A, Part 2 — closes a real gap found by LIVE testing (not just
+-- reading the grant statements): `_prisma_migrations` is Prisma Migrate's
+-- own internal bookkeeping table, created automatically the first time
+-- `migrate deploy`/`migrate dev` runs. It fell under the original
+-- "GRANT ... ON ALL TABLES IN SCHEMA public TO trust_app" from
+-- 20260816085512_audit_log_immutability, which — like every "ALL TABLES"
+-- grant in this project — only covers tables that existed (or matched a
+-- default-privileges rule) at the time it ran. Nothing since has revoked
+-- trust_app's write access to it, so the runtime application role has
+-- been able to INSERT/UPDATE/DELETE rows in its own migration history —
+-- meaning a compromised or buggy application process could, in principle,
+-- make `prisma migrate status` lie about which migrations are applied.
+--
+-- The application (Prisma Client, at runtime) has ZERO legitimate reason
+-- to write to this table — only the Prisma Migrate CLI does, and per this
+-- project's established procedure (see backend/README.md), that always
+-- runs as the Postgres superuser, never as trust_app. SELECT is
+-- deliberately left intact (harmless, read-only, and useful if a future
+-- health-check ever wants to report current migration state) — this
+-- migration is scoped exactly to "cannot modify migration history"
+-- (Part 2's literal requirement), nothing broader.
+--
+-- Reversible: `GRANT INSERT, UPDATE, DELETE ON "_prisma_migrations" TO trust_app;`
+-- would restore the prior (unintentionally broad) state if ever needed.
+REVOKE INSERT, UPDATE, DELETE ON "_prisma_migrations" FROM trust_app;

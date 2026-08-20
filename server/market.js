@@ -1,3 +1,18 @@
+// ⚠️ DEPRECATED / SUPERSEDED (Phase 6B) — this standalone Express proxy
+// predates the NestJS backend and is no longer used by the frontend or any
+// other part of the application. It has been fully superseded by the
+// centralized Market Data Service (backend/src/markets/), which reimplements
+// the same GoldAPI XAU/USD logic behind a normalized, provider-agnostic API
+// (GET /markets, /markets/:symbol/quote, /markets/quotes) with proper
+// validation, staleness handling, and multi-instrument support this file
+// never had. Nothing currently imports, runs, or points at this file — no
+// script in package.json invokes it, and src/store/priceFeed.ts now talks
+// only to the NestJS backend's /api/markets/* routes.
+//
+// It has NOT been deleted this phase (destructive cleanup wasn't necessary
+// to complete Phase 6B) — recommended for removal in a future cleanup pass
+// once confirmed nothing external still depends on it. Left functionally
+// unchanged below for reference/audit purposes only.
 import 'dotenv/config'
 import express from 'express'
 import cors from 'cors'

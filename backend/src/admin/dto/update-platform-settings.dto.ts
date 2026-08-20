@@ -1,4 +1,4 @@
-import { IsBoolean, IsOptional, IsString, MinLength } from 'class-validator'
+import { IsBoolean, IsInt, IsOptional, IsString, Min, MinLength } from 'class-validator'
 
 export class UpdatePlatformSettingsDto {
   @IsOptional()
@@ -16,6 +16,16 @@ export class UpdatePlatformSettingsDto {
   @IsOptional()
   @IsBoolean()
   registrationsEnabled?: boolean
+
+  // Phase 6F Checkpoint F, Part 6/9/15 — global open-orders-per-user cap.
+  // Platform-wide financial-risk config, so this rides the SAME
+  // step-up-gated endpoint as tradingEnabled etc. (confirmPassword/
+  // totpCode below), matching existing precedent rather than adding a new
+  // permission tier for one more field.
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  maxOpenOrdersPerUser?: number
 
   @IsString()
   @MinLength(3)

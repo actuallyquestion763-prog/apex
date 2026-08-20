@@ -19,7 +19,19 @@ export class PlatformSettingsService {
     return this.prisma.platformSettings.create({ data: { id: SINGLETON_ID } })
   }
 
-  async update(patch: Partial<{ tradingEnabled: boolean; depositsEnabled: boolean; withdrawalsEnabled: boolean; registrationsEnabled: boolean }>, updatedByAdminId: string) {
+  async update(
+    patch: Partial<{
+      tradingEnabled: boolean
+      depositsEnabled: boolean
+      withdrawalsEnabled: boolean
+      registrationsEnabled: boolean
+      // Phase 6F Checkpoint F, Part 6/9/15 — nullable; null/omitted means
+      // "not enforced" (RiskEngineService), same convention as every other
+      // optional risk limit in this checkpoint.
+      maxOpenOrdersPerUser: number | null
+    }>,
+    updatedByAdminId: string,
+  ) {
     await this.get() // ensure row exists
     return this.prisma.platformSettings.update({
       where: { id: SINGLETON_ID },

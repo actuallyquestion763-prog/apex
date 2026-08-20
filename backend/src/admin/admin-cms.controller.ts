@@ -1,5 +1,7 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common'
+import { Throttle } from '@nestjs/throttler'
 import { FileInterceptor } from '@nestjs/platform-express'
+import { MEDIA_UPLOAD_THROTTLE } from '../common/rate-limits'
 import { IsIn, IsOptional, IsString, MinLength } from 'class-validator'
 import { CmsService } from '../cms/cms.service'
 import { CreatePageDto, UpdatePageDto } from '../cms/dto/page.dto'
@@ -201,6 +203,7 @@ export class AdminCmsController {
 
   @Post('media')
   @RequirePermissions('cms.media.upload')
+  @Throttle(MEDIA_UPLOAD_THROTTLE)
   @UseInterceptors(FileInterceptor('file'))
   uploadMedia(@UploadedFile() file: UploadedFileLike, @Body() dto: MediaKindDto, @CurrentUser() admin: AuthenticatedUser) {
     return this.cms.uploadMedia(file, dto.kind, admin.id)

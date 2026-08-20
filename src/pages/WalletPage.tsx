@@ -1,18 +1,60 @@
 import { useAccountSummary, useLedgerHistory } from '../store/useStore'
 import { Link } from 'react-router-dom'
 import { ArrowDownToLine, ArrowUpFromLine, Wallet as WalletIcon, TrendingUp } from 'lucide-react'
+import type { LedgerEntry } from '../types'
+
+// Stablecoins/fiat display like money (2 decimals); every other currency is
+// a crypto asset and gets full precision (8 decimals) rather than silently
+// truncating a real BTC/ETH quantity. No conversion, no rate — just how
+// many decimals to show.
+const TWO_DECIMAL_CURRENCIES = new Set(['USD', 'USDT', 'USDC'])
+
+function formatLedgerAmount(signed: number, currency: string, showSign = true): string {
+  const sign = showSign && signed >= 0 ? '+' : ''
+  const decimals = TWO_DECIMAL_CURRENCIES.has(currency) ? 2 : 8
+  const formatted = signed.toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals })
+  return currency === 'USD' ? `${sign}$${formatted} USD` : `${sign}${formatted} ${currency}`
+}
+
+// Sums entries matching `predicate` PER CURRENCY — never across currencies
+// (Wallet Currency Display checkpoint: summing USD + USDT + BTC as if they
+// were the same unit would be financially meaningless; this is the same
+// entryType/direction filtering as before, just grouped by the entry's own
+// real currency instead of blindly combined).
+function sumByCurrency(entries: LedgerEntry[], predicate: (e: LedgerEntry) => number | null): Map<string, number> {
+  const totals = new Map<string, number>()
+  for (const e of entries) {
+    const delta = predicate(e)
+    if (delta === null) continue
+    totals.set(e.currency, (totals.get(e.currency) ?? 0) + delta)
+  }
+  return totals
+}
+
+function CurrencyTotals({ totals, showSign = false }: { totals: Map<string, number>; showSign?: boolean }) {
+  if (totals.size === 0) return <p className="mt-2 font-mono text-xl font-bold text-white">{formatLedgerAmount(0, 'USD', showSign)}</p>
+  return (
+    <div className="mt-2 space-y-1">
+      {[...totals.entries()].map(([currency, value]) => (
+        <p key={currency} className={`font-mono text-xl font-bold ${showSign ? (value >= 0 ? 'text-bull' : 'text-bear') : 'text-white'}`}>
+          {formatLedgerAmount(value, currency, showSign)}
+        </p>
+      ))}
+    </div>
+  )
+}
 
 export function WalletPage() {
   const { summary, loading: summaryLoading } = useAccountSummary()
   const { entries, loading, error } = useLedgerHistory(200)
 
-  const totalDeposited = entries.filter((e) => e.entryType === 'DEPOSIT' && e.direction === 'CREDIT').reduce((s, e) => s + Number(e.amount), 0)
-  const totalWithdrawn = entries.filter((e) => e.entryType === 'WITHDRAWAL' && e.direction === 'DEBIT').reduce((s, e) => s + Number(e.amount), 0)
-  const totalPnL = entries.reduce((s, e) => {
-    if (e.entryType === 'REALIZED_PROFIT' && e.direction === 'CREDIT') return s + Number(e.amount)
-    if (e.entryType === 'REALIZED_LOSS' && e.direction === 'DEBIT') return s - Number(e.amount)
-    return s
-  }, 0)
+  const totalDeposited = sumByCurrency(entries, (e) => (e.entryType === 'DEPOSIT' && e.direction === 'CREDIT' ? Number(e.amount) : null))
+  const totalWithdrawn = sumByCurrency(entries, (e) => (e.entryType === 'WITHDRAWAL' && e.direction === 'DEBIT' ? Number(e.amount) : null))
+  const totalPnL = sumByCurrency(entries, (e) => {
+    if (e.entryType === 'REALIZED_PROFIT' && e.direction === 'CREDIT') return Number(e.amount)
+    if (e.entryType === 'REALIZED_LOSS' && e.direction === 'DEBIT') return -Number(e.amount)
+    return null
+  })
 
   const cash = summary ? Number(summary.cash) : 0
 
@@ -21,8 +63,8 @@ export function WalletPage() {
       <div className="card p-6">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="text-sm text-slate-400">Total balance</p>
-            <p className="mt-1 font-mono text-4xl font-bold text-white">{summaryLoading ? '—' : `$${cash.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}</p>
+            <p className="text-sm text-slate-400">USD Balance</p>
+            <p className="mt-1 font-mono text-4xl font-bold text-white">{summaryLoading ? '—' : `$${cash.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD`}</p>
           </div>
           <div className="flex gap-3">
             <Link to="/deposit" className="btn-gold"><ArrowDownToLine className="h-4 w-4" /> Deposit</Link>
@@ -34,15 +76,15 @@ export function WalletPage() {
       <div className="grid gap-4 sm:grid-cols-3">
         <div className="card p-5">
           <div className="flex items-center gap-2"><ArrowDownToLine className="h-4 w-4 text-bull" /><p className="text-sm text-slate-400">Total deposited</p></div>
-          <p className="mt-2 font-mono text-xl font-bold text-white">${totalDeposited.toFixed(2)}</p>
+          <CurrencyTotals totals={totalDeposited} />
         </div>
         <div className="card p-5">
           <div className="flex items-center gap-2"><ArrowUpFromLine className="h-4 w-4 text-bear" /><p className="text-sm text-slate-400">Total withdrawn</p></div>
-          <p className="mt-2 font-mono text-xl font-bold text-white">${totalWithdrawn.toFixed(2)}</p>
+          <CurrencyTotals totals={totalWithdrawn} />
         </div>
         <div className="card p-5">
           <div className="flex items-center gap-2"><TrendingUp className="h-4 w-4 text-gold-400" /><p className="text-sm text-slate-400">Realized P&L</p></div>
-          <p className={`mt-2 font-mono text-xl font-bold ${totalPnL >= 0 ? 'text-bull' : 'text-bear'}`}>{totalPnL >= 0 ? '+' : ''}${totalPnL.toFixed(2)}</p>
+          <CurrencyTotals totals={totalPnL} showSign />
         </div>
       </div>
 
@@ -64,7 +106,9 @@ export function WalletPage() {
               </tr>
             </thead>
             <tbody>
-              {!loading && entries.length === 0 ? (
+              {loading ? (
+                <tr><td colSpan={5} className="px-5 py-10 text-center text-slate-500">Loading transactions…</td></tr>
+              ) : entries.length === 0 ? (
                 <tr><td colSpan={5} className="px-5 py-10 text-center text-slate-500">No transactions yet.</td></tr>
               ) : (
                 entries.map((e) => {
@@ -76,7 +120,7 @@ export function WalletPage() {
                         <span className="chip border-ocean-500/30 text-ocean-300">{e.entryType.replace(/_/g, ' ')}</span>
                       </td>
                       <td className="px-5 py-3 text-slate-400">{e.ledgerAccount}</td>
-                      <td className={`px-5 py-3 text-right font-mono font-semibold ${signed >= 0 ? 'text-bull' : 'text-bear'}`}>{signed >= 0 ? '+' : ''}${signed.toFixed(2)}</td>
+                      <td className={`px-5 py-3 text-right font-mono font-semibold ${signed >= 0 ? 'text-bull' : 'text-bear'}`}>{formatLedgerAmount(signed, e.currency)}</td>
                       <td className="px-5 py-3 text-slate-500 max-w-xs truncate">{e.description || '—'}</td>
                     </tr>
                   )

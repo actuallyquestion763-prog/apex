@@ -116,17 +116,22 @@ describe('Concurrency & idempotency hardening (real PostgreSQL)', () => {
     expect(refundTxCount).toBe(1)
   })
 
-  it('DOCUMENTS CURRENT BEHAVIOR: a client retrying/double-submitting a withdrawal request creates two separate reservations, not one deduplicated one', async () => {
-    // POST /withdrawals has no client-supplied idempotency key — each call
-    // creates a brand-new Withdrawal row with its own fresh id, then reserves
-    // funds keyed to THAT id (withdrawal-request-${newId}). A network retry
-    // or accidental double-click is therefore NOT deduplicated: if the
-    // balance covers both, both legitimately succeed as two separate
-    // withdrawal requests. This is not a double-spend (the ledger stays
-    // fully consistent and available cash never goes negative — the second
-    // request is checked against the balance same as any other), but it IS
-    // a duplicate-financial-consequence gap flagged in the Phase 2 audit —
-    // see the final report's Idempotency Audit section.
+  it('DOCUMENTS CURRENT BEHAVIOR: a client retrying/double-submitting a withdrawal request WITHOUT an Idempotency-Key creates two separate reservations, not one deduplicated one', async () => {
+    // Phase 6F Checkpoint I, Part 5 — corrected from the original Phase 2
+    // comment, which was stale: POST /withdrawals DOES support an
+    // Idempotency-Key header today (WithdrawalsController wires up the same
+    // IdempotencyService every other financial endpoint uses — see the new
+    // test right after this one, which proves a SUPPLIED key genuinely
+    // dedupes). This test deliberately sends NO key at all, which is the
+    // correct, expected "opt-in not exercised" behavior of that same
+    // mechanism — each call creates a brand-new Withdrawal row with its own
+    // fresh id and its own reservation (withdrawal-request-${newId}), same
+    // as orders.create()/deposits.create() behave with no key supplied.
+    // Not a double-spend (the ledger stays fully consistent and available
+    // cash never goes negative — the second request is checked against the
+    // balance same as any other) — but a real client that wants exactly-once
+    // behavior on retry MUST supply the header, same as every other
+    // financial POST endpoint in this codebase.
     const { userId, cookie } = await registerAndLogin('wdup')
     await grantBalance(userId, '1000')
 
@@ -146,6 +151,29 @@ describe('Concurrency & idempotency hardening (real PostgreSQL)', () => {
 
     const withdrawalCount = await prisma.withdrawal.count({ where: { userId } })
     expect(withdrawalCount).toBe(2) // confirms: not deduplicated, by design today
+  })
+
+  it('a withdrawal request WITH an Idempotency-Key is deduplicated exactly like orders/deposits — concurrent identical requests produce exactly one withdrawal and one reservation', async () => {
+    const { userId, cookie } = await registerAndLogin('widem')
+    await grantBalance(userId, '1000')
+    const key = `withdrawal-idem-${Date.now()}`
+
+    const [r1, r2] = await Promise.all([
+      request(server).post('/withdrawals').set('Cookie', cookie).set('Idempotency-Key', key).send({ amount: '400', destination: 'wallet' }),
+      request(server).post('/withdrawals').set('Cookie', cookie).set('Idempotency-Key', key).send({ amount: '400', destination: 'wallet' }),
+    ])
+    expect(r1.status).toBe(201)
+    expect(r2.status).toBe(201)
+    expect(r1.body.id).toBe(r2.body.id) // same withdrawal record, not two
+
+    const withdrawalCount = await prisma.withdrawal.count({ where: { userId } })
+    expect(withdrawalCount).toBe(1)
+
+    const account = await prisma.account.findFirstOrThrow({ where: { userId } })
+    const balances = await ledger.getAccountBalances(account.id)
+    expect(balances.cash.toString()).toBe('600') // 1000 - 400, reserved exactly once despite two concurrent identical requests
+
+    await request(server).post('/withdrawals').set('Cookie', cookie).set('Idempotency-Key', key).send({ amount: '999', destination: 'different-wallet' }).expect(409)
   })
 
   it('two concurrent orders against the same account cannot together reserve more than the available balance', async () => {

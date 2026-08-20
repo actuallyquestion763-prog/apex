@@ -1,4 +1,5 @@
 import { Body, Controller, Get, HttpCode, Post, Req, Res, UseGuards } from '@nestjs/common'
+import { Throttle } from '@nestjs/throttler'
 import type { Request, Response } from 'express'
 import { AuthService } from './auth.service'
 import { RegisterDto } from './dto/register.dto'
@@ -10,17 +11,14 @@ import { CurrentUser } from '../common/decorators/current-user.decorator'
 import type { AuthenticatedUser } from '../common/types/authenticated-user'
 import { toPublicUser } from '../users/public-user'
 import { UsersService } from '../users/users.service'
+import { AUTH_THROTTLE, REGISTER_THROTTLE } from '../common/rate-limits'
+import { getCookieOptions } from '../config/security-config'
 
 function requestMeta(req: Request) {
   return { ipAddress: req.ip, userAgent: req.headers['user-agent'] }
 }
 
-const COOKIE_OPTS = {
-  httpOnly: true,
-  sameSite: 'lax' as const,
-  secure: process.env.NODE_ENV === 'production',
-  path: '/',
-}
+const COOKIE_OPTS = getCookieOptions(process.env.NODE_ENV ?? 'development')
 
 @Controller('auth')
 export class AuthController {
@@ -31,6 +29,7 @@ export class AuthController {
 
   @Post('register')
   @HttpCode(201)
+  @Throttle(REGISTER_THROTTLE)
   async register(@Body() dto: RegisterDto, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
     const { token, user, session } = await this.authService.register(dto, requestMeta(req))
     res.cookie(SESSION_COOKIE_NAME, token, { ...COOKIE_OPTS, expires: session.expiresAt })
@@ -39,6 +38,7 @@ export class AuthController {
 
   @Post('login')
   @HttpCode(200)
+  @Throttle(AUTH_THROTTLE)
   async login(@Body() dto: LoginDto, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
     const result = await this.authService.login(dto, requestMeta(req))
     if ('needsTwoFactor' in result) return result
@@ -48,6 +48,7 @@ export class AuthController {
 
   @Post('2fa/login-verify')
   @HttpCode(200)
+  @Throttle(AUTH_THROTTLE)
   async verifyTwoFactorLogin(@Body() dto: VerifyTotpDto & { pendingToken: string }, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
     const { token, user, session } = await this.authService.verifyTwoFactorLogin(dto.pendingToken, dto.code, requestMeta(req))
     res.cookie(SESSION_COOKIE_NAME, token, { ...COOKIE_OPTS, expires: session.expiresAt })
@@ -81,6 +82,7 @@ export class AuthController {
   @Post('2fa/confirm')
   @HttpCode(200)
   @UseGuards(SessionAuthGuard)
+  @Throttle(AUTH_THROTTLE)
   async confirmTwoFactor(@CurrentUser() user: AuthenticatedUser, @Body() dto: VerifyTotpDto) {
     await this.authService.confirmTwoFactor(user.id, dto.code)
     return { ok: true }

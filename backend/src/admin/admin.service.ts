@@ -10,10 +10,14 @@ import { PlatformSettingsService } from '../platform-settings/platform-settings.
 import { MarketsService } from '../markets/markets.service'
 import { WithdrawalsService } from '../withdrawals/withdrawals.service'
 import { StepUpService } from '../common/security/step-up.service'
+import { OrderReconciliationService } from '../orders/order-reconciliation.service'
+import { OPEN_ORDER_STATUSES } from '../orders/order-risk-math'
+import { RISK_REASON_CODES } from '../orders/risk-engine.types'
 import { toPublicUser } from '../users/public-user'
 import type { PermissionKey } from '../common/permissions'
 import type { FinancialAdjustmentDto } from './dto/financial-adjustment.dto'
 import type { UpdateUserStatusDto } from './dto/update-user-status.dto'
+import type { UpdateAccountStatusDto } from './dto/update-account-status.dto'
 import type { UpdateUserRoleDto } from './dto/update-user-role.dto'
 import type { UpdatePlatformSettingsDto } from './dto/update-platform-settings.dto'
 import type { UpdateMarketConfigDto } from './dto/update-market-config.dto'
@@ -30,7 +34,64 @@ export class AdminService {
     private readonly markets: MarketsService,
     private readonly withdrawals: WithdrawalsService,
     private readonly stepUp: StepUpService,
+    private readonly orderReconciliation: OrderReconciliationService,
   ) {}
+
+  // Phase 6F Checkpoint E, Part 15 — admin-only, read-only. No step-up: the
+  // existing internal-ledger reconciliation endpoint (GET /admin/reconciliation,
+  // ReconciliationService.run()) sets the precedent that a PURE READ report
+  // — nothing here ever repairs a discrepancy — sits at the same trust tier
+  // as viewing ledger/order data, not the money-moving tier that requires
+  // password+TOTP (withdrawal approval, platform kill switches, permission
+  // grants — see admin.controller.ts's step-up-gated routes). The run
+  // itself is still audited (who, when, summary counts) even though it has
+  // no financial effect.
+  async runOrderReconciliation(adminId: string) {
+    const summary = await this.orderReconciliation.runReconciliation()
+    await this.audit.record({
+      actorId: adminId,
+      action: AuditEvent.RECONCILIATION_RUN,
+      targetType: 'RECONCILIATION',
+      newState: { ordersChecked: summary.ordersChecked, reconciled: summary.reconciled, warnings: summary.warnings, critical: summary.critical },
+    })
+    return summary
+  }
+
+  // Checkpoint I.1, Part 4 — cheap, pure-DB-read visibility into orders
+  // TRUST has ALREADY given up on resolving itself (via flagUnresolved —
+  // see orders.service.ts), distinct from runOrderReconciliation() above,
+  // which actively re-queries the live execution provider for every
+  // non-terminal order (expensive, catches NEW problems). This just
+  // answers "what does TRUST already know needs a human," instantly.
+  //
+  // `SUBMITTED` is the correct, and only, marker: no code path in
+  // OrdersService sets an order to SUBMITTED except handleSubmissionFailure's
+  // ambiguous-outcome branch and flagUnresolved's default target status —
+  // see orders.service.ts. There is no separate FAILED/UNKNOWN OrderStatus
+  // value (deliberately not introduced this checkpoint — see the
+  // Checkpoint I.1 report's Part 4 section); this is the safest existing
+  // signal for "requires reconciliation," not a new one invented here.
+  async listUnresolvedOrders() {
+    const orders = await this.prisma.order.findMany({
+      where: { status: 'SUBMITTED' },
+      orderBy: { updatedAt: 'asc' },
+      select: {
+        id: true,
+        userId: true,
+        accountId: true,
+        symbol: true,
+        side: true,
+        orderType: true,
+        quantity: true,
+        clientOrderId: true,
+        externalOrderId: true,
+        rejectionReason: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    })
+    return { count: orders.length, orders }
+  }
 
   // ---- Platform overview ---------------------------------------------------
 
@@ -74,6 +135,54 @@ export class AdminService {
     }
   }
 
+  // Phase 6F Checkpoint F, Part 15 — admin-visible risk surface beyond
+  // what getOverview() already exposes (global/market trading status,
+  // configured limits — both already flow through platformSettings.get()
+  // and markets.listMarketConfigs() above once the risk-limit columns are
+  // populated). This adds the three things getOverview() does not cover:
+  // current exposure (total RESERVED across all users, by currency),
+  // active open orders (by status), and recent risk violations (grouped by
+  // reason code, read directly off Order.rejectionReason — never a new
+  // table, since createRiskRejectedOrder already encodes the code there).
+  async getRiskOverview() {
+    const [openOrdersByStatus, reservedByCurrency, recentRejections, currentPositions] = await Promise.all([
+      this.prisma.order.groupBy({ by: ['status'], where: { status: { in: OPEN_ORDER_STATUSES } }, _count: { _all: true } }),
+      this.prisma.ledgerEntry.groupBy({
+        by: ['currency', 'direction'],
+        where: { ledgerAccount: { ownerType: 'USER', type: 'RESERVED' } },
+        _sum: { amount: true },
+      }),
+      this.prisma.order.findMany({
+        where: { status: 'REJECTED', rejectionReason: { not: null } },
+        orderBy: { createdAt: 'desc' },
+        take: 200,
+        select: { rejectionReason: true },
+      }),
+      this.prisma.position.count({ where: { status: 'OPEN' } }),
+    ])
+
+    const exposureByCurrency: Record<string, string> = {}
+    for (const row of reservedByCurrency) {
+      const amount = new Decimal(row._sum.amount ?? 0)
+      exposureByCurrency[row.currency] = (new Decimal(exposureByCurrency[row.currency] ?? 0)[row.direction === 'CREDIT' ? 'plus' : 'minus'](amount)).toString()
+    }
+
+    const violationsByReasonCode: Record<string, number> = {}
+    for (const { rejectionReason } of recentRejections) {
+      const code = rejectionReason?.split(':')[0]?.trim()
+      if (!code || !RISK_REASON_CODES.includes(code as any)) continue
+      violationsByReasonCode[code] = (violationsByReasonCode[code] ?? 0) + 1
+    }
+
+    return {
+      openOrdersByStatus: Object.fromEntries(openOrdersByStatus.map((r) => [r.status, r._count._all])),
+      totalOpenOrders: openOrdersByStatus.reduce((sum, r) => sum + r._count._all, 0),
+      exposureByCurrency,
+      currentOpenPositions: currentPositions,
+      recentRiskViolationsByReasonCode: violationsByReasonCode,
+    }
+  }
+
   private async getTotalCustomerAssets(): Promise<Decimal> {
     const [cashSum, reservedSum] = await Promise.all([
       this.prisma.ledgerEntry.groupBy({
@@ -109,6 +218,28 @@ export class AdminService {
     await this.recordAdminAction(adminId, dto.status === 'SUSPENDED' ? AuditEvent.USER_SUSPENDED : dto.status === 'ACTIVE' ? AuditEvent.USER_REACTIVATED : AuditEvent.USER_STATUS_CHANGED, targetUserId, dto.reason, { status: target.status }, { status: dto.status })
 
     return toPublicUser(updated)
+  }
+
+  // Phase 6F Checkpoint F, Part 14/15 — the minimum required admin control
+  // for RiskEngineService's ACCOUNT_TRADING_DISABLED check (Account.status
+  // was a schema field with no reader or writer anywhere before this
+  // checkpoint — see the Checkpoint F report's architecture audit).
+  // Distinct from updateUserStatus above: this suspends ONE trading
+  // account, not the user's ability to log in at all.
+  async updateAccountStatus(accountId: string, dto: UpdateAccountStatusDto, adminId: string) {
+    const target = await this.prisma.account.findUniqueOrThrow({ where: { id: accountId } })
+    const updated = await this.prisma.account.update({ where: { id: accountId }, data: { status: dto.status } })
+
+    await this.recordAdminAction(
+      adminId,
+      dto.status === 'SUSPENDED' ? AuditEvent.USER_SUSPENDED : dto.status === 'ACTIVE' ? AuditEvent.USER_REACTIVATED : AuditEvent.USER_STATUS_CHANGED,
+      target.userId,
+      dto.reason,
+      { accountId, status: target.status },
+      { accountId, status: dto.status },
+    )
+
+    return updated
   }
 
   // Role changes are the most sensitive user-management action available —
@@ -182,6 +313,21 @@ export class AdminService {
       }
     }
 
+    // Phase 6F Checkpoint F, Part 15/16 — the boolean-toggle loop above
+    // doesn't cover a pure numeric risk-limit change (e.g. maxOpenOrdersPerUser
+    // going from unset to 10), which would otherwise be a silent,
+    // unaudited platform-wide risk-config change.
+    if (patch.maxOpenOrdersPerUser !== undefined && patch.maxOpenOrdersPerUser !== before.maxOpenOrdersPerUser) {
+      await this.recordAdminAction(
+        adminId,
+        AuditEvent.SECURITY_SETTING_CHANGED,
+        undefined,
+        reason,
+        { maxOpenOrdersPerUser: before.maxOpenOrdersPerUser },
+        { maxOpenOrdersPerUser: patch.maxOpenOrdersPerUser },
+      )
+    }
+
     return updated
   }
 
@@ -199,6 +345,24 @@ export class AdminService {
         { symbol, tradingEnabled: before.tradingEnabled },
         { symbol, tradingEnabled: patch.tradingEnabled },
       )
+    }
+
+    // Phase 6F Checkpoint F, Part 6/15/16 — per-market risk-limit changes,
+    // audited as a single event covering whichever of the four fields
+    // actually changed (avoids four near-identical audit rows for one
+    // admin action).
+    const riskFields = ['minimumQuantity', 'maximumQuantity', 'maxOrderNotional', 'maxPositionQuantity'] as const
+    const riskBefore: Record<string, string | null> = {}
+    const riskAfter: Record<string, string | null> = {}
+    for (const field of riskFields) {
+      const newVal = (patch as any)[field]
+      if (newVal !== undefined && newVal !== (before as any)[field]?.toString()) {
+        riskBefore[field] = (before as any)[field]?.toString() ?? null
+        riskAfter[field] = newVal
+      }
+    }
+    if (Object.keys(riskAfter).length > 0) {
+      await this.recordAdminAction(adminId, AuditEvent.SECURITY_SETTING_CHANGED, undefined, reason, { symbol, ...riskBefore }, { symbol, ...riskAfter })
     }
 
     return updated

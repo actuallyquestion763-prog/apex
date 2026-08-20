@@ -1,145 +1,238 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { generateHistory, getPrice, getMarketStatus, getMarketMeta } from '../store/priceFeed'
+import { useEffect, useRef, useState } from 'react'
+import { createChart, CandlestickSeries, HistogramSeries, type IChartApi, type ISeriesApi, type UTCTimestamp } from 'lightweight-charts'
+import { Maximize2, Minimize2, RotateCcw } from 'lucide-react'
+import { generateHistory, fetchRealCandles, getPrice, getMarketStatus } from '../store/priceFeed'
 import type { Candle } from '../types'
 import { StatusBadge } from './StatusBadge'
 
-type TF = '1m' | '5m' | '1h'
+// TradingView-style Chart checkpoint — rebuilt on `lightweight-charts`
+// (already an installed dependency, already proven in this exact dark theme
+// by components/options/OptionsChart.tsx, whose lifecycle pattern this
+// mirrors: create once on mount, ResizeObserver-driven resize, fullscreen,
+// dispose on unmount). No CDN, no iframe, no TradingView account — the
+// library ships as a plain npm dependency bundled by Vite.
+//
+// Data source is UNCHANGED from the previous SVG chart: real historical
+// candles come from the same GET /markets/:symbol/candles endpoint via
+// fetchRealCandles() for any non-simulated (LIVE) symbol; a symbol the
+// backend has explicitly flagged 'simulated' keeps using the existing local
+// generateHistory() generator (already clearly labeled as demo data). A
+// LIVE market with no real history available shows the same honest
+// "unavailable" state as before — never a fabricated candle.
+type TF = '1m' | '5m' | '15m' | '1h' | '4h' | '1d'
+// The full interval set the backend/BinanceProvider genuinely supports end
+// to end (backend/src/markets/markets.controller.ts's VALID_INTERVALS) —
+// same set OptionsChart.tsx already uses. 30m is deliberately NOT offered:
+// there is no real 30m kline source to show, and resampling two real 15m
+// candles into a synthetic 30m one would mean displaying a bar the
+// market-data system never actually returned.
+const TIMEFRAMES: { value: TF; label: string }[] = [
+  { value: '1m', label: '1m' },
+  { value: '5m', label: '5m' },
+  { value: '15m', label: '15m' },
+  { value: '1h', label: '1H' },
+  { value: '4h', label: '4H' },
+  { value: '1d', label: '1D' },
+]
+const TF_INTERVAL_MS: Record<TF, number> = { '1m': 60_000, '5m': 300_000, '15m': 900_000, '1h': 3_600_000, '4h': 14_400_000, '1d': 86_400_000 }
+
+function toBar(c: Candle) {
+  return { time: Math.floor(c.time / 1000) as UTCTimestamp, open: c.open, high: c.high, low: c.low, close: c.close }
+}
+function toVolumeBar(c: Candle) {
+  return { time: Math.floor(c.time / 1000) as UTCTimestamp, value: c.volume ?? 0, color: c.close >= c.open ? '#22c55e55' : '#ef444455' }
+}
 
 export function CandlestickChart({ symbol, height = 320 }: { symbol: string; height?: number }) {
+  const wrapperRef = useRef<HTMLDivElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const chartRef = useRef<IChartApi | null>(null)
+  const candleSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
+  const volumeSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null)
+  const candlesRef = useRef<Candle[]>([])
+
   const [tf, setTf] = useState<TF>('1m')
-  const [candles, setCandles] = useState<Candle[]>([])
-  const [hover, setHover] = useState<{ x: number; c: Candle } | null>(null)
-  const svgRef = useRef<SVGSVGElement>(null)
+  const [loadingCandles, setLoadingCandles] = useState(false)
+  const [ohlcUnavailable, setOhlcUnavailable] = useState(false)
+  const [hover, setHover] = useState<Candle | null>(null)
+  const [fullscreen, setFullscreen] = useState(false)
 
-  useEffect(() => { setCandles(generateHistory(symbol, tf, 60)) }, [symbol, tf])
-
+  // ---- Chart lifecycle: created once per mount, torn down on unmount -----
   useEffect(() => {
-    const id = setInterval(() => {
-      setCandles((prev) => {
-        if (prev.length === 0) return prev
-        const last = prev[prev.length - 1]
-        const now = Date.now()
-        const intervalMs = tf === '1m' ? 60_000 : tf === '5m' ? 300_000 : 3_600_000
-        if (now - last.time > intervalMs) return [...prev.slice(-59), { ...last, open: last.close, high: last.close, low: last.close, close: last.close, time: last.time + intervalMs }]
-        const price = getPrice(symbol)
-        const updated = [...prev]
-        const cur = { ...updated[updated.length - 1] }
-        cur.close = price
-        cur.high = Math.max(cur.high, price)
-        cur.low = Math.min(cur.low, price)
-        updated[updated.length - 1] = cur
-        return updated
-      })
-    }, 1200)
-    return () => clearInterval(id)
+    if (!containerRef.current) return
+    const chart = createChart(containerRef.current, {
+      layout: { background: { color: '#0b0f1a' }, textColor: '#94a3b8', fontSize: 11 },
+      grid: { vertLines: { color: '#1a2236' }, horzLines: { color: '#1a2236' } },
+      rightPriceScale: { borderColor: '#1a2236' },
+      timeScale: { borderColor: '#1a2236', timeVisible: true, secondsVisible: false },
+      crosshair: { mode: 0 },
+      autoSize: false,
+    })
+    const candleSeries = chart.addSeries(CandlestickSeries, {
+      upColor: '#22c55e', downColor: '#ef4444', borderVisible: false,
+      wickUpColor: '#22c55e', wickDownColor: '#ef4444',
+    })
+    const volumeSeries = chart.addSeries(HistogramSeries, {
+      priceFormat: { type: 'volume' },
+      priceScaleId: 'volume',
+      color: '#38bdf866',
+    })
+    volumeSeries.priceScale().applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } })
+    candleSeries.priceScale().applyOptions({ scaleMargins: { top: 0.05, bottom: 0.22 } })
+
+    chart.subscribeCrosshairMove((param) => {
+      if (!param.time) { setHover(null); return }
+      const idx = candlesRef.current.findIndex((c) => Math.floor(c.time / 1000) === param.time)
+      setHover(idx >= 0 ? candlesRef.current[idx] : null)
+    })
+
+    chartRef.current = chart
+    candleSeriesRef.current = candleSeries
+    volumeSeriesRef.current = volumeSeries
+
+    return () => {
+      chart.remove()
+      chartRef.current = null
+      candleSeriesRef.current = null
+      volumeSeriesRef.current = null
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // ---- Load candles on symbol/timeframe change -----------------------------
+  // Clears the series immediately on a symbol/timeframe change (before the
+  // fetch resolves) so no stale candle from the PREVIOUS symbol is ever
+  // visible while the new one loads.
+  useEffect(() => {
+    let cancelled = false
+    setOhlcUnavailable(false)
+    candlesRef.current = []
+    candleSeriesRef.current?.setData([])
+    volumeSeriesRef.current?.setData([])
+
+    async function load() {
+      const simulated = getMarketStatus(symbol) === 'simulated'
+      if (!simulated) setLoadingCandles(true)
+      const candles = simulated ? generateHistory(symbol, tf, 200) : await fetchRealCandles(symbol, tf, 200)
+      if (cancelled) return
+      setLoadingCandles(false)
+      if (!candles || candles.length === 0) {
+        setOhlcUnavailable(true)
+        return
+      }
+      candlesRef.current = candles
+      candleSeriesRef.current?.setData(candles.map(toBar))
+      volumeSeriesRef.current?.setData(candles.map(toVolumeBar))
+      chartRef.current?.timeScale().fitContent()
+    }
+    load()
+    return () => { cancelled = true }
   }, [symbol, tf])
 
-  const layout = useMemo(() => {
-    const W = 800, H = height, padL = 8, padR = 64, padT = 12, padB = 24
-    const plotW = W - padL - padR, plotH = H - padT - padB
-    const highs = candles.map((c) => c.high), lows = candles.map((c) => c.low)
-    const max = Math.max(...highs, 0), min = Math.min(...lows, Number.MAX_SAFE_INTEGER)
-    const range = max - min || 1, pad = range * 0.1
-    const yMax = max + pad, yMin = min - pad, yRange = yMax - yMin
-    const cw = plotW / candles.length, bodyW = cw * 0.6
-    const x = (i: number) => padL + i * cw + cw / 2
-    const y = (v: number) => padT + (1 - (v - yMin) / yRange) * plotH
-    return { W, H, padL, padR, padT, padB, plotW, plotH, yMax, yMin, yRange, cw, bodyW, x, y }
-  }, [candles, height])
+  // ---- Live tick: update only the most recent bar, never a full reload ----
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      const candles = candlesRef.current
+      if (candles.length === 0) return
+      const price = getPrice(symbol)
+      if (!price) return
+      const last = candles[candles.length - 1]
+      const now = Date.now()
+      const intervalMs = TF_INTERVAL_MS[tf]
+      if (now - last.time > intervalMs) {
+        const next: Candle = { time: last.time + intervalMs, open: last.close, high: price, low: price, close: price, volume: 0 }
+        candles.push(next)
+        if (candles.length > 400) candles.shift()
+        candleSeriesRef.current?.update(toBar(next))
+        volumeSeriesRef.current?.update(toVolumeBar(next))
+        return
+      }
+      const updated: Candle = { ...last, close: price, high: Math.max(last.high, price), low: Math.min(last.low, price) }
+      candles[candles.length - 1] = updated
+      candleSeriesRef.current?.update(toBar(updated))
+      volumeSeriesRef.current?.update(toVolumeBar(updated))
+    }, 1200)
+    return () => window.clearInterval(id)
+  }, [symbol, tf])
 
-  const lastPrice = candles.length ? candles[candles.length - 1].close : 0
-  const firstPrice = candles.length ? candles[0].open : 0
-  const up = lastPrice >= firstPrice
+  // ---- Responsive sizing (container + fullscreen) ---------------------------
+  useEffect(() => {
+    const el = containerRef.current
+    const chart = chartRef.current
+    if (!el || !chart) return
+    const ro = new ResizeObserver((entries) => {
+      const entry = entries[0]
+      if (!entry) return
+      chart.applyOptions({ width: entry.contentRect.width, height: entry.contentRect.height })
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [fullscreen])
 
-  const gridLines = useMemo(() => {
-    const lines = []
-    for (let i = 0; i <= 4; i++) {
-      const v = layout.yMin + (layout.yRange * i) / 4
-      lines.push({ y: layout.y(v), v })
-    }
-    return lines
-  }, [layout])
+  useEffect(() => {
+    function onFsChange() { setFullscreen(!!document.fullscreenElement) }
+    document.addEventListener('fullscreenchange', onFsChange)
+    return () => document.removeEventListener('fullscreenchange', onFsChange)
+  }, [])
 
-  function onMove(e: React.MouseEvent<SVGSVGElement>) {
-    const rect = svgRef.current!.getBoundingClientRect()
-    const px = ((e.clientX - rect.left) / rect.width) * layout.W
-    const idx = Math.floor((px - layout.padL) / layout.cw)
-    if (idx >= 0 && idx < candles.length) setHover({ x: px, c: candles[idx] })
-    else setHover(null)
+  async function toggleFullscreen() {
+    if (!wrapperRef.current) return
+    if (!document.fullscreenElement) await wrapperRef.current.requestFullscreen().catch(() => undefined)
+    else await document.exitFullscreen().catch(() => undefined)
   }
 
-  // If XAU/USD has no historical candles, show a clear empty state instead of fabricating data
-  if (symbol === 'XAU/USD' && candles.length === 0) {
-    const status = getMarketStatus('XAU/USD')
-    const meta = getMarketMeta('XAU/USD')
-    const price = getPrice('XAU/USD')
-    return (
-      <div className="rounded-xl border border-ink-700 bg-ink-900 p-5">
-        <div className="flex items-center justify-between">
-          <div>
-            <h3 className="text-lg font-bold text-white">{symbol}</h3>
-            <div className="mt-1 font-mono text-2xl font-bold text-white">${price ? (price < 1 ? price.toFixed(4) : price.toFixed(2)) : '--'}</div>
-            <div className="mt-2 text-sm text-slate-400">Historical chart data unavailable for XAU/USD. Showing live mark when available.</div>
-          </div>
-          <div className="text-right text-sm text-slate-400">
-            <div>Source: {meta.source ?? 'GoldAPI'}</div>
-            <div className="mt-2"><StatusBadge status={status} /></div>
-          </div>
-        </div>
-      </div>
-    )
+  function resetView() {
+    chartRef.current?.timeScale().fitContent()
   }
+
+  const status = getMarketStatus(symbol)
+  const price = getPrice(symbol)
+  const priceLabel = price ? (price < 1 ? price.toFixed(4) : price.toLocaleString(undefined, { maximumFractionDigits: 2 })) : '—'
 
   return (
-    <div className="relative">
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-3">
-          <h3 className="text-lg font-bold text-white">{symbol}</h3>
-          <span className="font-mono text-2xl font-bold text-white">${lastPrice.toLocaleString(undefined, { maximumFractionDigits: lastPrice < 1 ? 4 : 2 })}</span>
-          <span className={`text-sm font-semibold ${up ? 'text-bull' : 'text-bear'}`}>{up ? '+' : ''}{firstPrice ? (((lastPrice - firstPrice) / firstPrice) * 100).toFixed(2) : '0.00'}%</span>
+    <div ref={wrapperRef} className={fullscreen ? 'fixed inset-0 z-[200] bg-ink-950 p-3' : 'relative'}>
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-bold text-white">{symbol}</span>
+          <span className="font-mono text-sm font-semibold text-white">${priceLabel}</span>
+          <StatusBadge status={status} />
         </div>
-        <div className="flex gap-1 rounded-lg border border-ink-600 bg-ink-900 p-1">
-          {(['1m', '5m', '1h'] as TF[]).map((t) => (
-            <button key={t} onClick={() => setTf(t)} className={`rounded-md px-3 py-1 text-xs font-semibold transition ${tf === t ? 'bg-ocean-500 text-ink-950' : 'text-slate-400 hover:text-white'}`}>{t}</button>
-          ))}
+        <div className="flex flex-wrap items-center gap-1.5">
+          <div className="flex gap-0.5 rounded-lg border border-ink-600 bg-ink-900 p-0.5">
+            {TIMEFRAMES.map((t) => (
+              <button
+                key={t.value}
+                onClick={() => setTf(t.value)}
+                aria-pressed={tf === t.value}
+                className={`rounded-md px-2 py-1 text-[11px] font-semibold transition ${tf === t.value ? 'bg-ocean-500 text-ink-950' : 'text-slate-400 hover:text-white'}`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+          <button onClick={resetView} aria-label="Reset chart view" title="Reset / fit" className="rounded-md border border-ink-600 p-1.5 text-slate-400 transition hover:text-white">
+            <RotateCcw className="h-3.5 w-3.5" />
+          </button>
+          <button onClick={toggleFullscreen} aria-label={fullscreen ? 'Exit fullscreen' : 'Enter fullscreen'} className="rounded-md border border-ink-600 p-1.5 text-slate-400 transition hover:text-white">
+            {fullscreen ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
+          </button>
         </div>
       </div>
-      <svg ref={svgRef} viewBox={`0 0 ${layout.W} ${layout.H}`} className="w-full" style={{ height }} onMouseMove={onMove} onMouseLeave={() => setHover(null)}>
-        <rect x={0} y={0} width={layout.W} height={layout.H} fill="#0b0f1a" rx={12} />
-        {gridLines.map((g, i) => (
-          <g key={i}>
-            <line x1={layout.padL} y1={g.y} x2={layout.W - layout.padR} y2={g.y} stroke="#1a2236" strokeWidth={1} />
-            <text x={layout.W - layout.padR + 6} y={g.y + 3} fill="#64748b" fontSize={10} fontFamily="monospace">{g.v < 1 ? g.v.toFixed(4) : g.v.toFixed(2)}</text>
-          </g>
-        ))}
-        {candles.map((c, i) => {
-          const cx = layout.x(i)
-          const isUp = c.close >= c.open
-          const color = isUp ? '#22c55e' : '#ef4444'
-          const bodyTop = layout.y(Math.max(c.open, c.close))
-          const bodyBottom = layout.y(Math.min(c.open, c.close))
-          return (
-            <g key={i}>
-              <line x1={cx} y1={layout.y(c.high)} x2={cx} y2={layout.y(c.low)} stroke={color} strokeWidth={1} />
-              <rect x={cx - layout.bodyW / 2} y={bodyTop} width={layout.bodyW} height={Math.max(1, bodyBottom - bodyTop)} fill={color} opacity={0.9} />
-            </g>
-          )
-        })}
-        <line x1={layout.padL} y1={layout.y(lastPrice)} x2={layout.W - layout.padR} y2={layout.y(lastPrice)} stroke={up ? '#22c55e' : '#ef4444'} strokeWidth={1} strokeDasharray="4 3" opacity={0.7} />
-        {hover && (
-          <g>
-            <line x1={hover.x} y1={layout.padT} x2={hover.x} y2={layout.H - layout.padB} stroke="#36415c" strokeWidth={1} strokeDasharray="3 3" />
-            <rect x={layout.W - layout.padR + 2} y={layout.y(hover.c.close) - 9} width={56} height={18} rx={4} fill={hover.c.close >= hover.c.open ? '#22c55e' : '#ef4444'} />
-            <text x={layout.W - layout.padR + 6} y={layout.y(hover.c.close) + 3} fill="#0b0f1a" fontSize={10} fontWeight={700} fontFamily="monospace">{hover.c.close < 1 ? hover.c.close.toFixed(4) : hover.c.close.toFixed(2)}</text>
-          </g>
+
+      <div className="relative overflow-hidden rounded-xl border border-ink-700 bg-ink-900">
+        {(loadingCandles || ohlcUnavailable) && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center bg-ink-900/90 text-center text-sm text-slate-500">
+            {loadingCandles ? 'Loading chart…' : `Historical chart data unavailable for ${symbol}. Showing live mark when available.`}
+          </div>
         )}
-      </svg>
-      {hover && (
-        <div className="absolute top-12 left-2 rounded-lg border border-ink-600 bg-ink-800/95 px-3 py-2 text-xs font-mono shadow-xl pointer-events-none">
-          <div className="text-slate-400">O {hover.c.open.toFixed(2)}  H {hover.c.high.toFixed(2)}</div>
-          <div className="text-slate-400">C {hover.c.close.toFixed(2)}  L {hover.c.low.toFixed(2)}</div>
-        </div>
-      )}
+        <div ref={containerRef} style={{ height: fullscreen ? 'calc(100vh - 90px)' : height, width: '100%' }} />
+        {hover && (
+          <div className="pointer-events-none absolute left-2 top-2 rounded-lg border border-ink-600 bg-ink-800/95 px-3 py-2 text-[11px] font-mono shadow-xl">
+            <div className="text-slate-400">O {hover.open.toFixed(2)} H {hover.high.toFixed(2)}</div>
+            <div className="text-slate-400">L {hover.low.toFixed(2)} C {hover.close.toFixed(2)}</div>
+          </div>
+        )}
+      </div>
     </div>
   )
 }

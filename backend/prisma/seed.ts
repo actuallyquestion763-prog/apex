@@ -21,12 +21,16 @@ const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   'kyc.review': 'Approve or reject KYC verifications',
   'deposits.read': 'View deposits',
   'deposits.review': 'Confirm or reject deposits',
+  'crypto_deposits.read': 'View crypto deposit asset/network/receiving-address configuration',
+  'crypto_deposits.control': 'Manage crypto deposit assets, networks, and receiving addresses',
   'withdrawals.read': 'View withdrawals',
   'withdrawals.review': 'Approve or reject withdrawals',
   'trading.read': 'View trading activity',
   'trading.control': 'Pause/resume trading platform-wide',
   'markets.read': 'View per-market configuration',
   'markets.control': 'Change per-market configuration',
+  'options.read': 'View options-trading configuration, statistics, and unresolved trades',
+  'options.control': 'Change options-trading configuration (assets, durations, payouts, platform-wide kill switch)',
   'ledger.read': 'View ledger transactions and balances',
   'ledger.adjust': 'Create financial adjustments',
   'audit.read': 'View the audit log',
@@ -186,18 +190,124 @@ async function main() {
   }
   console.log(`Seeded ${PERMISSIONS.length} permission definitions (none granted to any ADMIN by default).`)
 
-  const markets: { symbol: string; dataSource: MarketDataSource; tradingEnabled: boolean }[] = [
-    { symbol: 'XAU/USD', dataSource: MarketDataSource.LIVE, tradingEnabled: false }, // enable explicitly once GoldAPI is verified live
-    { symbol: 'BTC/USDT', dataSource: MarketDataSource.SIMULATED, tradingEnabled: false },
-    { symbol: 'ETH/USDT', dataSource: MarketDataSource.SIMULATED, tradingEnabled: false },
+  // Phase 6C: all 8 crypto pairs upgraded from provider: SIMULATED to
+  // provider: BINANCE — each individually verified against live Binance
+  // Spot exchangeInfo this phase (status: TRADING, isSpotTradingAllowed:
+  // true, correct base/quote asset — see the Phase 6C report's Part 4 for
+  // the verification record). providerSymbol/pricePrecision/
+  // quantityPrecision below are the ACTUAL values read from Binance's
+  // PRICE_FILTER.tickSize / LOT_SIZE.stepSize for each symbol, not
+  // estimated. dataSource flips to LIVE alongside provider — this is safe
+  // to do independently of tradingEnabled (which stays false — Part 6/24:
+  // trading is never auto-enabled just because data is live; see
+  // OrdersService, whose very first check is tradingEnabled, before it
+  // ever looks at dataSource). XAU/USD (GoldAPI) is unchanged.
+  const markets: {
+    symbol: string; dataSource: MarketDataSource; tradingEnabled: boolean
+    baseAsset: string; quoteAsset: string; displayName: string
+    marketType: 'CRYPTO_SPOT' | 'CFD'; pricePrecision: number; quantityPrecision: number
+    provider: string; providerSymbol: string
+  }[] = [
+    { symbol: 'XAU/USD', dataSource: MarketDataSource.LIVE, tradingEnabled: false, baseAsset: 'XAU', quoteAsset: 'USD', displayName: 'Gold', marketType: 'CFD', pricePrecision: 2, quantityPrecision: 8, provider: 'GOLDAPI', providerSymbol: 'XAU/USD' },
+    { symbol: 'BTC/USDT', dataSource: MarketDataSource.LIVE, tradingEnabled: false, baseAsset: 'BTC', quoteAsset: 'USDT', displayName: 'Bitcoin', marketType: 'CRYPTO_SPOT', pricePrecision: 2, quantityPrecision: 5, provider: 'BINANCE', providerSymbol: 'BTCUSDT' },
+    { symbol: 'ETH/USDT', dataSource: MarketDataSource.LIVE, tradingEnabled: false, baseAsset: 'ETH', quoteAsset: 'USDT', displayName: 'Ethereum', marketType: 'CRYPTO_SPOT', pricePrecision: 2, quantityPrecision: 4, provider: 'BINANCE', providerSymbol: 'ETHUSDT' },
+    { symbol: 'USDT/USD', dataSource: MarketDataSource.LIVE, tradingEnabled: false, baseAsset: 'USDT', quoteAsset: 'USD', displayName: 'Tether', marketType: 'CRYPTO_SPOT', pricePrecision: 5, quantityPrecision: 0, provider: 'BINANCE', providerSymbol: 'USDTUSD' },
+    { symbol: 'XRP/USDT', dataSource: MarketDataSource.LIVE, tradingEnabled: false, baseAsset: 'XRP', quoteAsset: 'USDT', displayName: 'Ripple', marketType: 'CRYPTO_SPOT', pricePrecision: 4, quantityPrecision: 1, provider: 'BINANCE', providerSymbol: 'XRPUSDT' },
+    { symbol: 'SOL/USDT', dataSource: MarketDataSource.LIVE, tradingEnabled: false, baseAsset: 'SOL', quoteAsset: 'USDT', displayName: 'Solana', marketType: 'CRYPTO_SPOT', pricePrecision: 2, quantityPrecision: 3, provider: 'BINANCE', providerSymbol: 'SOLUSDT' },
+    { symbol: 'BNB/USDT', dataSource: MarketDataSource.LIVE, tradingEnabled: false, baseAsset: 'BNB', quoteAsset: 'USDT', displayName: 'BNB', marketType: 'CRYPTO_SPOT', pricePrecision: 2, quantityPrecision: 3, provider: 'BINANCE', providerSymbol: 'BNBUSDT' },
+    { symbol: 'ADA/USDT', dataSource: MarketDataSource.LIVE, tradingEnabled: false, baseAsset: 'ADA', quoteAsset: 'USDT', displayName: 'Cardano', marketType: 'CRYPTO_SPOT', pricePrecision: 4, quantityPrecision: 1, provider: 'BINANCE', providerSymbol: 'ADAUSDT' },
+    { symbol: 'DOGE/USDT', dataSource: MarketDataSource.LIVE, tradingEnabled: false, baseAsset: 'DOGE', quoteAsset: 'USDT', displayName: 'Dogecoin', marketType: 'CRYPTO_SPOT', pricePrecision: 5, quantityPrecision: 0, provider: 'BINANCE', providerSymbol: 'DOGEUSDT' },
   ]
   for (const m of markets) {
+    const { symbol, ...rest } = m
     await prisma.marketConfig.upsert({
-      where: { symbol: m.symbol },
-      create: m,
-      update: { dataSource: m.dataSource },
+      where: { symbol },
+      create: { symbol, ...rest, enabled: true },
+      update: { ...rest },
     })
   }
+
+  // Fixed-Time Options Trading — a separate product from spot. Platform-wide
+  // tradingEnabled stays FALSE by default (a brand-new financial product
+  // must never silently go live the moment this migration runs — see
+  // OptionsSettingsService). The two example OptionMarket rows below ARE
+  // seeded `enabled: true` so the feature is demonstrable locally, exactly
+  // mirroring how spot's own MarketConfig rows are seeded with dataSource
+  // LIVE + listed (enabled: true) while tradingEnabled stays false until an
+  // admin explicitly turns trading on — "data ready, trading gated" is the
+  // established pattern this repeats, not a new one.
+  await prisma.optionsSettings.upsert({
+    where: { id: 'singleton' },
+    create: { id: 'singleton' },
+    update: {},
+  })
+
+  const OPTION_MARKETS: { symbol: string; currency: string; minInvestment: string; maxInvestment: string; durations: { durationSeconds: number; payoutPercent: string }[] }[] = [
+    {
+      symbol: 'XAU/USD', currency: 'USDT', minInvestment: '1', maxInvestment: '1000',
+      durations: [
+        { durationSeconds: 30, payoutPercent: '5' },
+        { durationSeconds: 60, payoutPercent: '7' },
+        { durationSeconds: 90, payoutPercent: '9' },
+        { durationSeconds: 120, payoutPercent: '12' },
+        { durationSeconds: 180, payoutPercent: '15' },
+      ],
+    },
+    {
+      symbol: 'BTC/USDT', currency: 'USDT', minInvestment: '1', maxInvestment: '1000',
+      durations: [
+        { durationSeconds: 30, payoutPercent: '5' },
+        { durationSeconds: 60, payoutPercent: '7' },
+        { durationSeconds: 120, payoutPercent: '12' },
+        { durationSeconds: 180, payoutPercent: '15' },
+      ],
+    },
+  ]
+  for (const m of OPTION_MARKETS) {
+    const market = await prisma.optionMarket.upsert({
+      where: { symbol: m.symbol },
+      create: { symbol: m.symbol, enabled: true, currency: m.currency, minInvestment: m.minInvestment, maxInvestment: m.maxInvestment },
+      update: { enabled: true, currency: m.currency, minInvestment: m.minInvestment, maxInvestment: m.maxInvestment },
+    })
+    for (const d of m.durations) {
+      await prisma.optionDuration.upsert({
+        where: { optionMarketId_durationSeconds: { optionMarketId: market.id, durationSeconds: d.durationSeconds } },
+        create: { optionMarketId: market.id, durationSeconds: d.durationSeconds, enabled: true, payoutPercent: d.payoutPercent },
+        update: { payoutPercent: d.payoutPercent },
+      })
+    }
+  }
+  console.log(`Seeded options-trading settings + ${OPTION_MARKETS.length} example option markets (options.tradingEnabled remains OFF platform-wide until an admin turns it on).`)
+
+  // Checkpoint K — crypto deposit ASSET metadata only (symbol/name), each
+  // `enabled: false`. Deliberately seeds ZERO CryptoDepositAddress rows —
+  // Part 33 is a HARD REQUIREMENT against any receiving address (real or
+  // fake-but-plausible) living in source/seed data; an admin must
+  // explicitly configure a real receiving address per network through the
+  // step-up-gated admin UI before any asset can actually receive a
+  // deposit. Automated tests that need an address create their own
+  // disposable-database fixture directly (see
+  // test/crypto-deposits.e2e-spec.ts) — never through this seed script.
+  const CRYPTO_ASSETS: { symbol: string; name: string; sortOrder: number }[] = [
+    { symbol: 'USDT', name: 'Tether', sortOrder: 0 },
+    { symbol: 'BTC', name: 'Bitcoin', sortOrder: 1 },
+    { symbol: 'ETH', name: 'Ethereum', sortOrder: 2 },
+    { symbol: 'BNB', name: 'BNB', sortOrder: 3 },
+    { symbol: 'SOL', name: 'Solana', sortOrder: 4 },
+    { symbol: 'XRP', name: 'XRP', sortOrder: 5 },
+    { symbol: 'ADA', name: 'Cardano', sortOrder: 6 },
+    { symbol: 'DOGE', name: 'Dogecoin', sortOrder: 7 },
+    { symbol: 'TRX', name: 'TRON', sortOrder: 8 },
+    { symbol: 'LTC', name: 'Litecoin', sortOrder: 9 },
+  ]
+  for (const a of CRYPTO_ASSETS) {
+    await prisma.cryptoAsset.upsert({
+      where: { symbol: a.symbol },
+      create: { symbol: a.symbol, name: a.name, sortOrder: a.sortOrder, enabled: false },
+      update: { name: a.name, sortOrder: a.sortOrder },
+    })
+  }
+  console.log(`Seeded ${CRYPTO_ASSETS.length} crypto asset definitions (all disabled, zero receiving addresses — an admin must configure a real address per network before any asset can receive a deposit).`)
 
   for (const [index, name] of DEFAULT_SUPPORT_CATEGORIES.entries()) {
     await prisma.supportCategory.upsert({

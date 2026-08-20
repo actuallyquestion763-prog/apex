@@ -19,6 +19,12 @@ export const AuditEvent = {
   KYC_SUBMITTED: 'KYC_SUBMITTED',
   KYC_APPROVED: 'KYC_APPROVED',
   KYC_REJECTED: 'KYC_REJECTED',
+  // ---- Mine/Profile + KYC document checkpoint ------------------------------
+  KYC_RESUBMITTED: 'KYC_RESUBMITTED',
+  KYC_DOCUMENT_UPLOADED: 'KYC_DOCUMENT_UPLOADED',
+  // Fired only when an ADMIN views a document (Part 22) — a user viewing
+  // their own submitted document is not a reviewable security event.
+  KYC_DOCUMENT_VIEWED: 'KYC_DOCUMENT_VIEWED',
   DEPOSIT_CREATED: 'DEPOSIT_CREATED',
   DEPOSIT_APPROVED: 'DEPOSIT_APPROVED',
   DEPOSIT_REJECTED: 'DEPOSIT_REJECTED',
@@ -37,6 +43,76 @@ export const AuditEvent = {
   MARKET_DISABLED: 'MARKET_DISABLED',
   MARKET_ENABLED: 'MARKET_ENABLED',
   SECURITY_SETTING_CHANGED: 'SECURITY_SETTING_CHANGED',
+
+  // ---- Order execution (Phase 6F Checkpoint C) — sandbox/fake provider
+  // only; see execution/ for the provider abstraction. Every event here is
+  // written by OrdersService, never fabricated ahead of the real state
+  // transition it describes (e.g. ORDER_FILLED is only ever written after
+  // a provider-confirmed fill has actually been validated and settled).
+  ORDER_CREATED: 'ORDER_CREATED',
+  EXECUTION_SUBMITTED: 'EXECUTION_SUBMITTED',
+  EXECUTION_ACKNOWLEDGED: 'EXECUTION_ACKNOWLEDGED',
+  EXECUTION_REJECTED: 'EXECUTION_REJECTED',
+  // Not part of Checkpoint C's literal requested list, but necessary to
+  // avoid an actively misleading audit trail: EXECUTION_REJECTED implies a
+  // confident "the provider rejected this" — using it for a genuinely
+  // AMBIGUOUS outcome (timeout, lost response, malformed response) would
+  // misrepresent what happened. See orders.service.ts's
+  // CONFIDENT_REJECTION_CATEGORIES vs the ambiguous-outcome path.
+  EXECUTION_UNRESOLVED: 'EXECUTION_UNRESOLVED',
+  ORDER_FILLED: 'ORDER_FILLED',
+  ORDER_REJECTED: 'ORDER_REJECTED',
+  ASSET_BALANCE_UPDATED: 'ASSET_BALANCE_UPDATED',
+  FEE_CHARGED: 'FEE_CHARGED',
+
+  // ---- LIMIT order lifecycle (Phase 6F Checkpoint D) -------------------
+  ORDER_OPENED: 'ORDER_OPENED',
+  ORDER_PARTIALLY_FILLED: 'ORDER_PARTIALLY_FILLED',
+  ORDER_CANCEL_REQUESTED: 'ORDER_CANCEL_REQUESTED',
+  ORDER_CANCELLED: 'ORDER_CANCELLED',
+
+  // ---- Provider reconciliation (Phase 6F Checkpoint E) — the run itself
+  // is audited (who ran it, when, summary counts) even though the run is
+  // read-only; this is a distinct event from any of the ORDER_* ones above,
+  // none of which fire as a side effect of reconciliation (Part 13: it
+  // never mutates financial state).
+  RECONCILIATION_RUN: 'RECONCILIATION_RUN',
+
+  // ---- Pre-trade risk engine (Phase 6F Checkpoint F) — recorded for
+  // EVERY risk-engine rejection, whether or not it also produced a
+  // persisted Order row (Part 16). Never recorded for an allowed order —
+  // that would just be per-order noise the existing ORDER_CREATED/
+  // EXECUTION_SUBMITTED events already cover.
+  ORDER_RISK_REJECTED: 'ORDER_RISK_REJECTED',
+
+  // ---- Crypto Deposit configuration (Checkpoint K) — receiving-address
+  // management is financially sensitive; every change is audited, mirroring
+  // OPTION_MARKET_CHANGED's pattern (previousState/newState carries the
+  // specific field(s) that changed, so one event name covers create/enable/
+  // disable/address-change/minimum-change without needing five near-
+  // identical event names).
+  CRYPTO_ASSET_CHANGED: 'CRYPTO_ASSET_CHANGED',
+  CRYPTO_DEPOSIT_ADDRESS_CHANGED: 'CRYPTO_DEPOSIT_ADDRESS_CHANGED',
+  DEPOSIT_PROOF_UPLOADED: 'DEPOSIT_PROOF_UPLOADED',
+
+  // ---- Fixed-Time Options Trading (separate product from spot Orders) -----
+  OPTION_TRADE_CREATED: 'OPTION_TRADE_CREATED',
+  OPTION_TRADE_REJECTED: 'OPTION_TRADE_REJECTED',
+  OPTION_TRADE_SETTLED: 'OPTION_TRADE_SETTLED',
+  OPTION_TRADE_UNRESOLVED: 'OPTION_TRADE_UNRESOLVED',
+  OPTION_MARKET_CHANGED: 'OPTION_MARKET_CHANGED',
+  OPTION_DURATION_CHANGED: 'OPTION_DURATION_CHANGED',
+  OPTIONS_TRADING_PAUSED: 'OPTIONS_TRADING_PAUSED',
+  OPTIONS_TRADING_RESUMED: 'OPTIONS_TRADING_RESUMED',
+  OPTIONS_SETTINGS_CHANGED: 'OPTIONS_SETTINGS_CHANGED',
+  // Recorded for EVERY non-NORMAL requestedResultMode, whether accepted
+  // (dev/test) or rejected (production/staging) — an attempted production
+  // override is itself a meaningful security event regardless of outcome.
+  OPTION_DEMO_SIMULATION_USED: 'OPTION_DEMO_SIMULATION_USED',
+  // Trade Experience checkpoint, Part 8 — the platform-wide sandbox
+  // outcome-mode admin dial, distinct from OPTION_DEMO_SIMULATION_USED
+  // (which covers the separate, per-trade customer-requested override).
+  SANDBOX_OUTCOME_MODE_CHANGED: 'SANDBOX_OUTCOME_MODE_CHANGED',
 
   // ---- CMS (Phase 3) --------------------------------------------------------
   CONTENT_CREATED: 'CONTENT_CREATED',

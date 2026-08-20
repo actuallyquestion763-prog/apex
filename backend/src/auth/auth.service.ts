@@ -1,14 +1,18 @@
 import { BadRequestException, ConflictException, Injectable, UnauthorizedException } from '@nestjs/common'
 import * as argon2 from 'argon2'
+import { Prisma } from '@prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import { AuditService } from '../audit/audit.service'
 import { PlatformSettingsService } from '../platform-settings/platform-settings.service'
 import { generateSessionToken, hashToken } from './token.util'
 import { generateTotpSecret, verifyTotpCode, buildOtpAuthUrl } from './totp.util'
 import { issuePendingLoginToken, verifyPendingLoginToken } from './pending-login.util'
+import { generateReferralCode } from './referral-code.util'
 import { AuditEvent } from '../audit/audit-events'
 import type { RegisterDto } from './dto/register.dto'
 import type { LoginDto } from './dto/login.dto'
+
+const REFERRAL_CODE_MAX_ATTEMPTS = 5
 
 const SESSION_TTL_MS = () => (Number(process.env.SESSION_TTL_HOURS ?? 24)) * 60 * 60 * 1000
 
@@ -45,14 +49,31 @@ export class AuthService {
     const passwordHash = await argon2.hash(dto.password)
 
     const { user } = await this.prisma.$transaction(async (tx) => {
-      const user = await tx.user.create({
-        data: {
-          email: dto.email.toLowerCase(),
-          passwordHash,
-          fullName: dto.fullName,
-          country: dto.country,
-        },
-      })
+      let user
+      // Collision odds against a 32-char alphabet, 8-char code are
+      // astronomically low (~1 in 1e12 per pair) — the retry loop exists
+      // purely as a correctness backstop, not because collisions are
+      // expected in practice.
+      for (let attempt = 1; ; attempt++) {
+        try {
+          user = await tx.user.create({
+            data: {
+              email: dto.email.toLowerCase(),
+              passwordHash,
+              fullName: dto.fullName,
+              country: dto.country,
+              referralCode: generateReferralCode(),
+            },
+          })
+          break
+        } catch (err) {
+          const isReferralCodeCollision =
+            err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002' &&
+            Array.isArray((err.meta as { target?: unknown })?.target) &&
+            (err.meta!.target as string[]).includes('referralCode')
+          if (!isReferralCodeCollision || attempt >= REFERRAL_CODE_MAX_ATTEMPTS) throw err
+        }
+      }
       await tx.account.create({ data: { userId: user.id } })
       return { user }
     })

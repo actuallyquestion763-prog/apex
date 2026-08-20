@@ -45,16 +45,17 @@ describe('Security (real PostgreSQL)', () => {
 
   it('MARKET_API_KEY is never present in any API response', async () => {
     process.env.MARKET_API_KEY = 'test-fake-goldapi-key-should-never-leak'
-    const res = await request(server).get('/markets/xau')
+    const res = await request(server).get('/markets/XAU%2FUSD/quote')
     expect(JSON.stringify(res.body)).not.toMatch(/test-fake-goldapi-key-should-never-leak/)
     delete process.env.MARKET_API_KEY
   })
 
-  it('the market data endpoint returns an honest error, never a fabricated price, when no API key is configured', async () => {
+  it('the market data endpoint returns an honest UNAVAILABLE status, never a fabricated price, when no API key is configured', async () => {
     const original = process.env.MARKET_API_KEY
     delete process.env.MARKET_API_KEY
-    const res = await request(server).get('/markets/xau').expect(200)
-    expect(res.body.error).toBe('market_api_key_missing')
+    const res = await request(server).get('/markets/XAU%2FUSD/quote').expect(200)
+    expect(res.body.status).toBe('UNAVAILABLE')
+    expect(res.body.last).toBeUndefined()
     expect(res.body.price).toBeUndefined()
     if (original) process.env.MARKET_API_KEY = original
   })

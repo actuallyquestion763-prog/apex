@@ -42,28 +42,33 @@ enum KycStatus {
 }
 
 model User {
-  id              String    @id @default(uuid())
-  email           String    @unique
-  passwordHash    String
-  fullName        String
-  country         String?
-  role            Role      @default(USER)
-  status          AccountStatus @default(ACTIVE)
-  kycStatus       KycStatus @default(NOT_STARTED)
-  twoFactorEnabled Boolean  @default(false)
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  id               String        @id @default(uuid())
+  email            String        @unique
+  passwordHash     String
+  fullName         String
+  country          String?
+  role             Role          @default(USER)
+  status           AccountStatus @default(ACTIVE)
+  kycStatus        KycStatus     @default(NOT_STARTED)
+  twoFactorEnabled Boolean       @default(false)
+  // Real, backend-generated, unique invitation/referral code — displayed on
+  // the Mine/Profile page. Assigned once at registration (see
+  // auth.service.ts's generateReferralCode()); this platform has no
+  // referral-reward/commission system, this is display+copy only.
+  referralCode     String        @unique
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
 
-  sessions          Session[]
-  accounts          Account[]
+  sessions            Session[]
+  accounts            Account[]
   twoFactorCredential TwoFactorCredential?
-  orders            Order[]
-  positions         Position[]
-  deposits          Deposit[]
-  withdrawals       Withdrawal[]
-  kycVerifications  KycVerification[]
-  userPermissions   UserPermission[]
-  idempotencyKeys   IdempotencyKey[]
+  orders              Order[]
+  positions           Position[]
+  deposits            Deposit[]
+  withdrawals         Withdrawal[]
+  kycVerifications    KycVerification[]
+  userPermissions     UserPermission[]
+  idempotencyKeys     IdempotencyKey[]
 
   adminActionsPerformed AdminAction[] @relation("AdminActionActor")
   adminActionsReceived  AdminAction[] @relation("AdminActionTarget")
@@ -77,15 +82,18 @@ model User {
   cmsRevisionsMade        CmsRevision[]     @relation("CmsRevisionChangedBy")
 
   // ---- Support (Phase 3) ---------------------------------------------------
-  supportTicketsAsCustomer   SupportTicket[]     @relation("SupportTicketCustomer")
-  supportTicketsAsAgent      SupportTicket[]     @relation("SupportTicketAgent")
-  supportMessagesAuthored    SupportMessage[]    @relation("SupportMessageAuthor")
-  supportAssignmentsAsAgent  SupportAssignment[] @relation("SupportAssignmentAgent")
-  supportAssignmentsMade     SupportAssignment[] @relation("SupportAssignmentAssignedBy")
+  supportTicketsAsCustomer  SupportTicket[]     @relation("SupportTicketCustomer")
+  supportTicketsAsAgent     SupportTicket[]     @relation("SupportTicketAgent")
+  supportMessagesAuthored   SupportMessage[]    @relation("SupportMessageAuthor")
+  supportAssignmentsAsAgent SupportAssignment[] @relation("SupportAssignmentAgent")
+  supportAssignmentsMade    SupportAssignment[] @relation("SupportAssignmentAssignedBy")
 
   // ---- Support notifications & attachments (Phase 4) -----------------------
   supportNotifications       SupportNotification[]
   supportAttachmentsUploaded SupportAttachment[]   @relation("SupportAttachmentUploader")
+
+  // ---- Fixed-Time Options Trading (separate product from spot Orders) -----
+  optionTrades OptionTrade[]
 
   @@index([role])
   @@index([status])
@@ -94,14 +102,14 @@ model User {
 // Session tokens are opaque random values; only a hash is stored (same
 // principle as a password) so a database read alone can't authenticate.
 model Session {
-  id         String    @id @default(uuid())
-  userId     String
-  tokenHash  String    @unique
-  userAgent  String?
-  ipAddress  String?
-  createdAt  DateTime  @default(now())
-  expiresAt  DateTime
-  revokedAt  DateTime?
+  id        String    @id @default(uuid())
+  userId    String
+  tokenHash String    @unique
+  userAgent String?
+  ipAddress String?
+  createdAt DateTime  @default(now())
+  expiresAt DateTime
+  revokedAt DateTime?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -133,7 +141,7 @@ model Permission {
 }
 
 model UserPermission {
-  id           String @id @default(uuid())
+  id           String   @id @default(uuid())
   userId       String
   permissionId String
   grantedAt    DateTime @default(now())
@@ -167,6 +175,7 @@ model Account {
   ledgerAccounts LedgerAccount[]
   orders         Order[]
   positions      Position[]
+  optionTrades   OptionTrade[]
 
   @@index([userId])
 }
@@ -177,19 +186,19 @@ enum LedgerOwnerType {
 }
 
 enum LedgerAccountType {
-  CASH        // user's available cash
-  RESERVED    // user's margin/investment reserved against open positions
-  REVENUE     // system: realized customer losses / spread / fees land here
-  FEES        // system: fees collected
-  SUSPENSE    // system: counterparty for deposits/withdrawals until reconciled
-             // against a real external payment/broker event
+  CASH // user's available cash
+  RESERVED // user's margin/investment reserved against open positions
+  REVENUE // system: realized customer losses / spread / fees land here
+  FEES // system: fees collected
+  SUSPENSE // system: counterparty for deposits/withdrawals until reconciled
+  // against a real external payment/broker event
 }
 
 // A bookkeeping account. Its balance is NEVER stored directly — it is always
 // derived as SUM(credits) - SUM(debits) over its LedgerEntry rows.
 model LedgerAccount {
   id        String            @id @default(uuid())
-  accountId String?           // null for SYSTEM ledger accounts
+  accountId String? // null for SYSTEM ledger accounts
   ownerType LedgerOwnerType
   type      LedgerAccountType
   currency  String            @default("USD")
@@ -198,9 +207,13 @@ model LedgerAccount {
   account Account?      @relation(fields: [accountId], references: [id], onDelete: Cascade)
   entries LedgerEntry[]
 
-  // Exactly one CASH and one RESERVED ledger account per user Account;
-  // exactly one of each SYSTEM type overall.
-  @@unique([accountId, type])
+  // Phase 6F: widened from @@unique([accountId, type]) to include currency —
+  // exactly one CASH and one RESERVED ledger account per (user Account,
+  // currency) pair, so a customer can hold e.g. CASH/USD, CASH/USDT, and
+  // CASH/BTC simultaneously (spot asset holdings, Phase 6E §6/§23) instead
+  // of being limited to a single currency per type. Exactly one of each
+  // SYSTEM type per currency overall.
+  @@unique([accountId, type, currency])
   @@index([ownerType, type])
 }
 
@@ -209,6 +222,13 @@ enum LedgerEntryType {
   WITHDRAWAL
   TRADE_RESERVATION
   TRADE_RELEASE
+  // Phase 6F Checkpoint C — the actual transfer of value driven by a
+  // provider-confirmed fill. Distinct from TRADE_RESERVATION (funds set
+  // aside) and TRADE_RELEASE (an UNUSED reservation returned to CASH) —
+  // reusing either for "the trade actually happened" would be semantically
+  // wrong. See ledger.service.ts / orders.service.ts for the exact entry
+  // pairs this produces.
+  TRADE_SETTLEMENT
   REALIZED_PROFIT
   REALIZED_LOSS
   FEE
@@ -231,7 +251,7 @@ model LedgerTransaction {
   id             String   @id @default(uuid())
   idempotencyKey String?  @unique
   description    String
-  relatedType    String?  // e.g. "DEPOSIT" | "WITHDRAWAL" | "ORDER" | "ADMIN_ACTION"
+  relatedType    String? // e.g. "DEPOSIT" | "WITHDRAWAL" | "ORDER" | "ADMIN_ACTION"
   relatedId      String?
   createdAt      DateTime @default(now())
 
@@ -244,14 +264,14 @@ model LedgerTransaction {
 }
 
 model LedgerEntry {
-  id            String          @id @default(uuid())
-  transactionId String
+  id              String          @id @default(uuid())
+  transactionId   String
   ledgerAccountId String
-  direction     LedgerDirection
-  amount        Decimal         @db.Decimal(20, 8) // always positive; direction carries the sign
-  currency      String          @default("USD")
-  entryType     LedgerEntryType
-  createdAt     DateTime        @default(now())
+  direction       LedgerDirection
+  amount          Decimal         @db.Decimal(20, 8) // always positive; direction carries the sign
+  currency        String          @default("USD")
+  entryType       LedgerEntryType
+  createdAt       DateTime        @default(now())
 
   transaction   LedgerTransaction @relation(fields: [transactionId], references: [id])
   ledgerAccount LedgerAccount     @relation(fields: [ledgerAccountId], references: [id])
@@ -272,6 +292,18 @@ enum OrderSide {
 enum OrderStatus {
   PENDING
   SUBMITTED
+  // Phase 6F Checkpoint D — LIMIT order lifecycle states. OPEN: accepted by
+  // the provider and resting, not yet (fully) filled. CANCEL_PENDING: a
+  // cancel request was sent to the provider, outcome not yet confirmed —
+  // never assume cancellation succeeded merely because the request was
+  // sent (see orders.service.ts's cancelOrder()). EXPIRED: the provider
+  // reported the order expired — no expiration ENGINE is implemented this
+  // checkpoint (no scheduler, no time-based auto-cancel); this value exists
+  // only so a provider-reported expiry is never misrepresented as
+  // something else if one is ever received.
+  OPEN
+  CANCEL_PENDING
+  EXPIRED
   PARTIALLY_FILLED
   FILLED
   CANCELLED
@@ -293,15 +325,25 @@ model Order {
   executedPrice   Decimal?    @db.Decimal(20, 8)
   filledQuantity  Decimal     @default(0) @db.Decimal(20, 8)
   fee             Decimal     @default(0) @db.Decimal(20, 8)
+  // Phase 6F Checkpoint C — Order.fee without a currency is ambiguous once
+  // a fee can be charged in the base asset, quote asset, or a third asset
+  // (e.g. BNB) — see execution-provider.types.ts's ProviderFill.feeAsset,
+  // which this is populated from. Null until a real fill exists.
+  feeAsset        String?
   status          OrderStatus @default(PENDING)
-  externalOrderId String?     // broker/exchange order ID once one exists
+  externalOrderId String? // broker/exchange order ID once one exists
+  // The TRUST-generated, provider-facing execution idempotency key (see
+  // execution/client-order-id.ts) — persisted so a provider timeout/lost
+  // response can be resolved by re-querying the SAME id later, rather than
+  // TRUST ever needing to guess or generate a new one for the same attempt.
+  clientOrderId   String?
   rejectionReason String?
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
 
-  user    User     @relation(fields: [userId], references: [id])
-  account Account  @relation(fields: [accountId], references: [id])
-  fills   Fill[]
+  user     User      @relation(fields: [userId], references: [id])
+  account  Account   @relation(fields: [accountId], references: [id])
+  fills    Fill[]
   position Position?
 
   @@index([userId])
@@ -314,11 +356,19 @@ model Fill {
   price          Decimal  @db.Decimal(20, 8)
   quantity       Decimal  @db.Decimal(20, 8)
   fee            Decimal  @default(0) @db.Decimal(20, 8)
+  // Phase 6F Checkpoint C — see Order.feeAsset above; a fee amount with no
+  // currency is not a meaningful record of what actually happened.
+  feeAsset       String?
   executedAt     DateTime @default(now())
   externalFillId String?
 
   order Order @relation(fields: [orderId], references: [id])
 
+  // Phase 6F Checkpoint D, Part 11/13 — real, DB-enforced deduplication: a
+  // provider fill ID must never be applied twice to the same order.
+  // Postgres treats each NULL as distinct, so this does not block legacy
+  // rows with no externalFillId; it only ever rejects a genuine repeat.
+  @@unique([orderId, externalFillId])
   @@index([orderId])
 }
 
@@ -368,22 +418,92 @@ enum DepositStatus {
 // payment-provider webhook in a future phase) may do that, and it does so
 // inside the same DB transaction as the LedgerTransaction that credits cash.
 model Deposit {
-  id                 String        @id @default(uuid())
-  userId             String
-  amount             Decimal       @db.Decimal(20, 8)
-  currency           String        @default("USD")
-  method             String
-  providerReference  String?
-  status             DepositStatus @default(PENDING)
-  ledgerTransactionId String?      @unique
-  createdAt          DateTime      @default(now())
-  confirmedAt        DateTime?
+  id                  String        @id @default(uuid())
+  userId              String
+  amount              Decimal       @db.Decimal(20, 8)
+  currency            String        @default("USD")
+  method              String
+  providerReference   String?
+  status              DepositStatus @default(PENDING)
+  ledgerTransactionId String?       @unique
+  createdAt           DateTime      @default(now())
+  confirmedAt         DateTime?
+
+  // ---- Checkpoint K: crypto deposit fields — all nullable, populated only
+  // when method = "CRYPTO" (see deposits.service.ts). SNAPSHOTTED at
+  // creation from CryptoAsset/CryptoDepositAddress — deliberately NOT a
+  // foreign key to CryptoDepositAddress, so a later admin address change
+  // can never alter what an already-created deposit displays (Part 15).
+  // MediaStorageService is reused exactly as CmsMedia/SupportAttachment
+  // already do (Part 20) — no second storage mechanism.
+  cryptoAssetSymbol String? // e.g. "USDT" — snapshot, not a live FK
+  networkCode       String? // e.g. "TRC20" — snapshot, not a live FK
+  receivingAddress  String? // the exact address shown to the user for THIS deposit, immutable after creation
+  proofFilename     String?
+  proofMimeType     String?
+  proofSize         Int?
+  proofStorageKey   String?
 
   user              User               @relation(fields: [userId], references: [id])
   ledgerTransaction LedgerTransaction? @relation(fields: [ledgerTransactionId], references: [id])
 
   @@index([userId])
   @@index([status])
+}
+
+// ---------------------------------------------------------------------------
+// Checkpoint K — Crypto Deposit configuration. Two models (not three): a
+// CryptoAsset (USDT, BTC, ...) and a CryptoDepositAddress representing one
+// (asset, network) combination's current receiving address. Network and
+// address are 1:1 per the product rule (Part 11: exactly one ACTIVE address
+// per asset+network), so they are NOT split into a separate CryptoNetwork
+// table with its own address table — that would be the same cardinality
+// with an extra join for no benefit. `@@unique([cryptoAssetId, networkCode])`
+// is what makes "crypto + network uniquely identifies its configuration" a
+// real database constraint, not just an application-level convention.
+//
+// Deliberately NOT adding blockchain-verification columns (txHash,
+// confirmations, detectedAmount, ...) here or on Deposit — Part 45 asks for
+// a design that doesn't PRECLUDE that later (any nullable column is
+// additive), not for those columns to exist and sit unused now; Deposit's
+// pre-existing `providerReference` field can already hold a transaction
+// reference if ever needed before a dedicated migration adds more.
+// ---------------------------------------------------------------------------
+
+// New assets default DISABLED — same "a brand-new financial capability must
+// never silently go live" posture as OptionsSettings.tradingEnabled and
+// OptionMarket.enabled (Checkpoint J).
+model CryptoAsset {
+  id        String   @id @default(uuid())
+  symbol    String   @unique // "USDT", "BTC", "ETH", ...
+  name      String // "Tether", "Bitcoin", ...
+  enabled   Boolean  @default(false)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  networks CryptoDepositAddress[]
+
+  @@index([enabled])
+}
+
+model CryptoDepositAddress {
+  id               String   @id @default(uuid())
+  cryptoAssetId    String
+  networkCode      String // "TRC20", "ERC20", "BEP20", "BTC", "SOL", ...
+  networkName      String // "Tron (TRC20)", "Bitcoin", ...
+  enabled          Boolean  @default(false)
+  receivingAddress String
+  minimumDeposit   Decimal? @db.Decimal(20, 8) // null = no configured minimum
+  sortOrder        Int      @default(0)
+  updatedByAdminId String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  cryptoAsset CryptoAsset @relation(fields: [cryptoAssetId], references: [id], onDelete: Cascade)
+
+  @@unique([cryptoAssetId, networkCode])
+  @@index([enabled])
 }
 
 enum WithdrawalStatus {
@@ -421,20 +541,66 @@ model Withdrawal {
 // KYC — status tracking only, no verification provider connected
 // ---------------------------------------------------------------------------
 
+enum KycIdType {
+  NATIONAL_ID
+  PASSPORT
+  DRIVERS_LICENSE
+}
+
+enum KycDocumentKind {
+  FRONT
+  BACK
+  SELFIE
+}
+
 model KycVerification {
-  id                String    @id @default(uuid())
+  id                String     @id @default(uuid())
   userId            String
-  status            KycStatus @default(PENDING)
+  status            KycStatus  @default(PENDING)
   providerReference String?
-  submittedAt       DateTime  @default(now())
+  // ---- Submission details (Checkpoint: Mine/Profile + KYC) -----------------
+  // Nullable because pre-existing rows (created before this checkpoint, via
+  // the old providerReference-only submit()) never collected these — never
+  // backfilled with fake identity data.
+  fullName          String?
+  dateOfBirth       DateTime?
+  country           String?
+  idType            KycIdType?
+  idNumber          String?
+  submittedAt       DateTime   @default(now())
   reviewedAt        DateTime?
   reviewedByAdminId String?
   rejectionReason   String?
 
-  user User @relation(fields: [userId], references: [id])
+  user      User          @relation(fields: [userId], references: [id])
+  documents KycDocument[]
 
   @@index([userId])
   @@index([status])
+}
+
+// Uploaded ID/selfie images — a separate table (not columns bolted onto
+// KycVerification) since a submission holds a variable set of 1-3 documents
+// (PASSPORT: front only; NATIONAL_ID/DRIVERS_LICENSE: front+back; every type
+// additionally requires a selfie). Stored via the existing shared
+// MediaStorageService (backend/src/cms/media-storage.service.ts) — private
+// disk storage, random storageKey, never a public URL. Access is gated by
+// ownership-or-kyc.read-permission, mirroring Deposit proof access exactly
+// (see kyc.service.ts's getDocumentFile()).
+model KycDocument {
+  id             String          @id @default(uuid())
+  verificationId String
+  kind           KycDocumentKind
+  storageKey     String
+  mimeType       String
+  filename       String
+  size           Int
+  createdAt      DateTime        @default(now())
+
+  verification KycVerification @relation(fields: [verificationId], references: [id], onDelete: Cascade)
+
+  @@unique([verificationId, kind])
+  @@index([verificationId])
 }
 
 // ---------------------------------------------------------------------------
@@ -453,15 +619,15 @@ enum IdempotencyStatus {
 }
 
 model IdempotencyKey {
-  id           String             @id @default(uuid())
+  id           String            @id @default(uuid())
   userId       String
-  scope        String             // e.g. "deposits.create", "withdrawals.create", "orders.create"
-  key          String             // the client-supplied Idempotency-Key header value
-  requestHash  String             // hash of the request's financially-meaningful fields — a retry with
-                                   // the same key but different fields is rejected, never silently reused
-  status       IdempotencyStatus  @default(PROCESSING)
-  responseBody Json?              // the exact response returned the first time, replayed verbatim on retry
-  createdAt    DateTime           @default(now())
+  scope        String // e.g. "deposits.create", "withdrawals.create", "orders.create"
+  key          String // the client-supplied Idempotency-Key header value
+  requestHash  String // hash of the request's financially-meaningful fields — a retry with
+  // the same key but different fields is rejected, never silently reused
+  status       IdempotencyStatus @default(PROCESSING)
+  responseBody Json? // the exact response returned the first time, replayed verbatim on retry
+  createdAt    DateTime          @default(now())
   completedAt  DateTime?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -482,7 +648,7 @@ model IdempotencyKey {
 model AdminAction {
   id                  String   @id @default(uuid())
   adminId             String
-  action              String   // e.g. "FINANCIAL_ADJUSTMENT" | "USER_SUSPENDED" | ...
+  action              String // e.g. "FINANCIAL_ADJUSTMENT" | "USER_SUSPENDED" | ...
   targetUserId        String?
   reason              String?
   previousState       Json?
@@ -539,22 +705,78 @@ model PlatformSettings {
   registrationsEnabled Boolean  @default(true)
   updatedAt            DateTime @updatedAt
   updatedByAdminId     String?
+  // Phase 6F Checkpoint F, Part 6/9 — global ceiling on how many
+  // simultaneously-open orders (PENDING/SUBMITTED/OPEN/PARTIALLY_FILLED/
+  // CANCEL_PENDING — see order-risk-math.ts's OPEN_ORDER_STATUSES) one
+  // user account may hold at once. Nullable = not enforced (Checkpoint E
+  // Part 16: no authoritative value exists yet; do not invent one).
+  maxOpenOrdersPerUser Int?
 }
 
 enum MarketDataSource {
-  LIVE       // real external feed (e.g. GoldAPI for XAU/USD)
-  SIMULATED  // internally generated price, must never be presented as LIVE
+  LIVE // real external feed (e.g. GoldAPI for XAU/USD)
+  SIMULATED // internally generated price, must never be presented as LIVE
 }
 
+// Phase 6B, Part 3 — the platform must not blindly assume every instrument
+// is a crypto spot asset. Only CRYPTO_SPOT is actually used today (see
+// seed.ts); CFD/FOREX/OTHER exist in the enum so a genuinely different
+// instrument shape doesn't force a schema change later, but no row uses
+// them yet — do not read their presence here as "forex is supported."
+enum MarketType {
+  CRYPTO_SPOT
+  CFD
+  FOREX
+  OTHER
+}
+
+// Instrument configuration — the database is authoritative for the
+// supported symbol list, display metadata, precision, and market type
+// (Phase 6B, Part 4). Extended in place rather than replaced with a new
+// table: every existing column/consumer (OrdersService, AdminService,
+// MarketsController) keeps working unchanged; only new, additive,
+// defaulted columns were added.
 model MarketConfig {
   id              String           @id @default(uuid())
-  symbol          String           @unique
+  symbol          String           @unique // TRUST's own symbol, e.g. "BTC/USDT" — see Part 11; providerSymbol below is the separate provider-specific identifier
   dataSource      MarketDataSource
   tradingEnabled  Boolean          @default(true)
   maintenanceMode Boolean          @default(false)
   updatedAt       DateTime         @updatedAt
 
+  // ---- Added Phase 6B ---------------------------------------------------
+  baseAsset           String     @default("")
+  quoteAsset          String     @default("")
+  displayName         String     @default("")
+  marketType          MarketType @default(CRYPTO_SPOT)
+  enabled             Boolean    @default(true) // whether this instrument is offered/listed at all — distinct from tradingEnabled (Part 13: data can be LIVE while trading is DISABLED, or vice versa)
+  pricePrecision      Int        @default(2)
+  quantityPrecision   Int        @default(8)
+  minimumQuantity     Decimal?   @db.Decimal(20, 8)
+  maximumQuantity     Decimal?   @db.Decimal(20, 8)
+  // Phase 6F Checkpoint F — pre-trade risk limits (Part 6). Nullable, same
+  // "absent = not enforced" convention as minimumQuantity/maximumQuantity
+  // above (Checkpoint E Part 16 explicitly rejected inventing a numeric
+  // default for any of these; RiskEngineService treats null as "this check
+  // does not apply to this market," never as a configuration error).
+  // maxOrderNotional: the ceiling on a single order's notional value, in
+  // the market's quote asset. maxPositionQuantity: the ceiling on total
+  // held BASE-asset quantity (existing holdings + this order, for BUY
+  // only — a SELL can only ever reduce holdings) an account may reach.
+  maxOrderNotional    Decimal?   @db.Decimal(20, 8)
+  maxPositionQuantity Decimal?   @db.Decimal(20, 8)
+  // Which MarketDataProvider adapter sources this instrument's quotes
+  // ("GOLDAPI", "SIMULATED"), and that provider's own identifier for it
+  // (Part 11 — explicit symbol mapping, never assumed identical to TRUST's
+  // own `symbol`). Null provider = no data source configured; the Market
+  // Data Service returns UNAVAILABLE for such a symbol, never a fabricated
+  // quote.
+  provider            String?
+  providerSymbol      String?
+  createdAt           DateTime   @default(now())
+
   @@index([symbol])
+  @@index([enabled])
 }
 
 // ---------------------------------------------------------------------------
@@ -864,4 +1086,173 @@ model SupportAssignment {
 
   @@index([ticketId])
   @@index([agentId])
+}
+
+// ---------------------------------------------------------------------------
+// Fixed-Time Options Trading — a SEPARATE product from spot Orders/Positions
+// above. Deliberately its own small domain (own settings singleton, own
+// trade lifecycle) rather than folded into PlatformSettings/Order/Position,
+// per the product requirement that spot trading remain fully independent
+// and unmodified. Reuses everything else: User/Account, LedgerService (same
+// LedgerEntryType values, no new ones needed), IdempotencyKey (via the
+// existing IdempotencyService, scope "options.create"), MarketConfig (an
+// OptionMarket.symbol always matches an existing MarketConfig.symbol — this
+// is how price sourcing is reused via MarketDataService.getQuote() without
+// a second provider-mapping mechanism).
+// ---------------------------------------------------------------------------
+
+// Per-asset options-product configuration, layered on top of an existing
+// MarketConfig row (referenced loosely by symbol, exactly like Order.symbol
+// already does — no FK, resolved dynamically, consistent with the existing
+// pattern). `enabled` is this product's own listing switch, independent of
+// MarketConfig.tradingEnabled (spot) and OptionsSettings.tradingEnabled (the
+// platform-wide options kill switch below) — three independent layers,
+// same "defense in depth" shape RiskEngineService already uses for spot.
+model OptionMarket {
+  id            String   @id @default(uuid())
+  symbol        String   @unique // matches MarketConfig.symbol, e.g. "XAU/USD", "BTC/USDT"
+  enabled       Boolean  @default(false)
+  currency      String   @default("USDT") // stake/settlement currency for this asset's option trades
+  minInvestment Decimal  @default(1) @db.Decimal(20, 8)
+  maxInvestment Decimal? @db.Decimal(20, 8) // null = no per-trade maximum beyond platform-wide limits
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  durations OptionDuration[]
+
+  @@index([enabled])
+}
+
+// One row per (asset, duration) — the admin-configured payout for that
+// specific combination (Part 5: durations are NOT a shared global list,
+// each asset enables its own subset with its own payout).
+model OptionDuration {
+  id              String   @id @default(uuid())
+  optionMarketId  String
+  durationSeconds Int
+  enabled         Boolean  @default(true)
+  payoutPercent   Decimal  @db.Decimal(6, 3) // e.g. 5.000 = 5%
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  optionMarket OptionMarket @relation(fields: [optionMarketId], references: [id], onDelete: Cascade)
+
+  @@unique([optionMarketId, durationSeconds])
+  @@index([optionMarketId])
+}
+
+enum OptionDirection {
+  BUY // predicts expiry price will be HIGHER than entry
+  SELL // predicts expiry price will be LOWER than entry
+}
+
+enum OptionResult {
+  WIN
+  LOSS
+  DRAW
+}
+
+// Deliberately minimal (Part 16: "do not add unnecessary states"). Result
+// determination and ledger settlement happen ATOMICALLY as one step (see
+// options.service.ts) — there is no persisted "WON but not yet settled"
+// state, since that would itself be exactly the kind of partial financial
+// state Part 11/38 forbid. `result` (above) carries WIN/LOSS/DRAW once
+// known; `status` carries lifecycle only.
+enum OptionTradeStatus {
+  ACTIVE // counting down, stake reserved, no result yet
+  SETTLED // terminal — result determined AND ledger entries posted, together
+  UNRESOLVED // expiry reached but an authoritative expiry price could not be
+  // obtained — stake remains reserved, never a fabricated result;
+  // the expiry sweep retries this exactly like ACTIVE (Part 30)
+}
+
+// Demo/test-only result forcing (Part 26). Persisted per-trade — never a
+// global admin dial — so every forced outcome is individually visible and
+// auditable on the trade record itself, and can never be mistaken for an
+// organic market result. NORMAL is the only value the production backend
+// will ever accept (enforced in options.service.ts via NODE_ENV, not by
+// any database-configurable toggle — Part 26 explicitly forbids a hidden
+// mechanism an operator could flip in production).
+enum OptionResultMode {
+  NORMAL
+  FORCE_WIN
+  FORCE_LOSS
+  FORCE_DRAW
+}
+
+model OptionTrade {
+  id        String          @id @default(uuid())
+  userId    String
+  accountId String
+  symbol    String
+  direction OptionDirection
+
+  investment Decimal @db.Decimal(20, 8)
+  currency   String
+
+  durationSeconds       Int
+  payoutPercentSnapshot Decimal @db.Decimal(6, 3) // snapshotted at creation — never recomputed from current config (Part 5)
+
+  entryPrice          Decimal  @db.Decimal(20, 8)
+  entryPriceTimestamp DateTime
+  entrySource         String // provider name, e.g. "Binance", "GoldAPI", "Simulated"
+
+  expiryAt             DateTime
+  expiryPrice          Decimal?  @db.Decimal(20, 8)
+  expiryPriceTimestamp DateTime?
+  expirySource         String?
+
+  result       OptionResult?
+  profitAmount Decimal?          @db.Decimal(20, 8)
+  returnAmount Decimal?          @db.Decimal(20, 8)
+  status       OptionTradeStatus @default(ACTIVE)
+
+  requestedResultMode OptionResultMode @default(NORMAL) // Part 26 — see enum doc
+  rejectionReason     String? // populated only when status = UNRESOLVED
+
+  createdAt DateTime  @default(now())
+  settledAt DateTime?
+
+  user    User    @relation(fields: [userId], references: [id])
+  account Account @relation(fields: [accountId], references: [id])
+
+  @@index([userId])
+  @@index([status])
+  @@index([status, expiryAt])
+  @@index([symbol])
+}
+
+enum SandboxOutcomeMode {
+  RANDOM // default/off — real market-derived outcome, exactly like today
+  FORCE_WIN
+  FORCE_LOSS
+}
+
+// Singleton row (id is always "singleton"), same pattern as PlatformSettings
+// — kept as its own table rather than added to PlatformSettings so the
+// options product's config can evolve independently of spot/deposits/
+// withdrawals/registrations (Part: "separate, clean domain/module").
+// `tradingEnabled` defaults FALSE — a brand-new financial product must never
+// silently go live the moment its migration runs; an admin must explicitly
+// turn it on (see OptionsSettingsService for the enforcement point, mirrored
+// after RiskEngineService's GLOBAL_TRADING_DISABLED check for spot).
+model OptionsSettings {
+  id                     String            @id @default("singleton")
+  tradingEnabled         Boolean           @default(false)
+  maxActiveTradesPerUser Int?
+  maxExposurePerUser     Decimal?          @db.Decimal(20, 8)
+  // Trade Experience checkpoint, Part 8 — a PLATFORM-WIDE admin dial,
+  // distinct from OptionTrade.requestedResultMode (a per-trade, customer-
+  // requested override used by automated tests). Only ever honored when a
+  // given trade did NOT request its own override (see options.service.ts's
+  // settleTrade()) and only ever writable to a non-RANDOM value in
+  // development/test — enforced in OptionsAdminController, the exact same
+  // NODE_ENV allow-list as requestedResultMode. Always exists in the schema
+  // (so GET reads never 404), but is functionally inert everywhere outside
+  // development/test: the write path rejects setting it to anything but
+  // RANDOM there, and settlement independently re-checks NODE_ENV before
+  // ever honoring a non-RANDOM value.
+  sandboxOutcomeMode     SandboxOutcomeMode @default(RANDOM)
+  updatedAt              DateTime          @updatedAt
+  updatedByAdminId       String?
 }

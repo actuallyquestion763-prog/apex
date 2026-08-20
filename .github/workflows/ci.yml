@@ -1,0 +1,149 @@
+name: CI
+
+# Phase 5, Part 27 — build/typecheck/test verification only. This workflow
+# never deploys anything, never touches a production database, and never
+# has access to a production secret: every job here either needs no
+# secrets at all, or talks only to an ephemeral Postgres service container
+# that exists for the lifetime of the run and is destroyed afterward with
+# it. There is deliberately no "deploy" job in this file.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  frontend-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - run: npm run build
+
+  backend-typecheck:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npm run lint
+
+  backend-unit-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npm run test
+
+  prisma-validate:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - run: npx prisma validate
+      - run: npx prisma format --check
+
+  # Real migration validation: applies every committed migration, in order,
+  # as the superuser, to a brand-new Postgres — the same "test against
+  # disposable Postgres first" discipline used locally throughout this
+  # project (see backend/README.md) — then runs the full e2e suite as the
+  # restricted trust_app role, same as the app itself connects in every
+  # environment.
+  backend-e2e-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: devpassword
+          POSTGRES_DB: trust_test
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+
+      - name: Apply migrations as superuser
+        env:
+          DATABASE_URL: postgresql://postgres:devpassword@localhost:5433/trust_test?schema=public
+        run: npx prisma migrate deploy
+
+      - name: Set the trust_app role's password (role is created password-less by migration 20260816085512; see backend/README.md)
+        env:
+          DATABASE_URL: postgresql://postgres:devpassword@localhost:5433/trust_test?schema=public
+        run: |
+          echo "ALTER ROLE trust_app WITH PASSWORD 'change-me-trust-app-dev-password';" > /tmp/alter_role.sql
+          npx prisma db execute --file /tmp/alter_role.sql
+
+      - name: Seed permission definitions (no user/credential is ever seeded — see prisma/seed.ts)
+        env:
+          DATABASE_URL: postgresql://trust_app:change-me-trust-app-dev-password@localhost:5433/trust_test?schema=public
+        run: npx ts-node prisma/seed.ts
+
+      - name: Run e2e suite (connects as trust_app via .env.test, matching local dev exactly)
+        run: npm run test:e2e
+
+  # Lightweight, dependency-free pattern scan for the most common
+  # accidentally-committed-secret shapes. Not a substitute for a real
+  # secret-scanning service (GitHub Advanced Security secret scanning,
+  # gitleaks, etc.) — flagged as RECOMMENDED, not implemented, in the
+  # Phase 5 report; this step is a cheap first line of defense only.
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scan for obvious committed credentials
+        run: |
+          if git grep -InE "postgresql://[^:]+:[^@]{8,}@" -- . \
+              ':(exclude).github/workflows/*' \
+              ':(exclude)backend/.env.example' \
+              ':(exclude)backend/.env.staging.example' \
+              ':(exclude)backend/.env.test' \
+              ':(exclude)*.md'; then
+            echo "::error::Possible committed database credential found (see matched line(s) above)."
+            exit 1
+          fi
+          echo "No obvious committed database credentials found."

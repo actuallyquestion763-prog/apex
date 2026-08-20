@@ -3,7 +3,8 @@ import { useAuth } from './auth'
 import { api, ApiError } from '../lib/api'
 import { loadNotifications, saveNotifications, uid } from './db'
 import type {
-  AccountSummary, LedgerEntry, Order, OrderSide, Position, Deposit, Withdrawal, Notification,
+  AccountSummary, AssetBalance, CashBalance, LedgerEntry, MarketConfig, Order, OrderSide, Position, Deposit, Withdrawal, Notification,
+  ExecutionStatus,
 } from '../types'
 
 // ---- Read hooks ----------------------------------------------------------
@@ -39,6 +40,42 @@ export function useAccountSummary() {
   const { user } = useAuth()
   const { data, loading, error, refetch } = useResource<AccountSummary>(user ? '/accounts/me/summary' : null)
   return { summary: data, loading, error, refetch }
+}
+
+// Currency-specific cash balance (Trade Experience checkpoint, Part 1) —
+// the Trade page uses this instead of the USD-only summary above so a
+// BTC/USDT order shows real USDT availability, never a generic "$" figure.
+// Backend remains authoritative: this is a thin GET, no frontend arithmetic.
+export function useCashBalance(currency: string | null) {
+  const { user } = useAuth()
+  const path = user && currency ? `/accounts/me/balance?currency=${encodeURIComponent(currency)}` : null
+  const { data, loading, error, refetch } = useResource<CashBalance>(path)
+  return { balance: data, loading, error, refetch }
+}
+
+// Spot Holdings Visibility checkpoint — every currency the user actually
+// holds a non-zero balance in, straight from the ledger. No price, no
+// unrealized P&L — the backend never computes either for this endpoint.
+export function useAssetBalances() {
+  const { user } = useAuth()
+  const { data, loading, error, refetch } = useResource<AssetBalance[]>(user ? '/accounts/me/assets' : null)
+  return { assets: data ?? [], loading, error, refetch }
+}
+
+// Real, backend-configured market list (Part 1) — quoteAsset/baseAsset come
+// from here, never hardcoded in a component.
+export function useMarketConfigs() {
+  const { user } = useAuth()
+  const { data, loading, error, refetch } = useResource<MarketConfig[]>(user ? '/markets' : null)
+  return { markets: data ?? [], loading, error, refetch }
+}
+
+// Which ExecutionProvider is actually active (Part 5) — drives the Trade
+// page's environment-aware disclaimer instead of a hardcoded claim.
+export function useExecutionStatus() {
+  const { user } = useAuth()
+  const { data, loading, error } = useResource<ExecutionStatus>(user ? '/execution/status' : null)
+  return { status: data, loading, error }
 }
 
 export function useLedgerHistory(limit = 100) {
@@ -99,10 +136,6 @@ export function submitDeposit(params: { amount: number; method: string }) {
 
 export function submitWithdrawal(params: { amount: number; destination: string }) {
   return post<Withdrawal>('/withdrawals', { amount: String(params.amount), destination: params.destination })
-}
-
-export function submitKyc(providerReference?: string) {
-  return post<{ id: string; status: string }>('/kyc/submit', providerReference ? { providerReference } : {})
 }
 
 // ---- Notifications -----------------------------------------------------------
@@ -183,13 +216,6 @@ export function pushLocalNotification(userId: string, notif: { title: string; bo
 }
 
 // ---- Derived helpers --------------------------------------------------------
-
-// Cosmetic-only referral code derived from the account id. There is no
-// backend referral system in this phase — this is display only, never sent
-// anywhere or treated as a real credential.
-export function cosmeticReferralCode(userId: string): string {
-  return userId.replace(/-/g, '').slice(0, 8).toUpperCase()
-}
 
 // Unrealized P&L for one open position, using the server-provided
 // currentPrice (mark-to-market) — never a client-side price feed. Positions

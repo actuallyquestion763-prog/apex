@@ -3,7 +3,15 @@
 @tailwind utilities;
 
 :root { color-scheme: dark; }
-html, body, #root { height: 100%; }
+/* overflow-x: hidden here is a deliberate, defensive backstop — found via
+   Trade Experience checkpoint browser QA that PriceTicker's animated
+   translateX marquee (see PriceTicker.tsx's `animate-ticker` keyframe),
+   despite having its own overflow-hidden wrapper, intermittently bled into
+   document.documentElement.scrollWidth during the animation cycle, causing
+   real (reproducible 6/6 runs) horizontal page scroll at mobile widths.
+   Nothing in this app needs page-level horizontal scroll — wide content
+   (tables, etc.) already uses its own overflow-x-auto container. */
+html, body, #root { height: 100%; overflow-x: hidden; }
 body {
   @apply bg-ink-950 text-slate-200 font-sans antialiased;
   background-image:

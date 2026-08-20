@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useLocation } from 'react-router-dom'
-import { useAccountSummary, usePositions, useOrders, submitOrder, computePositionPnl } from '../store/useStore'
-import { getPrice, getMarketStatus, SYMBOLS } from '../store/priceFeed'
+import { usePositions, useOrders, submitOrder, computePositionPnl, useCashBalance, useMarketConfigs, useExecutionStatus, useAssetBalances } from '../store/useStore'
+import { getPrice, getMarketStatus, getStats24h, SYMBOLS } from '../store/priceFeed'
 import { useToast } from '../components/Toast'
 import PageHeader from '../components/PageHeader'
 import { CandlestickChart } from '../components/CandlestickChart'
@@ -10,7 +10,8 @@ import { StatusBadge } from '../components/StatusBadge'
 import { PriceChange } from '../components/PriceChange'
 import { EmptyState } from '../components/EmptyState'
 import { PositionCard } from '../components/PositionCard'
-import { Inbox, History, ChevronRight } from 'lucide-react'
+import { SpotHoldings } from '../components/SpotHoldings'
+import { Inbox, History, ChevronRight, AlertTriangle } from 'lucide-react'
 
 function useQuery() { return new URLSearchParams(useLocation().search) }
 
@@ -23,12 +24,20 @@ export default function TradePage() {
   const [submitting, setSubmitting] = useState(false)
   const [, setTick] = useState(0)
 
-  const { summary } = useAccountSummary()
   const { positions, refetch: refetchPositions } = usePositions()
   const { orders, refetch: refetchOrders } = useOrders()
+  const { markets } = useMarketConfigs()
+  const { status: executionStatus } = useExecutionStatus()
+  const { assets, loading: assetsLoading, refetch: refetchAssets } = useAssetBalances()
   const { push } = useToast()
 
   useEffect(() => { setSymbol(defaultSymbol) }, [defaultSymbol])
+
+  // The market's own spend/quote asset (e.g. USDT for BTC/USDT) — resolved
+  // from real backend config, never hardcoded. Falls back to 'USD' only
+  // while the market list hasn't loaded yet (never a guess once it has).
+  const quoteAsset = markets.find((m) => m.symbol === symbol)?.quoteAsset || 'USD'
+  const { balance, refetch: refetchBalance } = useCashBalance(quoteAsset)
 
   // Keep the price ticker live while this page is open. Positions/orders
   // themselves only ever change via a real backend call, not this timer.
@@ -42,7 +51,9 @@ export default function TradePage() {
   const xauBlocked = symbol === 'XAU/USD' && status !== 'live'
   const openPositions = positions.filter(p => p.status === 'OPEN')
   const openPositionForSymbol = openPositions.find(p => p.symbol === symbol)
-  const cash = summary ? Number(summary.cash) : 0
+  const availableBalance = balance ? Number(balance.cash) : 0
+  const enteredAmount = parseFloat(size) || 0
+  const insufficientBalance = enteredAmount > 0 && enteredAmount > availableBalance
 
   async function submit(orderSide: 'BUY' | 'SELL') {
     const s = parseFloat(size)
@@ -59,6 +70,8 @@ export default function TradePage() {
       }
       refetchOrders()
       refetchPositions()
+      refetchBalance()
+      refetchAssets()
     } else {
       push('error', res.error)
     }
@@ -71,7 +84,7 @@ export default function TradePage() {
     <div className="space-y-6">
       <PageHeader
         title="Trade"
-        subtitle="Trade with your account balance — no real funds are involved"
+        subtitle="Trade with your account balance."
         right={<div className="flex items-center gap-2 text-sm text-slate-400">{symbol} <span className="font-mono text-white">${current.toFixed(current < 1 ? 4 : 2)}</span> <StatusBadge status={status} /></div>}
       />
 
@@ -81,6 +94,7 @@ export default function TradePage() {
           <div className="card overflow-hidden p-4">
             <CandlestickChart symbol={symbol} height={360} />
           </div>
+          <Stats24hRow symbol={symbol} />
         </div>
 
         {/* Order panel */}
@@ -112,10 +126,10 @@ export default function TradePage() {
 
           <div className="mb-4 flex items-center justify-between rounded-lg bg-ink-800 px-3 py-2.5 text-xs">
             <span className="text-slate-500">Available balance</span>
-            <span className="font-mono font-semibold text-white">${cash.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+            <span className="font-mono font-semibold text-white">{availableBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {quoteAsset}</span>
           </div>
 
-          <label className="label">Amount (USD)</label>
+          <label className="label">Amount ({quoteAsset})</label>
           <input className="input mb-3" type="number" min="0" value={size} onChange={(e) => setSize(e.target.value)} />
 
           <div className="mb-4 flex items-center justify-between rounded-lg bg-ink-800 px-3 py-2.5 text-xs">
@@ -123,23 +137,33 @@ export default function TradePage() {
             <span className="font-mono text-white">${current.toFixed(current < 1 ? 4 : 2)}</span>
           </div>
 
+          {insufficientBalance && (
+            <div className="mb-4 flex items-start gap-2 rounded-lg border border-bear/30 bg-bear/10 px-3 py-2.5 text-xs text-bear">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span>Insufficient balance: {enteredAmount.toLocaleString()} {quoteAsset} required, {availableBalance.toLocaleString()} {quoteAsset} available.</span>
+            </div>
+          )}
+
           {xauBlocked && (
             <div className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
               XAU/USD trading is unavailable while the market is {status}.
             </div>
           )}
 
-          <div className="mb-4 rounded-lg border border-ink-600 bg-ink-900 px-3 py-2 text-xs text-slate-500">
-            This platform is not yet connected to a broker/exchange. Orders are validated and reserved against your balance for real, then honestly rejected — they will not result in a filled position.
-          </div>
-
           <div className="space-y-3">
-            <button disabled={xauBlocked || submitting} onClick={() => submit('BUY')} className="w-full rounded-xl bg-bull py-3 font-bold text-white transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-40">BUY</button>
-            <button disabled={xauBlocked || submitting} onClick={() => submit('SELL')} className="w-full rounded-xl bg-bear py-3 font-bold text-white transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-40">SELL</button>
+            <button disabled={xauBlocked || insufficientBalance || submitting} onClick={() => submit('BUY')} className="w-full rounded-xl bg-bull py-3 font-bold text-white transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-40">BUY</button>
+            <button disabled={xauBlocked || insufficientBalance || submitting} onClick={() => submit('SELL')} className="w-full rounded-xl bg-bear py-3 font-bold text-white transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-40">SELL</button>
           </div>
-
-          <div className="mt-4 text-xs text-slate-500">No real funds are used — this account is not connected to a real broker or exchange.</div>
         </div>
+      </div>
+
+      {/* Spot Holdings — real, non-zero ledger balances by currency. Not a
+          database Position: no price, no avgEntryPrice, no unrealized P&L.
+          Distinct from "Open Positions" below, which tracks a different
+          (currently unused) derivative-style concept. */}
+      <div className="card overflow-hidden">
+        <div className="border-b border-ink-700/60 px-4 py-3"><h3 className="font-bold text-white">Spot Holdings</h3></div>
+        <SpotHoldings assets={assets} loading={assetsLoading} executionStatus={executionStatus} />
       </div>
 
       {/* Open positions & order history below */}
@@ -147,7 +171,7 @@ export default function TradePage() {
         <div className="card overflow-hidden">
           <div className="border-b border-ink-700/60 px-4 py-3"><h3 className="font-bold text-white">Open Positions</h3></div>
           {positionsWithPnl.length === 0 ? (
-            <EmptyState icon={Inbox} title="No open positions" hint="Not connected to a broker/exchange yet — orders cannot result in a filled position." />
+            <EmptyState icon={Inbox} title="No open positions" hint="A filled spot trade is not lost — see Spot Holdings above for your actual balances." />
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -209,6 +233,27 @@ export default function TradePage() {
           onDismiss={() => setActivePositionId(null)}
         />
       )}
+    </div>
+  )
+}
+
+// Real 24h stats (Phase 6C, Part 10/16) — only ever renders fields the
+// provider actually supplied (Binance does for its pairs; nothing else
+// does yet), never a placeholder or computed value. Renders nothing at all
+// if none are available, rather than a row of dashes.
+function Stats24hRow({ symbol }: { symbol: string }) {
+  const stats = getStats24h(symbol)
+  const hasAny = stats.highPrice != null || stats.lowPrice != null || stats.volume != null || stats.priceChangePercent != null
+  if (!hasAny) return null
+  const fmt = (n: number | null) => (n == null ? null : n < 1 ? n.toFixed(4) : n.toLocaleString(undefined, { maximumFractionDigits: 2 }))
+  return (
+    <div className="mt-3 flex flex-wrap gap-4 rounded-xl border border-ink-700 bg-ink-900/60 px-4 py-3 text-sm">
+      {stats.priceChangePercent != null && (
+        <div><span className="text-slate-500">24h Change </span><span className={`font-mono font-semibold ${stats.priceChangePercent >= 0 ? 'text-bull' : 'text-bear'}`}>{stats.priceChangePercent >= 0 ? '+' : ''}{stats.priceChangePercent.toFixed(2)}%</span></div>
+      )}
+      {stats.highPrice != null && <div><span className="text-slate-500">24h High </span><span className="font-mono text-white">${fmt(stats.highPrice)}</span></div>}
+      {stats.lowPrice != null && <div><span className="text-slate-500">24h Low </span><span className="font-mono text-white">${fmt(stats.lowPrice)}</span></div>}
+      {stats.volume != null && <div><span className="text-slate-500">24h Volume </span><span className="font-mono text-white">{fmt(stats.volume)}</span></div>}
     </div>
   )
 }

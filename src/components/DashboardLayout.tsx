@@ -1,17 +1,21 @@
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useAuth } from '../store/auth'
-import { useAccountSummary } from '../store/useStore'
+import { useCashBalance } from '../store/useStore'
 import { Logo } from './Logo'
 import { NotificationBell } from './NotificationBell'
 import { LiveChat } from './LiveChat'
 import { PriceTicker } from './PriceTicker'
 import { AnnouncementBanner } from './AnnouncementBanner'
-import { LayoutDashboard, Wallet, TrendingUp, ShieldCheck, LogOut, Settings, BarChart2, PieChart, Headset } from 'lucide-react'
+import { LayoutDashboard, Wallet, TrendingUp, ShieldCheck, LogOut, Settings, BarChart2, PieChart, Headset, Timer } from 'lucide-react'
 import BottomNav from './BottomNav'
 
 export function DashboardLayout() {
   const { user, signOut } = useAuth()
-  const { summary } = useAccountSummary()
+  // Header balance is the primary crypto/spot funding currency (USDT), read
+  // from its own real ledger balance — never the USD summary relabeled
+  // (Part 1: fabricating this would misrepresent what a user can actually
+  // trade with).
+  const { balance: usdtBalance } = useCashBalance('USDT')
   const navigate = useNavigate()
   // no sidebar - mobile bottom nav will be used
 
@@ -21,6 +25,7 @@ export function DashboardLayout() {
     { to: '/home', label: 'Home', icon: LayoutDashboard },
     { to: '/markets', label: 'Markets', icon: BarChart2 },
     { to: '/trade', label: 'Trade', icon: TrendingUp },
+    { to: '/options', label: 'Options', icon: Timer },
     { to: '/assets', label: 'Assets', icon: PieChart },
     { to: '/wallet', label: 'Wallet', icon: Wallet },
     { to: '/kyc', label: 'Verification', icon: ShieldCheck },
@@ -53,8 +58,8 @@ export function DashboardLayout() {
           </div>
           <div className="flex items-center gap-3">
             <div className="hidden sm:block text-right">
-              <p className="text-xs text-slate-500">Balance</p>
-              <p className="font-mono text-sm font-bold text-white">{summary ? `$${Number(summary.cash).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}</p>
+              <p className="text-xs text-slate-500">USDT Balance</p>
+              <p className="font-mono text-sm font-bold text-white">{usdtBalance ? `${Number(usdtBalance.cash).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT` : '—'}</p>
             </div>
             <NotificationBell />
             <Link to="/profile" className="hidden items-center gap-3 rounded-lg px-2 py-1 transition hover:bg-ink-800 md:flex" aria-label="Open profile">

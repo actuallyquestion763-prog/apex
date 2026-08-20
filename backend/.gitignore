@@ -2,10 +2,13 @@ node_modules/
 dist/
 
 # Env files: ignore every .env* variant except the checked-in placeholder
-# template. Order matters — the negation must come after the broad pattern.
+# templates. Order matters — negations must come after the broad pattern.
+# .env.staging (filled in) is ignored; .env.staging.example (template,
+# Phase 5 Part 26) is committed, same pattern as .env.example.
 .env
 .env.*
 !.env.example
+!.env.staging.example
 
 # Local/ephemeral PostgreSQL data directories (real database files — the
 # persistent dev instance and the disposable e2e-test instance). Never
@@ -16,6 +19,11 @@ dist/
 # Local CMS media storage backend (dev-only — see src/cms/media-storage.service.ts).
 # Uploaded file bytes, not metadata (metadata lives in Postgres, CmsMedia).
 uploads/
+
+# Backup/restore drill artifact (Phase 5, Part 29 — scripts/backup-restore-drill.ts
+# removes this itself on a normal run; ignored as a safety net for an
+# interrupted run). Never a real backup of trust_dev.
+.backup-drill.json
 
 # Database dumps / exports / local db files. Deliberately NOT a bare
 # "*.sql" rule — that would also match backend/prisma/migrations/**/*.sql,

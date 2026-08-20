@@ -1,8 +1,9 @@
 import { Link } from 'react-router-dom'
 import { useAuth } from '../store/auth'
-import { useAccountSummary, usePositions, computePositionPnl, cosmeticReferralCode } from '../store/useStore'
+import { useAccountSummary, usePositions, computePositionPnl, useCashBalance, useAssetBalances, useExecutionStatus } from '../store/useStore'
 import MarketPrice from '../components/MarketPrice'
 import MarketOverview from '../components/MarketOverview'
+import { SpotHoldings } from '../components/SpotHoldings'
 import { getPrice } from '../store/priceFeed'
 import { useToast } from '../components/Toast'
 import { AssetIcon } from '../components/AssetIcon'
@@ -15,6 +16,12 @@ const TRENDING = ['BTC/USDT', 'ETH/USDT', 'XAU/USD', 'SOL/USDT']
 export function DashboardPage() {
   const { user } = useAuth()
   const { summary, loading, error } = useAccountSummary()
+  // Spot Balance — the primary crypto/spot funding currency, read from its
+  // own real USDT ledger balance. Never derived from the USD summary below
+  // (Part 2: showing USD as USDT here would be financially incorrect).
+  const { balance: usdtBalance, loading: usdtLoading } = useCashBalance('USDT')
+  const { assets, loading: assetsLoading } = useAssetBalances()
+  const { status: executionStatus } = useExecutionStatus()
   const { positions } = usePositions()
   const { push } = useToast()
 
@@ -22,8 +29,9 @@ export function DashboardPage() {
   const cash = summary ? Number(summary.cash) : 0
   const equity = summary ? Number(summary.equity) : 0
   const unrealizedPnl = summary ? Number(summary.unrealizedPnl) : 0
+  const usdtCash = usdtBalance ? Number(usdtBalance.cash) : 0
 
-  const referralCode = user ? cosmeticReferralCode(user.id) : ''
+  const referralCode = user?.referralCode ?? ''
 
   return (
     <div className="space-y-6">
@@ -42,12 +50,27 @@ export function DashboardPage() {
         <div className="rounded-xl border border-bear/30 bg-bear/5 px-4 py-3 text-sm text-bear">{error}</div>
       )}
 
-      {/* Account summary */}
+      {/* Spot Balance — primary crypto/spot funding currency (USDT) */}
+      <div className="rounded-2xl border border-ocean-500/20 bg-gradient-to-br from-ocean-600/20 via-ink-850 to-ink-850 p-6">
+        <p className="text-xs font-medium uppercase tracking-wide text-ocean-300">Spot Balance</p>
+        <p className="mt-2 font-mono text-3xl font-bold text-white">{usdtLoading ? '—' : `${usdtCash.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT`}</p>
+        <p className="mt-1 text-xs text-slate-500">The funding currency for BTC/USDT, ETH/USDT, and other crypto/spot trades.</p>
+      </div>
+
+      {/* USD account summary — a separate balance from Spot Balance above;
+          not used for crypto/spot trading. */}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <SummaryCard label="Balance" value={cash} loading={loading} />
-        <SummaryCard label="Equity" value={equity} hint="Balance + unrealized P&L" loading={loading} />
-        <SummaryCard label="Available Balance" value={cash} loading={loading} />
-        <SummaryCard label="Unrealized P&L" value={unrealizedPnl} signed loading={loading} />
+        <SummaryCard label="USD Balance" value={cash} loading={loading} />
+        <SummaryCard label="USD Equity" value={equity} hint="Balance + unrealized P&L" loading={loading} />
+        <SummaryCard label="USD Available Balance" value={cash} loading={loading} />
+        <SummaryCard label="Unrealized P&L (USD)" value={unrealizedPnl} signed loading={loading} />
+      </div>
+
+      {/* Spot Holdings — ledger-derived, same component/architecture as
+          TradePage/AssetsPage (Part 2: reuse, never duplicate). */}
+      <div className="card overflow-hidden">
+        <div className="border-b border-ink-700/60 px-5 py-4"><h3 className="font-bold text-white">Spot Holdings</h3></div>
+        <SpotHoldings assets={assets} loading={assetsLoading} executionStatus={executionStatus} />
       </div>
 
       {/* Quick actions */}

@@ -64,6 +64,12 @@ describe('LedgerService', () => {
     const fakeTx = { id: 'tx-1', entries: [] }
     prisma.$transaction.mockImplementation(async (cb: any) => cb({
       ledgerTransaction: { create: jest.fn().mockResolvedValue(fakeTx) },
+      ledgerAccount: {
+        findMany: jest.fn().mockResolvedValue([
+          { id: 'suspense', currency: 'USD' },
+          { id: 'cash', currency: 'USD' },
+        ]),
+      },
     }))
 
     const result = await service.postTransaction({
@@ -80,6 +86,31 @@ describe('LedgerService', () => {
     )
     expect(prisma.$transaction).toHaveBeenCalledTimes(1)
     expect(result).toEqual(fakeTx)
+  })
+
+  it('rejects an entry whose currency does not match its target LedgerAccount, without creating the transaction row', async () => {
+    const create = jest.fn()
+    prisma.$transaction.mockImplementation(async (cb: any) => cb({
+      ledgerTransaction: { create },
+      ledgerAccount: {
+        // 'cash' is a USD account; the entry below claims BTC.
+        findMany: jest.fn().mockResolvedValue([
+          { id: 'suspense', currency: 'BTC' },
+          { id: 'cash', currency: 'USD' },
+        ]),
+      },
+    }))
+
+    await expect(
+      service.postTransaction({
+        description: 'mismatched currency',
+        entries: [
+          { ledgerAccountId: 'suspense', direction: 'DEBIT', amount: 1, currency: 'BTC', entryType: 'DEPOSIT' },
+          { ledgerAccountId: 'cash', direction: 'CREDIT', amount: 1, currency: 'BTC', entryType: 'DEPOSIT' },
+        ],
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException)
+    expect(create).not.toHaveBeenCalled()
   })
 
   it('is idempotent: a repeated idempotencyKey returns the existing transaction without posting again', async () => {

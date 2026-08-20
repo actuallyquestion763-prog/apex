@@ -11,12 +11,16 @@ export const PERMISSIONS = [
   'kyc.review',
   'deposits.read',
   'deposits.review',
+  'crypto_deposits.read',
+  'crypto_deposits.control', // receiving-address/asset/network configuration — a distinct, more sensitive capability than day-to-day deposit approval (deposits.review)
   'withdrawals.read',
   'withdrawals.review',
   'trading.read',
   'trading.control',
   'markets.read',
   'markets.control',
+  'options.read',
+  'options.control',
   'ledger.read',
   'ledger.adjust', // not in the original example list — financial adjustments need a distinct permission from read-only ledger.read; added here rather than silently reusing an unrelated key
   'audit.read',

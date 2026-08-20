@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Param, Patch, Post, StreamableFile, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common'
+import { Throttle } from '@nestjs/throttler'
 import { FileInterceptor } from '@nestjs/platform-express'
 import { createReadStream } from 'fs'
 import { SupportService } from './support.service'
@@ -6,6 +7,7 @@ import { CreateTicketDto, CreateMessageDto, AttachmentBodyDto, MarkNotifications
 import { SessionAuthGuard } from '../common/guards/session-auth.guard'
 import { CurrentUser } from '../common/decorators/current-user.decorator'
 import type { AuthenticatedUser } from '../common/types/authenticated-user'
+import { SUPPORT_CREATE_THROTTLE, MEDIA_UPLOAD_THROTTLE } from '../common/rate-limits'
 
 interface UploadedFileLike {
   originalname: string
@@ -32,6 +34,7 @@ export class SupportController {
   }
 
   @Post('tickets')
+  @Throttle(SUPPORT_CREATE_THROTTLE)
   createTicket(@CurrentUser() user: AuthenticatedUser, @Body() dto: CreateTicketDto) {
     return this.support.createTicket(user.id, dto)
   }
@@ -52,6 +55,7 @@ export class SupportController {
   }
 
   @Post('tickets/:id/attachments')
+  @Throttle(MEDIA_UPLOAD_THROTTLE)
   @UseInterceptors(FileInterceptor('file'))
   addAttachment(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @UploadedFile() file: UploadedFileLike, @Body() dto: AttachmentBodyDto) {
     return this.support.addAttachmentAsCustomer(user.id, id, file, dto.body)

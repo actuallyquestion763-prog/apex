@@ -14,9 +14,10 @@ import { KycModule } from '../kyc/kyc.module'
 import { SecurityModule } from '../common/security/security.module'
 import { CmsModule } from '../cms/cms.module'
 import { SupportModule } from '../support/support.module'
+import { OrdersModule } from '../orders/orders.module'
 
 @Module({
-  imports: [LedgerModule, AccountsModule, AuditModule, PlatformSettingsModule, MarketsModule, DepositsModule, WithdrawalsModule, KycModule, SecurityModule, CmsModule, SupportModule],
+  imports: [LedgerModule, AccountsModule, AuditModule, PlatformSettingsModule, MarketsModule, DepositsModule, WithdrawalsModule, KycModule, SecurityModule, CmsModule, SupportModule, OrdersModule],
   providers: [AdminService],
   controllers: [AdminController, AdminCmsController, AdminSupportController],
 })

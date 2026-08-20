@@ -54,6 +54,61 @@ export class AccountsService {
     }
   }
 
+  // Currency-specific cash balance (Trade Experience checkpoint, Part 1) —
+  // deliberately NOT folded into getFinancialSummary() above: that method's
+  // existing USD-only shape is depended on by Profile/Dashboard/Wallet
+  // already, and equity/unrealizedPnl there are USD-denominated concepts
+  // that don't generalize cleanly to "equity in an arbitrary currency". A
+  // market's quote/spend asset (e.g. USDT for BTC/USDT) is a completely
+  // independent LedgerAccount from the USD one — see ledger.service.ts's
+  // per-(account,currency) uniqueness — so the Trade page needs its own
+  // lightweight, explicitly-currency-scoped read.
+  async getCashBalance(userId: string, currency: string) {
+    const account = await this.getPrimaryAccount(userId)
+    const balances = await this.ledger.getAccountBalances(account.id, currency)
+    return {
+      accountId: account.id,
+      currency,
+      cash: balances.cash.toString(),
+      reserved: balances.reserved.toString(),
+    }
+  }
+
+  // Spot Holdings Visibility checkpoint — every currency the user has ever
+  // touched, with a non-zero CASH+RESERVED balance. Deliberately reads only
+  // LedgerAccount rows that ALREADY EXIST (`findMany`, never
+  // getOrCreateUserLedgerAccounts) and aggregates existing LedgerEntry rows
+  // — this method cannot create a LedgerAccount, LedgerEntry, or
+  // LedgerTransaction under any circumstance, matching this checkpoint's
+  // "display/read-only from a financial perspective" requirement. No price,
+  // no unrealized P&L, no Position read — the ledger balance IS the figure.
+  async listNonZeroAssetBalances(userId: string) {
+    const account = await this.getPrimaryAccount(userId)
+    const ledgerAccounts = await this.prisma.ledgerAccount.findMany({
+      where: { accountId: account.id, type: { in: ['CASH', 'RESERVED'] } },
+    })
+
+    const byCurrency = new Map<string, { cashId?: string; reservedId?: string }>()
+    for (const la of ledgerAccounts) {
+      const entry = byCurrency.get(la.currency) ?? {}
+      if (la.type === 'CASH') entry.cashId = la.id
+      else entry.reservedId = la.id
+      byCurrency.set(la.currency, entry)
+    }
+
+    const results: { currency: string; cash: string; reserved: string; total: string }[] = []
+    for (const [currency, ids] of byCurrency) {
+      const cash = ids.cashId ? await this.ledger.getLedgerAccountBalance(ids.cashId) : new Decimal(0)
+      const reserved = ids.reservedId ? await this.ledger.getLedgerAccountBalance(ids.reservedId) : new Decimal(0)
+      const total = cash.plus(reserved)
+      if (!total.isZero()) {
+        results.push({ currency, cash: cash.toString(), reserved: reserved.toString(), total: total.toString() })
+      }
+    }
+
+    return results.sort((a, b) => a.currency.localeCompare(b.currency))
+  }
+
   // Read-only transaction history for the authenticated user's own account —
   // every LedgerEntry across their CASH/RESERVED ledger accounts, newest
   // first. The frontend displays this as-is; it does not recompute or

@@ -14,6 +14,25 @@ export class AccountsController {
     return this.accountsService.getFinancialSummary(user.id)
   }
 
+  // Currency-specific balance (Trade Experience checkpoint, Part 1) — the
+  // Trade page uses this instead of /me/summary's USD-only cash figure so a
+  // BTC/USDT order shows USDT availability, not an unrelated USD number.
+  @Get('me/balance')
+  getMyBalance(@CurrentUser() user: AuthenticatedUser, @Query('currency') currency?: string) {
+    const normalized = (currency ?? 'USD').trim().toUpperCase().slice(0, 32) || 'USD'
+    return this.accountsService.getCashBalance(user.id, normalized)
+  }
+
+  // Spot Holdings Visibility checkpoint — every currency the authenticated
+  // user actually holds a non-zero balance in. Scoped to @CurrentUser()
+  // only, exactly like every other /me/* route here — there is no
+  // userId-accepting variant of this endpoint anywhere, so one user can
+  // never request another's holdings.
+  @Get('me/assets')
+  getMyAssets(@CurrentUser() user: AuthenticatedUser) {
+    return this.accountsService.listNonZeroAssetBalances(user.id)
+  }
+
   @Get('me/ledger')
   getMyLedger(@CurrentUser() user: AuthenticatedUser, @Query('limit') limit?: string) {
     return this.accountsService.getLedgerHistory(user.id, limit ? Number(limit) : undefined)

@@ -23,6 +23,7 @@ import { PrismaClient as RealPrismaClient } from '@prisma/client'
 import * as argon2 from 'argon2'
 import * as readline from 'readline'
 import { generateTotpSecret, buildOtpAuthUrl, verifyTotpCode } from '../src/auth/totp.util'
+import { generateReferralCode } from '../src/auth/referral-code.util'
 
 export interface BootstrapIO {
   ask(question: string): Promise<string>
@@ -123,6 +124,7 @@ export async function runBootstrap(prisma: PrismaClient, io: BootstrapIO): Promi
       data: {
         email, passwordHash, fullName,
         role: 'SUPER_ADMIN', status: 'ACTIVE', kycStatus: 'VERIFIED', twoFactorEnabled: true,
+        referralCode: generateReferralCode(),
       },
     })
     await tx.account.create({ data: { userId: user.id } })

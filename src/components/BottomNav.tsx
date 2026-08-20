@@ -1,11 +1,12 @@
 import React from 'react'
 import { NavLink } from 'react-router-dom'
-import { Home, BarChart2, Repeat, PieChart, CircleUserRound } from 'lucide-react'
+import { Home, BarChart2, Repeat, Timer, PieChart, CircleUserRound } from 'lucide-react'
 
 const TABS = [
   { to: '/home', label: 'Home', icon: Home },
   { to: '/markets', label: 'Markets', icon: BarChart2 },
   { to: '/trade', label: 'Trade', icon: Repeat },
+  { to: '/options', label: 'Options', icon: Timer },
   { to: '/assets', label: 'Assets', icon: PieChart },
   { to: '/profile', label: 'Mine', icon: CircleUserRound },
 ]

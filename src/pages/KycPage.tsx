@@ -1,101 +1,126 @@
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 import { useAuth } from '../store/auth'
-import { submitKyc, pushLocalNotification } from '../store/useStore'
+import { useKycMine, submitKyc } from '../store/useKyc'
+import { KycDocumentUpload } from '../components/kyc/KycDocumentUpload'
 import { useToast } from '../components/Toast'
-import { ShieldCheck, Upload, FileCheck2, Clock, CheckCircle2, XCircle, IdCard, AlertCircle } from 'lucide-react'
+import type { KycIdType } from '../types'
+import { ShieldCheck, Clock, CheckCircle2, XCircle, AlertCircle } from 'lucide-react'
+
+const ID_TYPES: { value: KycIdType; label: string; needsBack: boolean }[] = [
+  { value: 'NATIONAL_ID', label: 'National ID card', needsBack: true },
+  { value: 'PASSPORT', label: 'Passport', needsBack: false },
+  { value: 'DRIVERS_LICENSE', label: "Driver's license", needsBack: true },
+]
 
 export function KycPage() {
   const { user, refresh } = useAuth()
+  const { verification, loading: statusLoading, refetch } = useKycMine()
   const { push } = useToast()
-  const [front, setFront] = useState<string | null>(null)
-  const [back, setBack] = useState<string | null>(null)
-  const [submitting, setSubmitting] = useState(false)
-  const frontRef = useRef<HTMLInputElement>(null)
-  const backRef = useRef<HTMLInputElement>(null)
 
-  function handleFile(file: File | undefined, setter: (v: string) => void) {
-    if (!file) return
-    if (file.size > 5_000_000) { push('error', 'File too large. Max 5MB.'); return }
-    const reader = new FileReader()
-    reader.onload = () => setter(reader.result as string)
-    reader.readAsDataURL(file)
-  }
+  const [fullName, setFullName] = useState('')
+  const [dateOfBirth, setDateOfBirth] = useState('')
+  const [country, setCountry] = useState('')
+  const [idType, setIdType] = useState<KycIdType>('NATIONAL_ID')
+  const [idNumber, setIdNumber] = useState('')
+  const [front, setFront] = useState<File | null>(null)
+  const [back, setBack] = useState<File | null>(null)
+  const [selfie, setSelfie] = useState<File | null>(null)
+  const [submitting, setSubmitting] = useState(false)
+
+  const status = user?.kycStatus ?? 'NOT_STARTED'
+  const selectedIdType = ID_TYPES.find((t) => t.value === idType)!
+  const canSubmit = status === 'NOT_STARTED' || status === 'REJECTED' || status === 'EXPIRED'
 
   async function submit() {
-    if (!front || !back) { push('error', 'Upload both the front and back of your ID.'); return }
+    if (!fullName.trim() || !dateOfBirth || !country.trim() || !idNumber.trim()) {
+      push('error', 'Fill in all identity fields.')
+      return
+    }
+    if (!front) { push('error', 'Upload the front of your ID.'); return }
+    if (selectedIdType.needsBack && !back) { push('error', 'Upload the back of your ID.'); return }
+    if (!selfie) { push('error', 'Upload a verification selfie.'); return }
+
     setSubmitting(true)
-    // Document images are previewed locally only — this platform is not yet
-    // connected to a real identity-verification provider, so no document
-    // data is uploaded or stored anywhere. Submitting only records that a
-    // verification request exists, for admin status tracking.
-    const res = await submitKyc()
+    const res = await submitKyc({ fullName: fullName.trim(), dateOfBirth, country: country.trim(), idType, idNumber: idNumber.trim(), front, back: selectedIdType.needsBack ? back : null, selfie })
     setSubmitting(false)
     if (res.ok) {
-      push('success', 'Verification request submitted. This is a status-tracking placeholder until a real KYC provider is connected.')
-      if (user) pushLocalNotification(user.id, { title: 'KYC submitted', body: 'Your verification request is under review.', kind: 'kyc' })
-      await refresh()
+      push('success', 'Verification submitted. Our team will review it shortly.')
+      setFront(null); setBack(null); setSelfie(null)
+      await Promise.all([refresh(), refetch()])
     } else {
       push('error', res.error)
     }
   }
 
-  const status = user?.kycStatus ?? 'NOT_STARTED'
-
   return (
     <div className="space-y-6">
       {/* Status banner */}
-      <div className={`rounded-2xl border p-6 ${status === 'VERIFIED' ? 'border-bull/30 bg-bull/5' : status === 'PENDING' ? 'border-gold-500/30 bg-gold-500/5' : status === 'REJECTED' ? 'border-bear/30 bg-bear/5' : 'border-ink-600 bg-ink-850'}`}>
+      <div className={`rounded-2xl border p-6 ${status === 'VERIFIED' ? 'border-bull/30 bg-bull/5' : status === 'PENDING' ? 'border-gold-500/30 bg-gold-500/5' : status === 'REJECTED' || status === 'EXPIRED' ? 'border-bear/30 bg-bear/5' : 'border-ink-600 bg-ink-850'}`}>
         <div className="flex items-center gap-4">
-          {status === 'VERIFIED' ? <CheckCircle2 className="h-10 w-10 text-bull" /> : status === 'PENDING' ? <Clock className="h-10 w-10 text-gold-400" /> : status === 'REJECTED' ? <XCircle className="h-10 w-10 text-bear" /> : <ShieldCheck className="h-10 w-10 text-ocean-400" />}
+          {status === 'VERIFIED' ? <CheckCircle2 className="h-10 w-10 text-bull" /> : status === 'PENDING' ? <Clock className="h-10 w-10 text-gold-400" /> : status === 'REJECTED' || status === 'EXPIRED' ? <XCircle className="h-10 w-10 text-bear" /> : <ShieldCheck className="h-10 w-10 text-ocean-400" />}
           <div>
             <h3 className="text-lg font-bold text-white">
-              {status === 'VERIFIED' ? 'Identity verified' : status === 'PENDING' ? 'Verification in progress' : status === 'REJECTED' ? 'Verification rejected' : 'Verify your identity'}
+              {status === 'VERIFIED' ? 'Identity verified' : status === 'PENDING' ? 'Verification in progress' : status === 'REJECTED' ? 'Verification rejected' : status === 'EXPIRED' ? 'Verification expired' : 'Verify your identity'}
             </h3>
             <p className="text-sm text-slate-400">
-              {status === 'VERIFIED' ? 'Your account is fully verified. You have access to all features.' : status === 'PENDING' ? 'Your request is under review by an admin. This is a status-tracking placeholder — no real identity-verification provider is connected yet.' : status === 'REJECTED' ? 'Your verification request was rejected. You may submit again.' : 'This platform is not yet connected to a real identity-verification provider. Submitting here only records a status-tracking request for admin review.'}
+              {status === 'VERIFIED' ? 'Your account is fully verified.' : status === 'PENDING' ? 'Your submission is under review by our team.' : status === 'REJECTED' ? 'Your verification request was rejected — see the reason below. You may submit again.' : status === 'EXPIRED' ? 'Your verification has expired. Please submit again.' : 'Submit your identity document to unlock full account features.'}
             </p>
           </div>
         </div>
+        {!statusLoading && verification?.rejectionReason && (status === 'REJECTED' || status === 'EXPIRED') && (
+          <div className="mt-4 flex items-start gap-2 rounded-xl border border-bear/20 bg-bear/5 p-4 text-sm text-slate-300">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-bear" />
+            <div>
+              <p className="font-medium text-bear">Rejection reason</p>
+              <p className="mt-0.5 text-slate-400">{verification.rejectionReason}</p>
+            </div>
+          </div>
+        )}
       </div>
 
-      {status !== 'VERIFIED' && (
-        <div className="grid gap-6 lg:grid-cols-2">
-          <div className="card p-6">
-            <h3 className="flex items-center gap-2 font-bold text-white"><IdCard className="h-5 w-5 text-gold-400" /> ID Front</h3>
-            <p className="mt-1 text-sm text-slate-400">Preview only — not uploaded or stored anywhere.</p>
-            <input ref={frontRef} type="file" accept="image/*" className="hidden" onChange={(e) => handleFile(e.target.files?.[0], setFront)} />
-            <div onClick={() => frontRef.current?.click()} className="mt-4 flex min-h-[200px] cursor-pointer flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-ink-600 bg-ink-900 p-6 transition hover:border-gold-500/50">
-              {front ? (
-                <div className="w-full"><img src={front} alt="ID front" className="mx-auto max-h-48 rounded-lg" /><p className="mt-2 flex items-center justify-center gap-1.5 text-sm text-bull"><FileCheck2 className="h-4 w-4" /> Selected — click to replace</p></div>
-              ) : (
-                <><Upload className="h-8 w-8 text-slate-500" /><p className="text-sm text-slate-500">Click to select front of ID</p><p className="text-xs text-slate-600">JPG, PNG · Max 5MB</p></>
-              )}
-            </div>
-          </div>
-
-          <div className="card p-6">
-            <h3 className="flex items-center gap-2 font-bold text-white"><IdCard className="h-5 w-5 text-gold-400" /> ID Back</h3>
-            <p className="mt-1 text-sm text-slate-400">Preview only — not uploaded or stored anywhere.</p>
-            <input ref={backRef} type="file" accept="image/*" className="hidden" onChange={(e) => handleFile(e.target.files?.[0], setBack)} />
-            <div onClick={() => backRef.current?.click()} className="mt-4 flex min-h-[200px] cursor-pointer flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-ink-600 bg-ink-900 p-6 transition hover:border-gold-500/50">
-              {back ? (
-                <div className="w-full"><img src={back} alt="ID back" className="mx-auto max-h-48 rounded-lg" /><p className="mt-2 flex items-center justify-center gap-1.5 text-sm text-bull"><FileCheck2 className="h-4 w-4" /> Selected — click to replace</p></div>
-              ) : (
-                <><Upload className="h-8 w-8 text-slate-500" /><p className="text-sm text-slate-500">Click to select back of ID</p><p className="text-xs text-slate-600">JPG, PNG · Max 5MB</p></>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {status !== 'VERIFIED' && (
+      {canSubmit && (
         <>
+          <div className="card grid gap-4 p-6 sm:grid-cols-2">
+            <div className="sm:col-span-2"><h3 className="font-bold text-white">Identity information</h3></div>
+            <div>
+              <label className="label">Full legal name</label>
+              <input className="input" value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="As shown on your ID" />
+            </div>
+            <div>
+              <label className="label" htmlFor="kyc-dob">Date of birth</label>
+              <input id="kyc-dob" className="input" type="date" value={dateOfBirth} onChange={(e) => setDateOfBirth(e.target.value)} />
+            </div>
+            <div>
+              <label className="label">Country</label>
+              <input className="input" value={country} onChange={(e) => setCountry(e.target.value)} placeholder="Country of residence" />
+            </div>
+            <div>
+              <label className="label" htmlFor="kyc-id-type">ID type</label>
+              <select id="kyc-id-type" className="input" value={idType} onChange={(e) => { setIdType(e.target.value as KycIdType); setBack(null) }}>
+                {ID_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+              </select>
+            </div>
+            <div className="sm:col-span-2">
+              <label className="label">ID number</label>
+              <input className="input font-mono" value={idNumber} onChange={(e) => setIdNumber(e.target.value)} placeholder="Document number" />
+            </div>
+          </div>
+
+          <div className={`grid gap-6 ${selectedIdType.needsBack ? 'lg:grid-cols-3' : 'lg:grid-cols-2'}`}>
+            <div className="card p-6"><KycDocumentUpload label={selectedIdType.needsBack ? 'Front of ID' : 'ID document'} file={front} onSelect={setFront} /></div>
+            {selectedIdType.needsBack && (
+              <div className="card p-6"><KycDocumentUpload label="Back of ID" file={back} onSelect={setBack} /></div>
+            )}
+            <div className="card p-6"><KycDocumentUpload label="Selfie / verification photo" file={selfie} onSelect={setSelfie} /></div>
+          </div>
+
           <div className="flex items-start gap-3 rounded-xl border border-ocean-500/20 bg-ocean-500/5 p-4 text-sm text-slate-400">
             <AlertCircle className="h-5 w-5 shrink-0 text-ocean-400" />
-            <p>This platform has no real identity-verification provider connected in this phase. Document images are previewed in your browser only and are never uploaded or stored — submitting only creates a status-tracking request for an admin to approve or reject.</p>
+            <p>Your documents are stored securely and are only visible to you and authorized reviewers. This platform has no real identity-verification provider connected — every submission is reviewed manually by our team.</p>
           </div>
-          <button onClick={submit} disabled={submitting || status === 'PENDING' || (!front || !back)} className="btn-gold py-3 px-8">
-            {submitting ? 'Submitting…' : status === 'PENDING' ? 'Already pending' : 'Submit for verification'}
+
+          <button onClick={submit} disabled={submitting} className="btn-gold py-3 px-8">
+            {submitting ? 'Submitting…' : 'Submit for verification'}
           </button>
         </>
       )}

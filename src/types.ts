@@ -18,8 +18,31 @@ export interface User {
   status: AccountStatus
   kycStatus: KycStatus
   twoFactorEnabled: boolean
+  referralCode: string
   createdAt: string
   updatedAt: string
+}
+
+export type KycIdType = 'NATIONAL_ID' | 'PASSPORT' | 'DRIVERS_LICENSE'
+export type KycDocumentKind = 'FRONT' | 'BACK' | 'SELFIE'
+
+export interface KycDocumentSummary {
+  id: string
+  kind: KycDocumentKind
+}
+
+export interface KycVerificationSummary {
+  id: string
+  status: KycStatus
+  fullName: string | null
+  dateOfBirth: string | null
+  country: string | null
+  idType: KycIdType | null
+  idNumber: string | null
+  submittedAt: string
+  reviewedAt: string | null
+  rejectionReason: string | null
+  documents: KycDocumentSummary[]
 }
 
 export interface AccountSummary {
@@ -97,6 +120,14 @@ export interface Deposit {
   status: DepositStatus
   createdAt: string
   confirmedAt: string | null
+  // Checkpoint K — populated only when method === 'CRYPTO'. Snapshotted at
+  // creation (Part 15) — never re-derived from current admin configuration.
+  cryptoAssetSymbol: string | null
+  networkCode: string | null
+  receivingAddress: string | null
+  proofFilename: string | null
+  proofMimeType: string | null
+  proofSize: number | null
 }
 
 export type WithdrawalStatus = 'PENDING' | 'REVIEW' | 'APPROVED' | 'PROCESSING' | 'COMPLETED' | 'REJECTED'
@@ -114,12 +145,43 @@ export interface Withdrawal {
 
 export type MarketDataSource = 'LIVE' | 'SIMULATED'
 
+export type MarketType = 'CRYPTO_SPOT' | 'CFD' | 'FOREX' | 'OTHER'
+
 export interface MarketConfig {
   id: string
   symbol: string
   dataSource: MarketDataSource
   tradingEnabled: boolean
   maintenanceMode: boolean
+  // ---- Phase 6B ----
+  baseAsset: string
+  quoteAsset: string
+  displayName: string
+  marketType: MarketType
+  enabled: boolean
+  pricePrecision: number
+  quantityPrecision: number
+  provider: string | null
+  providerSymbol: string | null
+}
+
+export interface CashBalance {
+  accountId: string
+  currency: string
+  cash: string
+  reserved: string
+}
+
+export interface AssetBalance {
+  currency: string
+  cash: string
+  reserved: string
+  total: string
+}
+
+export interface ExecutionStatus {
+  provider: 'Fake' | 'BinanceSandbox' | 'Disabled'
+  message: string
 }
 
 export interface PlatformSettings {
@@ -302,4 +364,90 @@ export interface SupportTicket {
   user?: { id: ID; email: string; fullName: string; kycStatus?: KycStatus }
   assignedAgent?: { id: ID; email: string; fullName: string } | null
   messages?: SupportMessage[]
+}
+
+// ---------------------------------------------------------------------------
+// Fixed-Time Options Trading — a separate product from spot Orders/Positions
+// above. See backend/src/options/ for the authoritative implementation;
+// nothing here computes a price, a result, or a payout — every field is
+// exactly what the backend returned.
+// ---------------------------------------------------------------------------
+
+export interface OptionDurationConfig {
+  durationSeconds: number
+  payoutPercent: string
+}
+
+export interface OptionMarketConfig {
+  symbol: string
+  displayName: string
+  currency: string
+  minInvestment: string
+  maxInvestment: string | null
+  durations: OptionDurationConfig[]
+}
+
+export type OptionDirection = 'BUY' | 'SELL'
+export type OptionResult = 'WIN' | 'LOSS' | 'DRAW'
+export type OptionTradeStatus = 'ACTIVE' | 'SETTLED' | 'UNRESOLVED'
+export type OptionResultMode = 'NORMAL' | 'FORCE_WIN' | 'FORCE_LOSS' | 'FORCE_DRAW'
+
+export interface OptionTrade {
+  id: ID
+  userId: ID
+  accountId: ID
+  symbol: string
+  direction: OptionDirection
+  investment: string
+  currency: string
+  durationSeconds: number
+  payoutPercentSnapshot: string
+  entryPrice: string
+  entryPriceTimestamp: string
+  entrySource: string
+  expiryAt: string
+  expiryPrice: string | null
+  expiryPriceTimestamp: string | null
+  expirySource: string | null
+  result: OptionResult | null
+  profitAmount: string | null
+  returnAmount: string | null
+  status: OptionTradeStatus
+  requestedResultMode: OptionResultMode
+  rejectionReason: string | null
+  createdAt: string
+  settledAt: string | null
+}
+
+export type SandboxOutcomeMode = 'RANDOM' | 'FORCE_WIN' | 'FORCE_LOSS'
+
+export interface OptionsSettings {
+  tradingEnabled: boolean
+  maxActiveTradesPerUser: number | null
+  maxExposurePerUser: string | null
+  sandboxOutcomeMode: SandboxOutcomeMode
+  sandboxControlsAvailable: boolean
+}
+
+export interface OptionMarketAdminRow {
+  id: ID
+  symbol: string
+  enabled: boolean
+  currency: string
+  minInvestment: string
+  maxInvestment: string | null
+  durations: { id: ID; durationSeconds: number; enabled: boolean; payoutPercent: string }[]
+}
+
+export interface OptionsStats {
+  activeTrades: number
+  completedTrades: number
+  unresolvedTrades: number
+  wins: number
+  losses: number
+  draws: number
+  totalInvestment: string
+  totalPayouts: string
+  byAsset: { symbol: string; count: number }[]
+  byDuration: { durationSeconds: number; count: number }[]
 }

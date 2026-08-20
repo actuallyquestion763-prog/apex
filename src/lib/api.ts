@@ -80,3 +80,9 @@ export function mediaUrl(id: string): string {
 export function attachmentUrl(id: string): string {
   return `/api/support/attachments/${id}`
 }
+export function kycDocumentUrl(id: string): string {
+  return `/api/kyc/documents/${id}`
+}
+export function adminKycDocumentUrl(id: string): string {
+  return `/api/admin/kyc/documents/${id}`
+}
