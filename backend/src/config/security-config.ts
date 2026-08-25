@@ -41,3 +41,19 @@ export function resolveCorsOrigin(nodeEnv: string, frontendOrigin: string | unde
   }
   return 'http://localhost:5173'
 }
+
+// Express's req.ip / X-Forwarded-For parsing is only trustworthy behind a
+// reverse proxy that itself sets those headers correctly (a load balancer,
+// nginx, Cloudflare, etc.) — without this, req.ip resolves to the proxy's
+// own address for every request, which quietly breaks per-IP rate limiting
+// (ThrottlerModule, see rate-limits.ts) by collapsing all real clients onto
+// one bucket. `1` trusts exactly one hop (the immediate reverse proxy) —
+// the standard, safest value for a single-proxy production topology; a
+// deployment with an additional layer in front (e.g. Cloudflare -> nginx)
+// would need this raised accordingly. Left at Express's own default
+// (`false`, trust nothing) in development/test, where no reverse proxy
+// exists and honoring a client-supplied X-Forwarded-For would let a local
+// caller spoof its own IP for no benefit.
+export function resolveTrustProxy(nodeEnv: string): number | boolean {
+  return nodeEnv === 'production' || nodeEnv === 'staging' ? 1 : false
+}
