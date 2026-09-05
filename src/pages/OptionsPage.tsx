@@ -6,6 +6,7 @@ import { OptionsChart } from '../components/options/OptionsChart'
 import { AssetIcon } from '../components/AssetIcon'
 import { OptionsDurationSelector } from '../components/options/OptionsDurationSelector'
 import { OptionsAmountInput, isOptionAmountValid } from '../components/options/OptionsAmountInput'
+import { resolveDurationForAmount, nextTier } from '../components/options/optionAmountTier'
 import { OptionsActiveTrade } from '../components/options/OptionsActiveTrade'
 import { OptionsResult } from '../components/options/OptionsResult'
 import { OptionsHistory } from '../components/options/OptionsHistory'
@@ -16,7 +17,6 @@ import { getMarketStatus } from '../store/priceFeed'
 export default function OptionsPage() {
   const { markets, loading: marketsLoading } = useOptionMarkets()
   const [symbol, setSymbol] = useState<string | null>(null)
-  const [durationSeconds, setDurationSeconds] = useState<number | null>(null)
   const [amount, setAmount] = useState('100')
   const [submitting, setSubmitting] = useState(false)
   const [justSettled, setJustSettled] = useState<OptionTrade | null>(null)
@@ -31,11 +31,12 @@ export default function OptionsPage() {
     if (!symbol && markets.length > 0) setSymbol(markets[0].symbol)
   }, [markets, symbol])
 
-  useEffect(() => {
-    if (market && market.durations.length > 0 && !market.durations.some((d) => d.durationSeconds === durationSeconds)) {
-      setDurationSeconds(market.durations[0].durationSeconds)
-    }
-  }, [market, durationSeconds])
+  // Duration/payout are resolved automatically from the entered amount —
+  // never clicked/typed by the user (see optionAmountTier.ts). The backend
+  // independently re-derives and enforces the exact same rule at
+  // trade-creation time; this is display-only.
+  const duration = useMemo(() => (market ? resolveDurationForAmount(market.durations, parseFloat(amount)) : null), [market, amount])
+  const upcomingTier = useMemo(() => (market ? nextTier(market.durations, parseFloat(amount) || 0) : null), [market, amount])
 
   // Poll the currently-displayed active trade (if any, for this asset) so
   // its status flips to a result card the moment the backend settles it —
@@ -54,7 +55,6 @@ export default function OptionsPage() {
     return () => clearInterval(id)
   }, [activeForSymbol?.id])
 
-  const duration = market?.durations.find((d) => d.durationSeconds === durationSeconds) ?? null
   const status = market ? getMarketStatus(market.symbol) : 'loading'
   const availableBalance = balance ? Number(balance.cash) : null
   const amountValid = !!market && isOptionAmountValid(amount, market.minInvestment, market.maxInvestment, availableBalance)
@@ -65,6 +65,8 @@ export default function OptionsPage() {
     ? 'Market data is currently unavailable for this asset.'
     : !amountValid
     ? 'Enter a valid investment amount within the allowed range and your available balance.'
+    : !duration
+    ? `Enter at least ${upcomingTier?.minAmount ?? market?.minInvestment} ${market?.currency} to unlock a duration/profit tier.`
     : undefined
 
   async function submit(direction: 'BUY' | 'SELL') {
@@ -123,20 +125,26 @@ export default function OptionsPage() {
             <OptionsActiveTrade trade={activeForSymbol} />
           ) : (
             <div className="card space-y-4 p-4">
-              <div>
-                <label className="label">Duration</label>
-                <OptionsDurationSelector durations={market.durations} selected={durationSeconds} onSelect={setDurationSeconds} />
+              <div className="text-center">
+                <h2 className="text-xl font-extrabold text-ocean-400">{market.displayName}</h2>
+                <p className="text-sm text-slate-500">{market.symbol.replace('/', '')}</p>
               </div>
+
+              <OptionsDurationSelector durations={market.durations} activeDurationSeconds={duration?.durationSeconds ?? null} />
 
               <OptionsAmountInput
                 value={amount}
                 onChange={setAmount}
                 currency={market.currency}
                 payoutPercent={duration?.payoutPercent ?? null}
+                durationSeconds={duration?.durationSeconds ?? null}
                 min={market.minInvestment}
                 max={market.maxInvestment}
                 availableBalance={availableBalance}
               />
+              {!duration && amount.trim() !== '' && upcomingTier && (
+                <p className="text-center text-xs text-slate-500">Enter at least {upcomingTier.minAmount} {market.currency} to unlock the {upcomingTier.durationSeconds}s / {upcomingTier.payoutPercent}% tier.</p>
+              )}
 
               {status === 'unavailable' && (
                 <div role="alert" className="rounded-lg border border-bear/30 bg-bear/10 px-3 py-2 text-xs text-bear">
@@ -150,18 +158,18 @@ export default function OptionsPage() {
                   onClick={() => submit('BUY')}
                   title={disabledReason}
                   aria-label="Buy — predict the price will be higher at expiry"
-                  className="rounded-xl bg-bull py-4 text-lg font-bold text-white transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-40"
+                  className="rounded-xl bg-bull py-3.5 text-base font-bold text-white transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-40"
                 >
-                  BUY ↑
+                  BUY
                 </button>
                 <button
                   disabled={!canTrade || submitting}
                   onClick={() => submit('SELL')}
                   title={disabledReason}
                   aria-label="Sell — predict the price will be lower at expiry"
-                  className="rounded-xl bg-bear py-4 text-lg font-bold text-white transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-40"
+                  className="rounded-xl bg-bear py-3.5 text-base font-bold text-white transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-40"
                 >
-                  SELL ↓
+                  SELL
                 </button>
               </div>
               <p className="text-center text-[11px] text-slate-600">BUY predicts the price will be HIGHER at expiry. SELL predicts LOWER. An exact match at expiry is a DRAW — your investment is returned.</p>

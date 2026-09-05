@@ -10,6 +10,14 @@ export class FinancialAdjustmentDto {
   @IsIn(['CREDIT', 'DEBIT'])
   direction!: 'CREDIT' | 'DEBIT'
 
+  // Defaults to 'USD' when omitted (existing behavior, unchanged, for
+  // backward compatibility with existing callers) — the Admin Panel
+  // redesign's Manual Wallet Adjustment page passes 'USDT' explicitly,
+  // matching this platform's USDT-primary product direction.
+  @IsOptional()
+  @IsString()
+  currency?: string
+
   @IsString()
   @MinLength(5)
   reason!: string

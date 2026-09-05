@@ -1,6 +1,8 @@
 import { BadRequestException, Injectable } from '@nestjs/common'
 import type { Prisma } from '@prisma/client'
 import { Decimal } from '@prisma/client/runtime/library'
+import * as argon2 from 'argon2'
+import { generateReferralCode } from '../auth/referral-code.util'
 import { PrismaService } from '../prisma/prisma.service'
 import { LedgerService } from '../ledger/ledger.service'
 import { AccountsService } from '../accounts/accounts.service'
@@ -22,6 +24,8 @@ import type { UpdateUserRoleDto } from './dto/update-user-role.dto'
 import type { UpdatePlatformSettingsDto } from './dto/update-platform-settings.dto'
 import type { UpdateMarketConfigDto } from './dto/update-market-config.dto'
 import type { GrantPermissionDto } from './dto/grant-permission.dto'
+import type { CreateAdminDto } from './dto/create-admin.dto'
+import type { ResetAdminPasswordDto } from './dto/reset-admin-password.dto'
 
 @Injectable()
 export class AdminService {
@@ -113,12 +117,24 @@ export class AdminService {
       this.prisma.deposit.count({ where: { status: 'PENDING' } }),
       this.prisma.withdrawal.count({ where: { status: { in: ['PENDING', 'REVIEW'] } } }),
       this.prisma.position.count({ where: { status: 'OPEN' } }),
-      this.prisma.order.findMany({ where: { status: 'FILLED' }, select: { quantity: true } }),
+      this.prisma.order.findMany({ where: { status: 'FILLED' }, select: { symbol: true, filledQuantity: true, executedPrice: true } }),
       this.platformSettings.get(),
       this.markets.listMarketConfigs(),
     ])
 
-    const tradingVolume = filledOrders.reduce((sum, o) => sum.plus(o.quantity), new Decimal(0))
+    // Notional (filledQuantity × executedPrice) grouped by each market's own
+    // quote currency — never summed across currencies or across raw base-asset
+    // quantities. A BTC/USDT fill and an XAU/USD fill are not the same unit;
+    // blindly adding their quantities/notionals together would be financially
+    // meaningless (Phase F currency audit).
+    const quoteAssetBySymbol = new Map(marketConfigs.map((m) => [m.symbol, m.quoteAsset]))
+    const tradingVolume: Record<string, string> = {}
+    for (const o of filledOrders) {
+      if (!o.executedPrice) continue
+      const currency = quoteAssetBySymbol.get(o.symbol) ?? 'USD'
+      const notional = new Decimal(o.filledQuantity).times(o.executedPrice)
+      tradingVolume[currency] = new Decimal(tradingVolume[currency] ?? '0').plus(notional).toString()
+    }
     const totalCustomerAssets = await this.getTotalCustomerAssets()
 
     return {
@@ -128,8 +144,8 @@ export class AdminService {
       pendingDeposits,
       pendingWithdrawals,
       openPositions,
-      tradingVolume: tradingVolume.toString(), // will read as 0 until a broker integration produces real fills — that's correct, not a bug
-      totalCustomerAssets: totalCustomerAssets.toString(),
+      tradingVolume, // per-currency notional from FILLED orders; empty until fills exist — that's correct, not a bug
+      totalCustomerAssets,
       platform: platformSettings,
       markets: marketConfigs,
     }
@@ -183,35 +199,92 @@ export class AdminService {
     }
   }
 
-  private async getTotalCustomerAssets(): Promise<Decimal> {
+  // Per-currency, never a single blindly-summed total — a USD cash balance
+  // and a USDT cash balance are not the same unit (Phase F currency audit).
+  private async getTotalCustomerAssets(): Promise<Record<string, string>> {
     const [cashSum, reservedSum] = await Promise.all([
       this.prisma.ledgerEntry.groupBy({
-        by: ['direction'],
+        by: ['direction', 'currency'],
         where: { ledgerAccount: { ownerType: 'USER', type: 'CASH' } },
         _sum: { amount: true },
       }),
       this.prisma.ledgerEntry.groupBy({
-        by: ['direction'],
+        by: ['direction', 'currency'],
         where: { ledgerAccount: { ownerType: 'USER', type: 'RESERVED' } },
         _sum: { amount: true },
       }),
     ])
-    const net = (rows: { direction: string; _sum: { amount: Decimal | null } }[]) => {
-      const credit = rows.find((r) => r.direction === 'CREDIT')?._sum.amount ?? new Decimal(0)
-      const debit = rows.find((r) => r.direction === 'DEBIT')?._sum.amount ?? new Decimal(0)
-      return credit.minus(debit)
+    const totals = new Map<string, Decimal>()
+    for (const rows of [cashSum, reservedSum]) {
+      for (const r of rows) {
+        const amount = r._sum.amount ?? new Decimal(0)
+        const delta = r.direction === 'CREDIT' ? amount : amount.negated()
+        totals.set(r.currency, (totals.get(r.currency) ?? new Decimal(0)).plus(delta))
+      }
     }
-    return net(cashSum).plus(net(reservedSum))
+    return Object.fromEntries([...totals.entries()].map(([currency, amount]) => [currency, amount.toString()]))
   }
 
   // ---- User management -------------------------------------------------------
 
-  async listUsers() {
-    const users = await this.prisma.user.findMany({ orderBy: { createdAt: 'desc' }, take: 200 })
-    return users.map(toPublicUser)
+  // `q` matches email or full name (case-insensitive substring) or an exact
+  // user id — there is no separate human-readable member-id/phone field on
+  // User today (Admin Panel redesign gap analysis), so search is scoped to
+  // what actually exists on the model rather than inventing fields.
+  async listUsers(q?: string) {
+    const search = q?.trim()
+    const users = await this.prisma.user.findMany({
+      where: search
+        ? { OR: [{ email: { contains: search, mode: 'insensitive' } }, { fullName: { contains: search, mode: 'insensitive' } }, { id: search }] }
+        : undefined,
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+    })
+    // Primary spot/crypto balance (USDT) per user, for the list view — same
+    // "USDT is the primary funding currency" convention used everywhere else
+    // in this codebase (Dashboard/Assets Spot Balance). A best-effort batch
+    // read; a user with no USDT ledger account yet just shows 0, not an error.
+    const balances = await Promise.all(
+      users.map(async (u) => {
+        const account = await this.prisma.account.findFirst({ where: { userId: u.id } })
+        if (!account) return '0'
+        const { cash } = await this.ledger.getAccountBalances(account.id, 'USDT')
+        return cash.toString()
+      }),
+    )
+    return users.map((u, i) => ({ ...toPublicUser(u), usdtBalance: balances[i] }))
+  }
+
+  // Aggregated detail view for one user — profile, non-zero balances across
+  // every currency they hold, and recent deposit/withdrawal history. Trade
+  // history is deliberately NOT folded in here (keeps this response bounded
+  // and reuses the dedicated Trade Management list/filter instead of
+  // duplicating it) — Admin Panel redesign.
+  async getUserDetail(userId: string) {
+    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } })
+    const account = await this.prisma.account.findFirst({ where: { userId } })
+    const balances = account ? await this.accounts.listNonZeroAssetBalances(userId) : []
+    const [deposits, withdrawals] = await Promise.all([
+      this.prisma.deposit.findMany({ where: { userId }, orderBy: { createdAt: 'desc' }, take: 25 }),
+      this.prisma.withdrawal.findMany({ where: { userId }, orderBy: { createdAt: 'desc' }, take: 25 }),
+    ])
+    return {
+      user: toPublicUser(user),
+      accountId: account?.id ?? null,
+      balances,
+      recentDeposits: deposits,
+      recentWithdrawals: withdrawals,
+    }
   }
 
   async updateUserStatus(targetUserId: string, dto: UpdateUserStatusDto, adminId: string) {
+    // Admin Panel redesign — the Admin Management UI's "Delete" action
+    // reuses this same suspend mechanism (see class doc comment on
+    // AdminsTab/AdminManagement); block an admin from suspending their OWN
+    // account, which would otherwise lock them out with no way back in.
+    if (targetUserId === adminId && dto.status === 'SUSPENDED') {
+      throw new BadRequestException('You cannot suspend your own account.')
+    }
     const target = await this.prisma.user.findUniqueOrThrow({ where: { id: targetUserId } })
     const updated = await this.prisma.user.update({ where: { id: targetUserId }, data: { status: dto.status } })
 
@@ -266,31 +339,53 @@ export class AdminService {
     const amount = new Decimal(dto.amount)
     if (amount.lte(0)) throw new BadRequestException('Adjustment amount must be positive; use direction to credit or debit.')
 
+    const currency = dto.currency ?? 'USD'
     const account = await this.accounts.getPrimaryAccount(dto.userId)
-    const { cash } = await this.ledger.getOrCreateUserLedgerAccounts(account.id)
-    const revenue = await this.ledger.getSystemLedgerAccount('REVENUE')
+    const { cash } = await this.ledger.getOrCreateUserLedgerAccounts(account.id, currency)
+    const revenue = await this.ledger.getSystemLedgerAccount('REVENUE', currency)
 
     const entries = dto.direction === 'CREDIT'
       ? [
-          { ledgerAccountId: revenue.id, direction: 'DEBIT' as const, amount, entryType: 'ADJUSTMENT' as const },
-          { ledgerAccountId: cash.id, direction: 'CREDIT' as const, amount, entryType: 'ADJUSTMENT' as const },
+          { ledgerAccountId: revenue.id, direction: 'DEBIT' as const, amount, currency, entryType: 'ADJUSTMENT' as const },
+          { ledgerAccountId: cash.id, direction: 'CREDIT' as const, amount, currency, entryType: 'ADJUSTMENT' as const },
         ]
       : [
-          { ledgerAccountId: cash.id, direction: 'DEBIT' as const, amount, entryType: 'ADJUSTMENT' as const },
-          { ledgerAccountId: revenue.id, direction: 'CREDIT' as const, amount, entryType: 'ADJUSTMENT' as const },
+          { ledgerAccountId: cash.id, direction: 'DEBIT' as const, amount, currency, entryType: 'ADJUSTMENT' as const },
+          { ledgerAccountId: revenue.id, direction: 'CREDIT' as const, amount, currency, entryType: 'ADJUSTMENT' as const },
         ]
 
-    const txn = await this.ledger.postTransaction({
-      description: `Admin financial adjustment: ${dto.reason}`,
-      relatedType: 'ADMIN_ADJUSTMENT',
-      relatedId: dto.userId,
-      idempotencyKey: dto.idempotencyKey,
-      entries,
-    })
+    // DEBIT can drive a balance negative without a lock+precondition — same
+    // race a withdrawal request guards against (Admin Panel redesign fix:
+    // this previously used plain postTransaction() with no balance check at
+    // all). CREDIT can never overdraw, so it keeps the simpler, lock-free
+    // path — consistent with how every other credit-only ledger write in
+    // this codebase is posted.
+    const txn = dto.direction === 'DEBIT'
+      ? await this.ledger.postTransactionWithAccountLock(
+          cash.id,
+          {
+            description: `Admin financial adjustment: ${dto.reason}`,
+            relatedType: 'ADMIN_ADJUSTMENT',
+            relatedId: dto.userId,
+            idempotencyKey: dto.idempotencyKey,
+            entries,
+          },
+          async (tx) => {
+            const balance = await this.ledger.getLedgerAccountBalanceLocked(tx, cash.id)
+            if (balance.lt(amount)) throw new BadRequestException('Insufficient balance for this debit adjustment.')
+          },
+        )
+      : await this.ledger.postTransaction({
+          description: `Admin financial adjustment: ${dto.reason}`,
+          relatedType: 'ADMIN_ADJUSTMENT',
+          relatedId: dto.userId,
+          idempotencyKey: dto.idempotencyKey,
+          entries,
+        })
 
-    await this.recordAdminAction(adminId, AuditEvent.FINANCIAL_ADJUSTMENT, dto.userId, dto.reason, undefined, { direction: dto.direction, amount: dto.amount }, txn.id)
+    await this.recordAdminAction(adminId, AuditEvent.FINANCIAL_ADJUSTMENT, dto.userId, dto.reason, undefined, { direction: dto.direction, amount: dto.amount, currency }, txn.id)
 
-    return { ledgerTransactionId: txn.id, balances: await this.ledger.getAccountBalances(account.id) }
+    return { ledgerTransactionId: txn.id, balances: await this.ledger.getAccountBalances(account.id, currency) }
   }
 
   // ---- Platform-wide controls -------------------------------------------------
@@ -382,6 +477,60 @@ export class AdminService {
       ...toPublicUser(a),
       permissions: a.userPermissions.map((p) => p.permission.key),
     }))
+  }
+
+  // Creates a brand-new ADMIN account directly (never SUPER_ADMIN — reaching
+  // that role still requires the existing role-promotion path, which is
+  // itself SUPER_ADMIN + step-up gated). SUPER_ADMIN-only + step-up at the
+  // controller/here, same tier as grantPermission/updateUserRole.
+  async createAdmin(dto: CreateAdminDto, adminId: string) {
+    await this.stepUp.assertStepUpAuthorized(adminId, dto.confirmPassword, dto.totpCode)
+
+    const email = dto.email.toLowerCase()
+    const existing = await this.prisma.user.findUnique({ where: { email } })
+    if (existing) throw new BadRequestException('An account with this email already exists.')
+
+    const passwordHash = await argon2.hash(dto.password)
+    const user = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.user.create({
+        data: {
+          email,
+          passwordHash,
+          fullName: dto.fullName?.trim() || email,
+          role: 'ADMIN',
+          status: 'ACTIVE',
+          kycStatus: 'VERIFIED',
+          referralCode: generateReferralCode(),
+        },
+      })
+      await tx.account.create({ data: { userId: created.id } })
+      return created
+    })
+
+    await this.recordAdminAction(adminId, AuditEvent.USER_CREATED, user.id, dto.reason, undefined, { email: user.email, role: 'ADMIN' })
+    return toPublicUser(user)
+  }
+
+  // Admin-set password reset for ANOTHER admin (not self-service password
+  // change) — SUPER_ADMIN-only + step-up. Revokes every existing session for
+  // the target account so a reset password can't coexist with an
+  // already-open session using the OLD one.
+  async resetAdminPassword(targetAdminId: string, dto: ResetAdminPasswordDto, adminId: string) {
+    await this.stepUp.assertStepUpAuthorized(adminId, dto.confirmPassword, dto.totpCode)
+
+    const target = await this.prisma.user.findUniqueOrThrow({ where: { id: targetAdminId } })
+    if (target.role !== 'ADMIN' && target.role !== 'SUPER_ADMIN') {
+      throw new BadRequestException('That account is not an administrator.')
+    }
+
+    const passwordHash = await argon2.hash(dto.newPassword)
+    await this.prisma.$transaction([
+      this.prisma.user.update({ where: { id: targetAdminId }, data: { passwordHash } }),
+      this.prisma.session.updateMany({ where: { userId: targetAdminId, revokedAt: null }, data: { revokedAt: new Date() } }),
+    ])
+
+    await this.recordAdminAction(adminId, AuditEvent.ADMIN_ACCOUNT_PASSWORD_RESET, targetAdminId, dto.reason, undefined, undefined)
+    return { ok: true }
   }
 
   // Step-up required — this is "changing admin permissions" from the spec's

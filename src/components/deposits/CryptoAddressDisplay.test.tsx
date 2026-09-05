@@ -47,17 +47,17 @@ describe('CryptoAddressDisplay', () => {
     expect(svg).toBeTruthy()
   })
 
-  it('copies the receiving address to the clipboard and shows "Copied!" feedback on click', async () => {
+  it('copies the receiving address to the clipboard and shows "Copied" feedback on click', async () => {
     render(<CryptoAddressDisplay resolved={resolved} />)
-    fireEvent.click(screen.getByLabelText('Copy receiving address'))
+    fireEvent.click(screen.getByRole('button', { name: 'Copy' }))
 
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith(resolved.receivingAddress)
-    await waitFor(() => expect(screen.getByText('Copied!')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Copied' })).toBeInTheDocument())
   })
 
   it('never calls any external service to perform the copy — only the local clipboard API', async () => {
     render(<CryptoAddressDisplay resolved={resolved} />)
-    fireEvent.click(screen.getByLabelText('Copy receiving address'))
+    fireEvent.click(screen.getByRole('button', { name: 'Copy' }))
     await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledTimes(1))
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith(resolved.receivingAddress)
   })
@@ -65,10 +65,16 @@ describe('CryptoAddressDisplay', () => {
   it('does not crash and leaves the address visible if the clipboard API rejects (soft failure)', async () => {
     Object.assign(navigator, { clipboard: { writeText: vi.fn().mockRejectedValue(new Error('denied')) } })
     render(<CryptoAddressDisplay resolved={resolved} />)
-    fireEvent.click(screen.getByLabelText('Copy receiving address'))
+    fireEvent.click(screen.getByRole('button', { name: 'Copy' }))
     await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalled())
     expect(screen.getByText(resolved.receivingAddress)).toBeInTheDocument()
-    expect(screen.queryByText('Copied!')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Copied' })).not.toBeInTheDocument()
+  })
+
+  it('Share QR falls back to copying the address when the Web Share API is unavailable', async () => {
+    render(<CryptoAddressDisplay resolved={resolved} />)
+    fireEvent.click(screen.getByRole('button', { name: /Share QR/ }))
+    await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledWith(resolved.receivingAddress))
   })
 
   it('displays the configured minimum deposit when present', () => {

@@ -68,7 +68,7 @@ export function PositionCard({
         <div className="border-t border-ink-700/60 px-5">
           <Row label="Market" value={position.symbol} />
           <Row label="Direction" value={<span className={isBuy ? 'text-bull' : 'text-bear'}>{isBuy ? 'BUY ↑' : 'SELL ↓'}</span>} />
-          <Row label="Quantity" value={`$${qty.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} />
+          <Row label="Quantity" value={`${qty.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} />
           <Row label="Entry Price" value={`$${entry.toFixed(entry < 1 ? 4 : 2)}`} />
           <Row label="Current Price" value={mark != null ? `$${mark.toFixed(mark < 1 ? 4 : 2)}` : '—'} />
           <Row label="Opened" value={new Date(position.openedAt).toLocaleString()} />

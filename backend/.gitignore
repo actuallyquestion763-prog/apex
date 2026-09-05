@@ -16,9 +16,18 @@ dist/
 .pgdata-dev/
 .pgdata-test/
 
-# Local CMS media storage backend (dev-only — see src/cms/media-storage.service.ts).
-# Uploaded file bytes, not metadata (metadata lives in Postgres, CmsMedia).
+# Legacy local-disk upload directory (P1-A: media-storage.service.ts is now
+# S3-backed — see S3_* env vars — and no longer writes here). Left ignored
+# harmlessly in case a pre-P1-A checkout still has one on disk locally.
 uploads/
+
+# P1-A: real local S3-compatible test server data (scripts/test-s3.js, via
+# the s3rver package) — ephemeral, test-only, never committed.
+.s3rver-test/
+
+# Local S3-compatible dev server data (scripts/dev-s3.js) — persistent local
+# dev uploads (QR codes, CMS media, KYC docs, etc.), never committed.
+.s3rver-dev/
 
 # Backup/restore drill artifact (Phase 5, Part 29 — scripts/backup-restore-drill.ts
 # removes this itself on a normal run; ignored as a safety net for an

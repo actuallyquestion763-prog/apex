@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { snapshot, tickAll } from '../store/priceFeed'
+import { useMarketConfigs } from '../store/useStore'
 import type { TickerPrice } from '../types'
 import { TrendingUp, TrendingDown } from 'lucide-react'
 
@@ -9,6 +10,7 @@ const TICKER_SYMBOLS = ['BTC/USDT', 'ETH/USDT', 'USDT/USD', 'XRP/USDT', 'XAU/USD
 
 export function PriceTicker() {
   const [prices, setPrices] = useState<TickerPrice[]>(snapshot)
+  const { markets } = useMarketConfigs()
 
   useEffect(() => {
     setPrices(snapshot())
@@ -26,10 +28,11 @@ export function PriceTicker() {
       <div className="flex animate-ticker whitespace-nowrap py-2.5">
         {[...display, ...display, ...display].map((p, i) => {
           const up = p.changePct >= 0
+          const quoteAsset = markets.find((m) => m.symbol === p.symbol)?.quoteAsset || 'USD'
           return (
             <div key={i} className="flex items-center gap-2 px-6 text-sm">
               <span className="font-semibold text-white">{p.symbol.split('/')[0]}</span>
-              <span className="font-mono text-slate-300">${p.price.toLocaleString(undefined, { maximumFractionDigits: p.price < 1 ? 4 : 2 })}</span>
+              <span className="font-mono text-slate-300">{p.price.toLocaleString(undefined, { maximumFractionDigits: p.price < 1 ? 4 : 2 })} {quoteAsset}</span>
               <span className={`flex items-center gap-0.5 font-medium ${up ? 'text-bull' : 'text-bear'}`}>
                 {up ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
                 {up ? '+' : ''}{p.changePct.toFixed(2)}%

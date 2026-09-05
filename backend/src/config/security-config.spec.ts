@@ -1,4 +1,4 @@
-import { getCookieOptions, resolveCorsOrigin } from './security-config'
+import { getCookieOptions, resolveCorsOrigin, resolveTrustProxy } from './security-config'
 
 describe('getCookieOptions', () => {
   // Part 31, item 11: secure cookies are correctly configured for production mode.
@@ -42,5 +42,19 @@ describe('resolveCorsOrigin', () => {
   it('falls back to localhost only in development/test when unset', () => {
     expect(resolveCorsOrigin('development', undefined)).toBe('http://localhost:5173')
     expect(resolveCorsOrigin('test', undefined)).toBe('http://localhost:5173')
+  })
+})
+
+describe('resolveTrustProxy', () => {
+  // Rate limiting and any IP-based logic read req.ip, which only reflects
+  // the real client behind a reverse proxy if Express is told to trust it.
+  it('trusts exactly one proxy hop in production and staging', () => {
+    expect(resolveTrustProxy('production')).toBe(1)
+    expect(resolveTrustProxy('staging')).toBe(1)
+  })
+
+  it('trusts nothing in development and test, where no reverse proxy sits in front', () => {
+    expect(resolveTrustProxy('development')).toBe(false)
+    expect(resolveTrustProxy('test')).toBe(false)
   })
 })

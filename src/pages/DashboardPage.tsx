@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom'
 import { useAuth } from '../store/auth'
-import { useAccountSummary, usePositions, computePositionPnl, useCashBalance, useAssetBalances, useExecutionStatus } from '../store/useStore'
+import { useAccountSummary, usePositions, computePositionPnl, useCashBalance, useAssetBalances, useExecutionStatus, useMarketConfigs } from '../store/useStore'
 import MarketPrice from '../components/MarketPrice'
 import MarketOverview from '../components/MarketOverview'
 import { SpotHoldings } from '../components/SpotHoldings'
@@ -23,6 +23,7 @@ export function DashboardPage() {
   const { assets, loading: assetsLoading } = useAssetBalances()
   const { status: executionStatus } = useExecutionStatus()
   const { positions } = usePositions()
+  const { markets } = useMarketConfigs()
   const { push } = useToast()
 
   const openPositions = positions.filter((p) => p.status === 'OPEN')
@@ -32,14 +33,13 @@ export function DashboardPage() {
   const usdtCash = usdtBalance ? Number(usdtBalance.cash) : 0
 
   const referralCode = user?.referralCode ?? ''
+  // Derived from the real origin this page is served from — never a
+  // hardcoded domain, which would silently point every user's copied link
+  // at the wrong site on any deployment other than the one it was typed for.
+  const referralLink = `${window.location.origin}/r/${referralCode}`
 
   return (
     <div className="space-y-6">
-      <div className="rounded-xl border border-ink-700 bg-gradient-to-r from-ocean-900/20 via-ink-850 to-ink-850 px-6 py-4">
-        <h2 className="text-base font-bold text-white">Your trading account</h2>
-        <p className="mt-1 text-sm text-slate-400">This account is not connected to a real broker or exchange. No real money is involved.</p>
-      </div>
-
       {user && user.status !== 'ACTIVE' && (
         <div className="rounded-xl border border-gold-500/40 bg-gold-500/10 px-4 py-3 text-sm text-gold-300">
           Your account status is {user.status.replace('_', ' ').toLowerCase()}. Some features may be restricted.
@@ -73,12 +73,14 @@ export function DashboardPage() {
         <SpotHoldings assets={assets} loading={assetsLoading} executionStatus={executionStatus} />
       </div>
 
-      {/* Quick actions */}
+      {/* Quick actions — each gets its own accent (money in = green, money
+          out = gold, everything else = the app's ocean-blue primary) rather
+          than four identical blue icons, so the row reads at a glance. */}
       <div className="grid grid-cols-4 gap-3">
-        <QuickAction to="/deposit" label="Deposit" icon={ArrowDownToLine} />
-        <QuickAction to="/withdraw" label="Withdraw" icon={ArrowUpFromLine} />
-        <QuickAction to="/trade" label="Trade" icon={Repeat} />
-        <QuickAction to="/markets" label="Markets" icon={BarChart2} />
+        <QuickAction to="/deposit" label="Deposit" icon={ArrowDownToLine} color="bull" />
+        <QuickAction to="/withdraw" label="Withdraw" icon={ArrowUpFromLine} color="gold" />
+        <QuickAction to="/trade" label="Trade" icon={Repeat} color="ocean" />
+        <QuickAction to="/markets" label="Markets" icon={BarChart2} color="ocean" />
       </div>
 
       {/* Open positions preview */}
@@ -127,13 +129,14 @@ export function DashboardPage() {
         </div>
         {TRENDING.map((symbol) => {
           const price = getPrice(symbol)
+          const quoteAsset = markets.find((m) => m.symbol === symbol)?.quoteAsset || 'USD'
           return (
             <Link key={symbol} to={`/trade?symbol=${encodeURIComponent(symbol)}`} className="flex items-center gap-3 border-b border-ink-700/40 px-5 py-3 transition last:border-b-0 hover:bg-ink-800/40">
               <AssetIcon symbol={symbol} size={28} />
               <div className="flex-1">
                 <p className="text-sm font-semibold text-white">{symbol}</p>
               </div>
-              <p className="font-mono text-sm font-semibold text-white">${price.toLocaleString(undefined, { maximumFractionDigits: price < 1 ? 4 : 2 })}</p>
+              <p className="font-mono text-sm font-semibold text-white">{price.toLocaleString(undefined, { maximumFractionDigits: price < 1 ? 4 : 2 })} {quoteAsset}</p>
             </Link>
           )
         })}
@@ -145,14 +148,14 @@ export function DashboardPage() {
           <Gift className="h-5 w-5 text-gold-400" />
           <h3 className="font-bold text-white">Your referral link</h3>
         </div>
-        <p className="mt-2 text-sm text-slate-400">Earn 10% commission on every trade made by users you refer.</p>
+        <p className="mt-2 text-sm text-slate-400">Share this link with others.</p>
         <div className="mt-4 flex flex-col gap-2 sm:flex-row">
           <div className="flex-1 rounded-lg border border-ink-600 bg-ink-900 px-4 py-2.5 font-mono text-sm text-ocean-300">
-            https://trust.io/r/{referralCode}
+            {referralLink}
           </div>
           <button
             onClick={() => {
-              try { navigator.clipboard?.writeText(`https://trust.io/r/${referralCode}`); push('info', 'Referral link copied.') }
+              try { navigator.clipboard?.writeText(referralLink); push('info', 'Referral link copied.') }
               catch { push('error', 'Unable to copy referral link.') }
             }}
             className="btn-ghost"
@@ -179,10 +182,17 @@ function SummaryCard({ label, value, hint, signed, loading }: { label: string; v
   )
 }
 
-function QuickAction({ to, label, icon: Icon }: { to: string; label: string; icon: typeof ArrowDownToLine }) {
+const QUICK_ACTION_COLORS = {
+  bull: { icon: 'bg-bull/15 text-bull', border: 'hover:border-bull/40' },
+  gold: { icon: 'bg-gold-500/15 text-gold-400', border: 'hover:border-gold-500/40' },
+  ocean: { icon: 'bg-ocean-500/15 text-ocean-400', border: 'hover:border-ocean-500/40' },
+}
+
+function QuickAction({ to, label, icon: Icon, color }: { to: string; label: string; icon: typeof ArrowDownToLine; color: keyof typeof QUICK_ACTION_COLORS }) {
+  const c = QUICK_ACTION_COLORS[color]
   return (
-    <Link to={to} className="card flex flex-col items-center gap-2 p-4 text-center transition hover:border-ocean-500/40">
-      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-ocean-500/15 text-ocean-400">
+    <Link to={to} className={`card flex flex-col items-center gap-2 p-4 text-center transition ${c.border}`}>
+      <div className={`flex h-10 w-10 items-center justify-center rounded-full ${c.icon}`}>
         <Icon className="h-5 w-5" />
       </div>
       <span className="text-xs font-medium text-slate-300">{label}</span>

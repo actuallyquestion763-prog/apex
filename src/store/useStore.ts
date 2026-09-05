@@ -63,10 +63,15 @@ export function useAssetBalances() {
 }
 
 // Real, backend-configured market list (Part 1) — quoteAsset/baseAsset come
-// from here, never hardcoded in a component.
+// from here, never hardcoded in a component. GET /markets has no auth guard
+// on the backend (MarketsController) and is genuinely public, so this fetch
+// is never gated behind a signed-in user — PriceTicker/MarketOverview render
+// on the logged-out landing page too, and need the real quoteAsset there
+// just as much as anywhere else (Phase F currency audit: gating this behind
+// `user` silently made every price on the public landing page fall back to
+// a hardcoded "USD", including USDT-quoted pairs).
 export function useMarketConfigs() {
-  const { user } = useAuth()
-  const { data, loading, error, refetch } = useResource<MarketConfig[]>(user ? '/markets' : null)
+  const { data, loading, error, refetch } = useResource<MarketConfig[]>('/markets')
   return { markets: data ?? [], loading, error, refetch }
 }
 
@@ -134,8 +139,8 @@ export function submitDeposit(params: { amount: number; method: string }) {
   return post<Deposit>('/deposits', { amount: String(params.amount), method: params.method })
 }
 
-export function submitWithdrawal(params: { amount: number; destination: string }) {
-  return post<Withdrawal>('/withdrawals', { amount: String(params.amount), destination: params.destination })
+export function submitWithdrawal(params: { amount: number; destination: string; currency: string }) {
+  return post<Withdrawal>('/withdrawals', { amount: String(params.amount), destination: params.destination, currency: params.currency })
 }
 
 // ---- Notifications -----------------------------------------------------------

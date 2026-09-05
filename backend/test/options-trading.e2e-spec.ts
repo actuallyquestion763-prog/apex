@@ -64,10 +64,20 @@ describe('Fixed-Time Options Trading (real PostgreSQL, SimulatedProvider)', () =
     await app.close()
   })
 
-  async function registerAndLogin(prefix: string) {
+  // Defaults to SUPER_ADMIN for historical reasons (options trading used to
+  // require that role — Phase F production audit). Part 31 removed that
+  // restriction: OptionsController now only requires SessionAuthGuard, so a
+  // plain USER can reach every route here too (see W2). Kept as the default
+  // here anyway since most tests in this file are testing the OPTIONS
+  // FEATURE itself (settlement math, ledger correctness, idempotency, etc.),
+  // not role access, and SUPER_ADMIN works equally well for that — no need
+  // to touch every call site. Tests that specifically care about a
+  // genuinely non-privileged account (W-W4, below) pass role: 'USER'
+  // explicitly.
+  async function registerAndLogin(prefix: string, role: 'USER' | 'SUPER_ADMIN' = 'SUPER_ADMIN') {
     const email = uniqueEmail(prefix)
     const password = 'correct-horse-battery'
-    const { user } = await createUserDirect(prisma, { email, password, fullName: 'Options Test' })
+    const { user } = await createUserDirect(prisma, { email, password, fullName: 'Options Test', role })
     const res = await request(server).post('/auth/login').send({ email, password }).expect(200)
     return { userId: user.id, cookie: extractSessionCookie(res) }
   }
@@ -181,6 +191,71 @@ describe('Fixed-Time Options Trading (real PostgreSQL, SimulatedProvider)', () =
     const res = await createTrade(cookie, { symbol, direction: 'BUY', investment: '100', durationSeconds: 30 }).expect(400)
     expect(res.body.message).toMatch(/MAX_INVESTMENT_EXCEEDED/)
     expect(await prisma.optionTrade.count({ where: { userId } })).toBe(0)
+  })
+
+  // ---- D2. Amount-tier gating (Part 29) — duration/payout are resolved
+  // automatically from the amount on the trading UI (never manually
+  // clicked/typed); this is the server-side enforcement that a submitted
+  // (duration, investment) pair is a legitimate tier, never trusting
+  // whatever the client resolved and sent. ------------------------------
+
+  it('D2. an investment below a duration\'s configured tier minimum is rejected, zero rows created — even though the market-wide minimum is satisfied', async () => {
+    const symbol = await setupOptionMarket({ durations: [{ durationSeconds: 90, payoutPercent: '15' }] })
+    const market = await prisma.optionMarket.findUniqueOrThrow({ where: { symbol } })
+    await prisma.optionDuration.update({
+      where: { optionMarketId_durationSeconds: { optionMarketId: market.id, durationSeconds: 90 } },
+      data: { minAmount: new Decimal('100') },
+    })
+    const { userId, cookie } = await registerAndLogin('tiertoolow')
+    await grantAsset(userId, 'USDT', '1000')
+
+    // $10 clears the market-wide minInvestment (default 1) but not the 90s
+    // tier's own $100 threshold — must still be rejected.
+    const res = await createTrade(cookie, { symbol, direction: 'BUY', investment: '10', durationSeconds: 90 }).expect(400)
+    expect(res.body.message).toMatch(/DURATION_MIN_AMOUNT_NOT_MET/)
+    expect(await prisma.optionTrade.count({ where: { userId } })).toBe(0)
+  })
+
+  it('D3. an investment meeting a duration\'s configured tier minimum is accepted', async () => {
+    const symbol = await setupOptionMarket({ durations: [{ durationSeconds: 90, payoutPercent: '15' }] })
+    const market = await prisma.optionMarket.findUniqueOrThrow({ where: { symbol } })
+    await prisma.optionDuration.update({
+      where: { optionMarketId_durationSeconds: { optionMarketId: market.id, durationSeconds: 90 } },
+      data: { minAmount: new Decimal('100') },
+    })
+    const { userId, cookie } = await registerAndLogin('tierok')
+    await grantAsset(userId, 'USDT', '1000')
+
+    const res = await createTrade(cookie, { symbol, direction: 'BUY', investment: '100', durationSeconds: 90 }).expect(201)
+    expect(res.body.status).toBe('ACTIVE')
+    expect(await prisma.optionTrade.count({ where: { userId } })).toBe(1)
+  })
+
+  it('D4. a duration with no configured tier minimum (default 0) is never gated by amount', async () => {
+    const symbol = await setupOptionMarket({ durations: [{ durationSeconds: 30, payoutPercent: '5' }] })
+    const { userId, cookie } = await registerAndLogin('tierunset')
+    await grantAsset(userId, 'USDT', '1000')
+
+    const res = await createTrade(cookie, { symbol, direction: 'BUY', investment: '1', durationSeconds: 30 }).expect(201)
+    expect(res.body.status).toBe('ACTIVE')
+    expect(await prisma.optionTrade.count({ where: { userId } })).toBe(1)
+  })
+
+  it('D5. GET /options/markets exposes each duration\'s configured tier minimum, so the trading UI can resolve duration/profit from the amount', async () => {
+    const symbol = await setupOptionMarket({ durations: [{ durationSeconds: 30, payoutPercent: '5' }, { durationSeconds: 90, payoutPercent: '15' }] })
+    const market = await prisma.optionMarket.findUniqueOrThrow({ where: { symbol } })
+    await prisma.optionDuration.update({
+      where: { optionMarketId_durationSeconds: { optionMarketId: market.id, durationSeconds: 90 } },
+      data: { minAmount: new Decimal('100') },
+    })
+    const { cookie } = await registerAndLogin('tiervisible')
+
+    const res = await request(server).get('/options/markets').set('Cookie', cookie).expect(200)
+    const found = res.body.find((m: any) => m.symbol === symbol)
+    const d30 = found.durations.find((d: any) => d.durationSeconds === 30)
+    const d90 = found.durations.find((d: any) => d.durationSeconds === 90)
+    expect(d30.minAmount).toBe('0')
+    expect(d90.minAmount).toBe('100')
   })
 
   // ---- E. Insufficient balance ------------------------------------------------
@@ -564,7 +639,7 @@ describe('Fixed-Time Options Trading (real PostgreSQL, SimulatedProvider)', () =
   // ---- W/X. Admin authorization & step-up -----------------------------------
 
   it('W. a plain USER and a permission-less ADMIN cannot access options admin endpoints', async () => {
-    const { cookie } = await registerAndLogin('optionsplainuser')
+    const { cookie } = await registerAndLogin('optionsplainuser', 'USER')
     await request(server).get('/admin/options/settings').set('Cookie', cookie).expect(403)
     await request(server).get('/admin/options/markets').set('Cookie', cookie).expect(403)
 
@@ -573,6 +648,56 @@ describe('Fixed-Time Options Trading (real PostgreSQL, SimulatedProvider)', () =
     const { user } = await createUserDirect(prisma, { email, password, role: 'ADMIN' })
     const res = await request(server).post('/auth/login').send({ email, password }).expect(200)
     await request(server).get('/admin/options/settings').set('Cookie', extractSessionCookie(res)).expect(403)
+  })
+
+  // Part 31 — reverses the earlier Phase F lockout: options trading is back
+  // in the normal-user experience via the Trade page's amount-tier ticket.
+  // Proves a plain USER can reach every user-facing options endpoint,
+  // including creating a real trade, with no role gate involved.
+  it('W2. a plain USER can reach every user-facing options endpoint, including creating and settling a real trade', async () => {
+    const symbol = await setupOptionMarket()
+    const { userId, cookie } = await registerAndLogin('optionsnormaluser', 'USER')
+    await grantAsset(userId, 'USDT', '1000')
+
+    await request(server).get('/options/markets').set('Cookie', cookie).expect(200)
+    await request(server).get('/options/balance').set('Cookie', cookie).expect(200)
+    await request(server).get('/options/trades/active').set('Cookie', cookie).expect(200)
+    await request(server).get('/options/trades/mine').set('Cookie', cookie).expect(200)
+
+    const created = await createTrade(cookie, { symbol, direction: 'BUY', investment: '100', durationSeconds: 30 }).expect(201)
+    expect(created.body.status).toBe('ACTIVE')
+    expect(created.body.userId).toBe(userId)
+
+    await request(server).get(`/options/trades/${created.body.id}`).set('Cookie', cookie).expect(200)
+    const settled = await options.settleTrade(created.body.id)
+    expect(settled.status).toBe('SETTLED')
+  })
+
+  // Part 31 — the actual security boundary now that any USER can reach
+  // these routes: ownership, not role. A second, unrelated USER must never
+  // be able to read or act on the first user's trade.
+  it("W3. a plain USER cannot read or act on ANOTHER user's option trade — ownership is the boundary, not role", async () => {
+    const symbol = await setupOptionMarket()
+    const { userId: ownerId, cookie: ownerCookie } = await registerAndLogin('optionsowner', 'USER')
+    await grantAsset(ownerId, 'USDT', '1000')
+    const trade = await createTrade(ownerCookie, { symbol, direction: 'BUY', investment: '100', durationSeconds: 30 }).expect(201)
+
+    const { cookie: strangerCookie } = await registerAndLogin('optionsstranger', 'USER')
+    await request(server).get(`/options/trades/${trade.body.id}`).set('Cookie', strangerCookie).expect(404)
+
+    // The stranger's OWN active/mine lists must never include the owner's trade.
+    const strangerActive = await request(server).get('/options/trades/active').set('Cookie', strangerCookie).expect(200)
+    expect(strangerActive.body.find((t: any) => t.id === trade.body.id)).toBeUndefined()
+    const strangerMine = await request(server).get('/options/trades/mine').set('Cookie', strangerCookie).expect(200)
+    expect(strangerMine.body.find((t: any) => t.id === trade.body.id)).toBeUndefined()
+  })
+
+  // Part 31 — the separate ADMIN management surface is untouched by opening
+  // up the customer-facing controller; it keeps its own independent gate.
+  it('W4. the admin options management surface still rejects a plain USER — unaffected by opening the customer-facing controller', async () => {
+    const { cookie } = await registerAndLogin('optionsplainuserw4', 'USER')
+    await request(server).get('/admin/options/settings').set('Cookie', cookie).expect(403)
+    await request(server).get('/admin/options/markets').set('Cookie', cookie).expect(403)
   })
 
   it('X. changing options settings without a valid step-up (wrong password / missing TOTP) is rejected', async () => {

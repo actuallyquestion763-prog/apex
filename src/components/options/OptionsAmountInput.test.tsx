@@ -25,31 +25,36 @@ describe('isOptionAmountValid', () => {
   })
 })
 
-describe('OptionsAmountInput (payout display, amount calculation, balance UX)', () => {
+describe('OptionsAmountInput (Duration/Profit display, balance UX)', () => {
   it('displays the payout percentage exactly as configured, never hardcoded', () => {
-    render(<OptionsAmountInput value="100" onChange={() => {}} currency="USDT" payoutPercent="7" min="1" max={null} availableBalance={1000} />)
+    render(<OptionsAmountInput value="100" onChange={() => {}} currency="USDT" payoutPercent="7" durationSeconds={30} min="1" max={null} availableBalance={1000} />)
     expect(screen.getByText('7%')).toBeInTheDocument()
   })
 
-  it('computes potential profit and return using profit = investment * payoutPercent / 100', () => {
-    render(<OptionsAmountInput value="100" onChange={() => {}} currency="USDT" payoutPercent="5" min="1" max={null} availableBalance={1000} />)
-    expect(screen.getByText('5 USDT')).toBeInTheDocument() // potential profit
-    expect(screen.getByText('105 USDT')).toBeInTheDocument() // potential return
+  it('displays the selected duration exactly as chosen, never manually entered — it is never derived from the investment amount', () => {
+    render(<OptionsAmountInput value="250" onChange={() => {}} currency="USDT" payoutPercent="5" durationSeconds={120} min="1" max={null} availableBalance={1000} />)
+    expect(screen.getByText('120s')).toBeInTheDocument()
+  })
+
+  it('shows an honest placeholder for Duration/Profit when nothing is selected yet, never a fabricated value', () => {
+    render(<OptionsAmountInput value="" onChange={() => {}} currency="USDT" payoutPercent={null} durationSeconds={null} min="1" max={null} availableBalance={1000} />)
+    expect(screen.getAllByText('—')).toHaveLength(2)
   })
 
   it('shows an insufficient-balance message with the exact available/required amounts, and never a color-only cue', () => {
-    render(<OptionsAmountInput value="600" onChange={() => {}} currency="USDT" payoutPercent="5" min="1" max={null} availableBalance={500} />)
+    render(<OptionsAmountInput value="600" onChange={() => {}} currency="USDT" payoutPercent="5" durationSeconds={30} min="1" max={null} availableBalance={500} />)
     expect(screen.getByText('Insufficient balance')).toBeInTheDocument()
     expect(screen.getByText(/Available: 500 USDT · Required: 600 USDT/)).toBeInTheDocument()
   })
 
   it('shows a minimum-investment message when the amount is below the configured minimum', () => {
-    render(<OptionsAmountInput value="1" onChange={() => {}} currency="USDT" payoutPercent="5" min="10" max={null} availableBalance={1000} />)
+    render(<OptionsAmountInput value="1" onChange={() => {}} currency="USDT" payoutPercent="5" durationSeconds={30} min="10" max={null} availableBalance={1000} />)
     expect(screen.getByText(/Minimum investment is 10 USDT/)).toBeInTheDocument()
   })
 
-  it('associates the amount input with its label for accessibility', () => {
-    render(<OptionsAmountInput value="100" onChange={() => {}} currency="USDT" payoutPercent="5" min="1" max={null} availableBalance={1000} />)
+  it('associates the amount input with its label for accessibility, even though the label is visually hidden in favor of a placeholder', () => {
+    render(<OptionsAmountInput value="100" onChange={() => {}} currency="USDT" payoutPercent="5" durationSeconds={30} min="1" max={null} availableBalance={1000} />)
     expect(screen.getByLabelText('Investment (USDT)')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('Amount USDT')).toBeInTheDocument()
   })
 })

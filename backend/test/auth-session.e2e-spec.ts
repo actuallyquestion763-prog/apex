@@ -123,4 +123,54 @@ describe('Auth + Sessions (real PostgreSQL)', () => {
       .expect(200)
     expect(verified.headers['set-cookie']).toBeDefined()
   })
+
+  it('rejects /auth/change-password with the wrong current password, and leaves the old password usable', async () => {
+    const email = uniqueEmail('pwbad')
+    const password = 'correct-horse-battery'
+    const reg = await request(server).post('/auth/register').send({ email, password, fullName: 'PW Bad' }).expect(201)
+    const cookie = extractSessionCookie(reg)
+
+    await request(server).post('/auth/change-password').set('Cookie', cookie).send({ currentPassword: 'totally-wrong', newPassword: 'a-brand-new-password' }).expect(401)
+
+    // old password still works — nothing was changed by the rejected attempt
+    await request(server).post('/auth/login').send({ email, password }).expect(200)
+  })
+
+  it('/auth/change-password with the correct current password rotates the password and revokes every OTHER session, but not the current one', async () => {
+    const email = uniqueEmail('pwok')
+    const password = 'correct-horse-battery'
+    const newPassword = 'a-brand-new-password'
+    const reg = await request(server).post('/auth/register').send({ email, password, fullName: 'PW OK' }).expect(201)
+    const primaryCookie = extractSessionCookie(reg)
+
+    // a second, independent session for the same user — simulates a second device
+    const secondLogin = await request(server).post('/auth/login').send({ email, password }).expect(200)
+    const secondCookie = extractSessionCookie(secondLogin)
+    await request(server).get('/auth/me').set('Cookie', secondCookie).expect(200)
+
+    await request(server).post('/auth/change-password').set('Cookie', primaryCookie).send({ currentPassword: password, newPassword }).expect(200)
+
+    // the session that performed the change stays valid...
+    await request(server).get('/auth/me').set('Cookie', primaryCookie).expect(200)
+    // ...but the OTHER session is revoked
+    await request(server).get('/auth/me').set('Cookie', secondCookie).expect(401)
+
+    // the old password no longer works, the new one does
+    await request(server).post('/auth/login').send({ email, password }).expect(401)
+    await request(server).post('/auth/login').send({ email, password: newPassword }).expect(200)
+  })
+
+  it('rejects a too-short new password (400) without touching the existing password', async () => {
+    const email = uniqueEmail('pwshort')
+    const password = 'correct-horse-battery'
+    const reg = await request(server).post('/auth/register').send({ email, password, fullName: 'PW Short' }).expect(201)
+    const cookie = extractSessionCookie(reg)
+
+    await request(server).post('/auth/change-password').set('Cookie', cookie).send({ currentPassword: password, newPassword: 'short' }).expect(400)
+    await request(server).post('/auth/login').send({ email, password }).expect(200)
+  })
+
+  it('rejects /auth/change-password without a session cookie', async () => {
+    await request(server).post('/auth/change-password').send({ currentPassword: 'x', newPassword: 'a-brand-new-password' }).expect(401)
+  })
 })

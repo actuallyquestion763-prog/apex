@@ -1,6 +1,5 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, StreamableFile, UseGuards } from '@nestjs/common'
 import { IsString, MinLength } from 'class-validator'
-import { createReadStream } from 'fs'
 import { AdminService } from './admin.service'
 import { DepositsService } from '../deposits/deposits.service'
 import { WithdrawalsService } from '../withdrawals/withdrawals.service'
@@ -21,6 +20,8 @@ import { UpdatePlatformSettingsDto } from './dto/update-platform-settings.dto'
 import { UpdateMarketConfigDto } from './dto/update-market-config.dto'
 import { GrantPermissionDto } from './dto/grant-permission.dto'
 import { ApproveWithdrawalDto } from './dto/approve-withdrawal.dto'
+import { CreateAdminDto } from './dto/create-admin.dto'
+import { ResetAdminPasswordDto } from './dto/reset-admin-password.dto'
 import type { PermissionKey } from '../common/permissions'
 
 class ReasonDto {
@@ -111,8 +112,14 @@ export class AdminController {
 
   @Get('users')
   @RequirePermissions('users.read')
-  listUsers() {
-    return this.adminService.listUsers()
+  listUsers(@Query('q') q?: string) {
+    return this.adminService.listUsers(q)
+  }
+
+  @Get('users/:id')
+  @RequirePermissions('users.read')
+  getUserDetail(@Param('id') id: string) {
+    return this.adminService.getUserDetail(id)
   }
 
   @Patch('users/:id/status')
@@ -147,8 +154,8 @@ export class AdminController {
 
   @Get('deposits')
   @RequirePermissions('deposits.read')
-  listDeposits(@Query('status') status?: string) {
-    return this.depositsService.listAll(status)
+  listDeposits(@Query('status') status?: string, @Query('userId') userId?: string) {
+    return this.depositsService.listAll(status, userId)
   }
 
   @Post('deposits/:id/confirm')
@@ -171,14 +178,13 @@ export class AdminController {
   @RequirePermissions('deposits.read')
   async getDepositProof(@Param('id') id: string, @CurrentUser() admin: AuthenticatedUser) {
     const file = await this.depositsService.getProofFile(admin.id, true, id)
-    const stream = createReadStream(file.path)
-    return new StreamableFile(stream, { type: file.mimeType, disposition: `attachment; filename="${encodeURIComponent(file.filename)}"` })
+    return new StreamableFile(file.stream, { type: file.mimeType, disposition: `attachment; filename="${encodeURIComponent(file.filename)}"` })
   }
 
   @Get('withdrawals')
   @RequirePermissions('withdrawals.read')
-  listWithdrawals(@Query('status') status?: string) {
-    return this.withdrawalsService.listAll(status)
+  listWithdrawals(@Query('status') status?: string, @Query('userId') userId?: string) {
+    return this.withdrawalsService.listAll(status, userId)
   }
 
   // Withdrawal approval is one of the explicitly listed step-up-required
@@ -224,8 +230,7 @@ export class AdminController {
   @RequirePermissions('kyc.read')
   async getKycDocument(@Param('id') id: string, @CurrentUser() admin: AuthenticatedUser) {
     const file = await this.kycService.adminGetDocumentFile(admin.id, id)
-    const stream = createReadStream(file.path)
-    return new StreamableFile(stream, { type: file.mimeType, disposition: `inline; filename="${encodeURIComponent(file.filename)}"` })
+    return new StreamableFile(file.stream, { type: file.mimeType, disposition: `inline; filename="${encodeURIComponent(file.filename)}"` })
   }
 
   @Post('kyc/:id/approve')
@@ -265,6 +270,20 @@ export class AdminController {
   @RequirePermissions('admins.read')
   listAdmins() {
     return this.adminService.listAdmins()
+  }
+
+  // SUPER_ADMIN only + step-up — creating a new administrator account is the
+  // same sensitivity tier as granting a permission or changing a role.
+  @Post('admins')
+  @Roles('SUPER_ADMIN')
+  createAdmin(@Body() dto: CreateAdminDto, @CurrentUser() admin: AuthenticatedUser) {
+    return this.adminService.createAdmin(dto, admin.id)
+  }
+
+  @Patch('admins/:id/reset-password')
+  @Roles('SUPER_ADMIN')
+  resetAdminPassword(@Param('id') id: string, @Body() dto: ResetAdminPasswordDto, @CurrentUser() admin: AuthenticatedUser) {
+    return this.adminService.resetAdminPassword(id, dto, admin.id)
   }
 
   // SUPER_ADMIN only + step-up — granting/revoking permissions is itself

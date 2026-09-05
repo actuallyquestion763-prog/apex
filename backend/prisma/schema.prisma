@@ -56,6 +56,19 @@ model User {
   // auth.service.ts's generateReferralCode()); this platform has no
   // referral-reward/commission system, this is display+copy only.
   referralCode     String        @unique
+  // Trade Management "USER CONTROL" (Part 28) — designates this account as
+  // a sandbox fixture, never a real customer. Defaults false for every
+  // existing and newly self-registered account. The ONLY code path that
+  // ever sets this true is OptionsService.createTestUser (a dedicated,
+  // admin-only, step-up-gated, development/test-only endpoint that creates
+  // a brand-new account) — there is deliberately no route that can flip
+  // this flag on an account that already exists, so no real customer's
+  // account can ever retroactively become a "test user".
+  isTestUser       Boolean       @default(false)
+  // Only ever read/written when isTestUser is true — see settleTrade() and
+  // OptionsService.setTestUserOutcomeMode. Always NORMAL for every real
+  // account, since isTestUser can never be true for one.
+  testOutcomeMode  TestUserOutcomeMode @default(NORMAL)
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
 
@@ -234,6 +247,13 @@ enum LedgerEntryType {
   FEE
   REFUND
   ADJUSTMENT
+  // Part 32 — customer-initiated currency conversion (e.g. USDT -> BTC),
+  // priced from the same real MarketDataService quotes every other product
+  // in this codebase uses. Always posted as a DEBIT on the source currency
+  // paired with a CREDIT on the destination currency, both within the
+  // user's own account — never a system/revenue account, since no value is
+  // created or destroyed, only exchanged. See AccountsService.convert().
+  CONVERSION
 }
 
 enum LedgerDirection {
@@ -496,6 +516,12 @@ model CryptoDepositAddress {
   receivingAddress String
   minimumDeposit   Decimal? @db.Decimal(20, 8) // null = no configured minimum
   sortOrder        Int      @default(0)
+  // Optional admin-uploaded QR image of the receiving address, via the
+  // existing MediaStorageService abstraction (Admin Panel redesign) — never
+  // a second, unsafe upload path. Null = no QR uploaded; the customer-facing
+  // deposit page already renders a client-generated QR from the address
+  // text regardless (see src/components/QrCode.tsx), so this is optional.
+  qrStorageKey     String?
   updatedByAdminId String?
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
@@ -503,6 +529,25 @@ model CryptoDepositAddress {
   cryptoAsset CryptoAsset @relation(fields: [cryptoAssetId], references: [id], onDelete: Cascade)
 
   @@unique([cryptoAssetId, networkCode])
+  @@index([enabled])
+}
+
+// Admin-managed external support/contact links shown to customers (e.g. LINE,
+// Telegram) — Admin Panel redesign. Same "new capability defaults off"
+// posture as CryptoAsset/OptionMarket above. iconStorageKey is optional and
+// goes through the same MediaStorageService abstraction as every other
+// upload in this codebase — never a raw filesystem path.
+model AdminContact {
+  id               String   @id @default(uuid())
+  name             String
+  url              String
+  iconStorageKey   String?
+  enabled          Boolean  @default(false)
+  sortOrder        Int      @default(0)
+  updatedByAdminId String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
   @@index([enabled])
 }
 
@@ -1132,6 +1177,16 @@ model OptionDuration {
   durationSeconds Int
   enabled         Boolean  @default(true)
   payoutPercent   Decimal  @db.Decimal(6, 3) // e.g. 5.000 = 5%
+  // Amount-tier trading ticket (Part 29) — the minimum investment required
+  // to qualify for THIS duration/payout tier (e.g. $10 -> 30s/5%, $50 ->
+  // 60s/10%, $100 -> 90s/15%). The trading UI resolves duration+payout
+  // automatically from whichever amount the user types — the highest
+  // minAmount tier at or below the entered amount — never a manually
+  // clicked/typed duration. Default 0 preserves prior behavior for any
+  // duration an admin never assigns a threshold to (always qualifies).
+  // Enforced server-side in OptionsRiskService, never trusted from the
+  // client — see that file's DURATION_MIN_AMOUNT_NOT_MET check.
+  minAmount       Decimal  @default(0) @db.Decimal(20, 8)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -1178,6 +1233,19 @@ enum OptionResultMode {
   FORCE_WIN
   FORCE_LOSS
   FORCE_DRAW
+}
+
+// Trade Management "USER CONTROL" (Part 28) — a per-user test-outcome
+// override, distinct from both OptionTrade.requestedResultMode (per-trade,
+// chosen by whoever creates the trade) and OptionsSettings.sandboxOutcomeMode
+// (platform-wide). Only ever consulted for a user whose User.isTestUser is
+// true — see settleTrade() — and only ever writable in
+// development/test (OptionsAdminController). NORMAL/FORCE_WIN/FORCE_LOSS only
+// (no DRAW), matching sandboxOutcomeMode's shape.
+enum TestUserOutcomeMode {
+  NORMAL
+  FORCE_WIN
+  FORCE_LOSS
 }
 
 model OptionTrade {

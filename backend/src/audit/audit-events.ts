@@ -9,6 +9,7 @@ export const AuditEvent = {
   LOGIN_SUCCEEDED: 'LOGIN_SUCCEEDED',
   LOGIN_FAILED: 'LOGIN_FAILED',
   LOGOUT: 'LOGOUT',
+  PASSWORD_CHANGED: 'PASSWORD_CHANGED',
   USER_REGISTERED: 'USER_REGISTERED',
   USER_CREATED: 'USER_CREATED',
   USER_SUSPENDED: 'USER_SUSPENDED',
@@ -113,6 +114,11 @@ export const AuditEvent = {
   // outcome-mode admin dial, distinct from OPTION_DEMO_SIMULATION_USED
   // (which covers the separate, per-trade customer-requested override).
   SANDBOX_OUTCOME_MODE_CHANGED: 'SANDBOX_OUTCOME_MODE_CHANGED',
+  // Trade Management "USER CONTROL" (Part 28) — creating a designated
+  // test/sandbox user (never an existing account), and changing that
+  // user's per-user test outcome override.
+  TEST_USER_CREATED: 'TEST_USER_CREATED',
+  TEST_USER_OUTCOME_MODE_CHANGED: 'TEST_USER_OUTCOME_MODE_CHANGED',
 
   // ---- CMS (Phase 3) --------------------------------------------------------
   CONTENT_CREATED: 'CONTENT_CREATED',
@@ -134,6 +140,11 @@ export const AuditEvent = {
   TICKET_PRIORITY_CHANGED: 'TICKET_PRIORITY_CHANGED',
   INTERNAL_NOTE_CREATED: 'INTERNAL_NOTE_CREATED',
   SUPPORT_CATEGORY_CHANGED: 'SUPPORT_CATEGORY_CHANGED',
+
+  // ---- Admin Panel redesign ---------------------------------------------------
+  ADMIN_CONTACT_CHANGED: 'ADMIN_CONTACT_CHANGED',
+  ADMIN_CONTACT_DELETED: 'ADMIN_CONTACT_DELETED',
+  ADMIN_ACCOUNT_PASSWORD_RESET: 'ADMIN_ACCOUNT_PASSWORD_RESET',
 } as const
 
 export type AuditEventName = (typeof AuditEvent)[keyof typeof AuditEvent]

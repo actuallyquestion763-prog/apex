@@ -28,7 +28,6 @@ export function LoginPage() {
         <div className="mb-8 text-center"><Link to="/"><Logo size="lg" /></Link></div>
         <div className="card p-8">
           <h1 className="text-3xl font-extrabold text-white text-center">TRUST</h1>
-          <p className="mt-1 text-sm text-slate-400 text-center">BEST CRYPTO WALLET</p>
           <form onSubmit={submit} className="mt-6 space-y-4">
             <div><label className="label">Email address</label>
               <div className="relative"><Mail className="absolute left-3 top-3 h-4 w-4 text-slate-500" /><input type="email" className="input pl-10" placeholder="you@example.com" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} required /></div>
@@ -39,8 +38,7 @@ export function LoginPage() {
             {error && <p className="rounded-lg bg-bear/10 px-3 py-2 text-sm text-bear">{error}</p>}
             <button type="submit" disabled={loading} className="btn-gold w-full py-3">{loading ? 'Signing in…' : 'Sign in'} <ArrowRight className="h-4 w-4" /></button>
           </form>
-          <div className="mt-4 flex items-center justify-between text-xs">
-            <Link to="/signup" className="text-ocean-400 hover:text-ocean-300">Forgot password?</Link>
+          <div className="mt-4 flex items-center justify-end text-xs">
             <Link to="/signup" className="text-slate-500 hover:text-white">Create account</Link>
           </div>
         </div>

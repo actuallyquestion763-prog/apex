@@ -55,6 +55,17 @@ export class OptionsRiskService {
       return fail('MAX_INVESTMENT_EXCEEDED', `Maximum investment for ${ctx.market.symbol} is ${ctx.market.maxInvestment.toString()} ${ctx.market.currency}.`)
     }
 
+    // ---- Amount-tier gating (Part 29) — duration+payout are resolved
+    // automatically from the investment amount on the trading UI (never a
+    // manually clicked/typed duration); this is the server-side
+    // enforcement that the submitted (duration, investment) pair is
+    // actually a legitimate tier, never trusting whatever the client
+    // resolved and sent. minAmount defaults to 0 (unenforced) for any
+    // duration an admin hasn't assigned a real threshold to.
+    if (ctx.duration.minAmount.gt(0) && ctx.investment.lt(ctx.duration.minAmount)) {
+      return fail('DURATION_MIN_AMOUNT_NOT_MET', `The ${ctx.duration.durationSeconds}s / ${ctx.duration.payoutPercent.toString()}% tier requires a minimum investment of ${ctx.duration.minAmount.toString()} ${ctx.market.currency}.`)
+    }
+
     // ---- 17. Concurrent-trade limits (Part 17) — global per-user ceilings,
     // same nullable-means-unenforced convention as PlatformSettings' own
     // maxOpenOrdersPerUser. ---------------------------------------------------

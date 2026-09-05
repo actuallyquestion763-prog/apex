@@ -24,6 +24,7 @@ import { ExecutionStatusModule } from './execution/execution-status.module'
 import { HealthModule } from './health/health.module'
 import { OptionsModule } from './options/options.module'
 import { CryptoDepositsModule } from './crypto-deposits/crypto-deposits.module'
+import { AdminContactsModule } from './admin/admin-contacts.module'
 
 @Module({
   imports: [
@@ -80,6 +81,7 @@ import { CryptoDepositsModule } from './crypto-deposits/crypto-deposits.module'
     // at deposit-creation time) — listed here too, directly, for the same
     // top-level visibility every other feature module gets.
     CryptoDepositsModule,
+    AdminContactsModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })

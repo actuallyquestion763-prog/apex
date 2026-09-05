@@ -3,8 +3,15 @@ import { Decimal } from '@prisma/client/runtime/library'
 import { PrismaService } from '../prisma/prisma.service'
 import { AuditService } from '../audit/audit.service'
 import { AuditEvent } from '../audit/audit-events'
+import { MediaStorageService } from '../cms/media-storage.service'
 import { validateReceivingAddress } from './address-validation.util'
 import type { CreateCryptoAssetDto, UpdateCryptoAssetDto, UpsertCryptoDepositAddressDto } from './dto/admin-crypto-dtos'
+
+interface UploadedFileLike {
+  originalname: string
+  mimetype: string
+  buffer: Buffer
+}
 
 // Crypto deposit configuration — a SEPARATE, minimal domain from the
 // existing DepositsService (Part 1/17: reuse the existing Deposit model and
@@ -18,6 +25,7 @@ export class CryptoDepositsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly media: MediaStorageService,
   ) {}
 
   // ---- Public read path (deposit page) ---------------------------------------
@@ -65,10 +73,17 @@ export class CryptoDepositsService {
   // ---- Admin CRUD -----------------------------------------------------------
 
   async adminListAssets() {
-    return this.prisma.cryptoAsset.findMany({
+    const assets = await this.prisma.cryptoAsset.findMany({
       include: { networks: { orderBy: { sortOrder: 'asc' } } },
       orderBy: { sortOrder: 'asc' },
     })
+    // Never leak the raw opaque storage key to the frontend — it derives
+    // the QR image URL from (symbol, networkCode) via getQrStream() below,
+    // not from this key.
+    return assets.map((a) => ({
+      ...a,
+      networks: a.networks.map(({ qrStorageKey, ...n }) => ({ ...n, hasQr: Boolean(qrStorageKey) })),
+    }))
   }
 
   async createAsset(adminId: string, dto: CreateCryptoAssetDto) {
@@ -115,8 +130,12 @@ export class CryptoDepositsService {
   // Step-up gated at the controller (admin identity + password + TOTP
   // already verified before this runs — see crypto-deposits-admin.controller.ts)
   // — receiving-address changes are the single most fund-safety-sensitive
-  // operation in this entire module (Part 25).
-  async upsertNetworkAddress(adminId: string, symbol: string, dto: UpsertCryptoDepositAddressDto) {
+  // operation in this entire module (Part 25). `file`, when present, is a
+  // new QR image to associate with this (asset, network) — reuses the same
+  // MediaStorageService abstraction as every other upload in this codebase
+  // (allowlisted MIME types, magic-byte check, server-generated storage
+  // key), never a separate/unsafe upload path.
+  async upsertNetworkAddress(adminId: string, symbol: string, dto: UpsertCryptoDepositAddressDto, file?: UploadedFileLike) {
     const asset = await this.prisma.cryptoAsset.findUnique({ where: { symbol } })
     if (!asset) throw new NotFoundException(`No crypto asset "${symbol}".`)
 
@@ -131,6 +150,18 @@ export class CryptoDepositsService {
       where: { cryptoAssetId_networkCode: { cryptoAssetId: asset.id, networkCode } },
     })
 
+    // New upload wins; otherwise an explicit `removeQr` clears it; otherwise
+    // the existing key (if any) is left exactly as-is — a plain edit that
+    // touches only the address/minimum/etc. must never silently drop an
+    // already-uploaded QR.
+    let qrStorageKey = before?.qrStorageKey ?? null
+    if (file) {
+      const stored = await this.media.save(file.originalname, file.mimetype, file.buffer)
+      qrStorageKey = stored.storageKey
+    } else if (dto.removeQr) {
+      qrStorageKey = null
+    }
+
     const updated = await this.prisma.cryptoDepositAddress.upsert({
       where: { cryptoAssetId_networkCode: { cryptoAssetId: asset.id, networkCode } },
       create: {
@@ -141,6 +172,7 @@ export class CryptoDepositsService {
         enabled: dto.enabled ?? true,
         minimumDeposit: dto.minimumDeposit ? new Decimal(dto.minimumDeposit) : null,
         sortOrder: dto.sortOrder ?? 0,
+        qrStorageKey,
         updatedByAdminId: adminId,
       },
       update: {
@@ -149,9 +181,16 @@ export class CryptoDepositsService {
         ...(dto.enabled !== undefined ? { enabled: dto.enabled } : {}),
         ...(dto.minimumDeposit !== undefined ? { minimumDeposit: dto.minimumDeposit ? new Decimal(dto.minimumDeposit) : null } : {}),
         ...(dto.sortOrder !== undefined ? { sortOrder: dto.sortOrder } : {}),
+        qrStorageKey,
         updatedByAdminId: adminId,
       },
     })
+
+    // Best-effort cleanup of a replaced/removed image — never lets a
+    // storage failure block the record update that already succeeded.
+    if (before?.qrStorageKey && before.qrStorageKey !== qrStorageKey) {
+      await this.media.delete(before.qrStorageKey).catch(() => undefined)
+    }
 
     // Deliberately never logs the OLD address's full value alongside the
     // new one in a way that could be mistaken for "the current address" —
@@ -168,5 +207,48 @@ export class CryptoDepositsService {
       newState: { symbol, networkCode, receivingAddress: updated.receivingAddress, enabled: updated.enabled, minimumDeposit: updated.minimumDeposit?.toString() ?? null },
     })
     return updated
+  }
+
+  // Step-up gated at the controller. Safe to hard-delete (not disable-only):
+  // Deposit rows snapshot networkCode/receivingAddress as plain strings at
+  // creation time (see Deposit model comment — Checkpoint K), never a live
+  // foreign key to CryptoDepositAddress, so removing this row cannot orphan
+  // or corrupt any historical deposit record.
+  async deleteNetworkAddress(adminId: string, symbol: string, networkCode: string, reason: string) {
+    const asset = await this.prisma.cryptoAsset.findUnique({ where: { symbol } })
+    if (!asset) throw new NotFoundException(`No crypto asset "${symbol}".`)
+    const code = networkCode.toUpperCase()
+    const existing = await this.prisma.cryptoDepositAddress.findUnique({
+      where: { cryptoAssetId_networkCode: { cryptoAssetId: asset.id, networkCode: code } },
+    })
+    if (!existing) throw new NotFoundException(`No "${code}" network configured for ${symbol}.`)
+
+    await this.prisma.cryptoDepositAddress.delete({ where: { id: existing.id } })
+    if (existing.qrStorageKey) await this.media.delete(existing.qrStorageKey).catch(() => undefined)
+
+    await this.audit.record({
+      actorId: adminId,
+      action: AuditEvent.CRYPTO_DEPOSIT_ADDRESS_CHANGED,
+      targetType: 'CRYPTO_DEPOSIT_ADDRESS',
+      targetId: existing.id,
+      reason,
+      previousState: { symbol, networkCode: code, receivingAddress: existing.receivingAddress, enabled: existing.enabled },
+      newState: { deleted: true },
+    })
+    return { ok: true }
+  }
+
+  // Serves the admin-uploaded QR image for one (asset, network) pair.
+  // Reachable by any signed-in user (see crypto-deposits.controller.ts) —
+  // same trust boundary as the receiving address itself (Part 24: not a
+  // secret, meant to be shown to whoever is depositing that asset).
+  async getQrStream(symbol: string, networkCode: string) {
+    const asset = await this.prisma.cryptoAsset.findUnique({ where: { symbol } })
+    if (!asset) throw new NotFoundException(`No crypto asset "${symbol}".`)
+    const network = await this.prisma.cryptoDepositAddress.findUnique({
+      where: { cryptoAssetId_networkCode: { cryptoAssetId: asset.id, networkCode: networkCode.toUpperCase() } },
+    })
+    if (!network || !network.qrStorageKey) throw new NotFoundException('No QR code uploaded for this network.')
+    return { stream: await this.media.getObjectStream(network.qrStorageKey), storageKey: network.qrStorageKey }
   }
 }

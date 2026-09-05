@@ -2,14 +2,14 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { ProfilePage } from './ProfilePage'
+import { I18nProvider } from '../i18n'
 
 const signOut = vi.fn().mockResolvedValue(undefined)
-const mockUser = {
+const baseUser = {
   id: 'user-uid-12345',
   email: 'emmika@example.com',
   fullName: 'Emmika',
   country: 'Kenya',
-  role: 'USER' as const,
   status: 'ACTIVE' as const,
   kycStatus: 'PENDING' as const,
   twoFactorEnabled: false,
@@ -17,17 +17,23 @@ const mockUser = {
   createdAt: '2026-01-01T00:00:00.000Z',
   updatedAt: '2026-01-01T00:00:00.000Z',
 }
+const mockUser = { ...baseUser, role: 'USER' as const }
+const adminUser = { ...baseUser, id: 'admin-uid-1', email: 'admin@example.com', role: 'ADMIN' as const }
+const superAdminUser = { ...baseUser, id: 'super-uid-1', email: 'super@example.com', role: 'SUPER_ADMIN' as const }
+
+let currentUser: typeof mockUser | typeof adminUser | typeof superAdminUser = mockUser
 
 vi.mock('../store/auth', () => ({
-  useAuth: () => ({ user: mockUser, signOut }),
+  useAuth: () => ({ user: currentUser, signOut }),
 }))
 
 function renderProfile() {
-  return render(<MemoryRouter><ProfilePage /></MemoryRouter>)
+  return render(<MemoryRouter><I18nProvider><ProfilePage /></I18nProvider></MemoryRouter>)
 }
 
 describe('ProfilePage', () => {
   beforeEach(() => {
+    currentUser = mockUser
     signOut.mockClear()
     Object.assign(navigator, { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } })
   })
@@ -75,5 +81,26 @@ describe('ProfilePage', () => {
     renderProfile()
     fireEvent.click(screen.getByRole('button', { name: /log out/i }))
     await waitFor(() => expect(signOut).toHaveBeenCalled())
+  })
+
+  // TRUST authorization/UI fix — same fail-closed role check as
+  // DashboardLayout's top nav (src/lib/roles.ts), verified independently
+  // here since ProfilePage has its own separate "Admin panel" menu item.
+  it('does not show an Admin panel menu item for a normal USER', () => {
+    currentUser = mockUser
+    renderProfile()
+    expect(screen.queryByRole('link', { name: /admin panel/i })).not.toBeInTheDocument()
+  })
+
+  it('shows the Admin panel menu item, linking to /admin, for an ADMIN user', () => {
+    currentUser = adminUser
+    renderProfile()
+    expect(screen.getByRole('link', { name: /admin panel/i })).toHaveAttribute('href', '/admin')
+  })
+
+  it('shows the Admin panel menu item, linking to /admin, for a SUPER_ADMIN user', () => {
+    currentUser = superAdminUser
+    renderProfile()
+    expect(screen.getByRole('link', { name: /admin panel/i })).toHaveAttribute('href', '/admin')
   })
 })

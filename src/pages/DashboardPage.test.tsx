@@ -19,6 +19,15 @@ vi.mock('../store/auth', () => ({
   useAuth: () => ({ user: { id: 'u1', fullName: 'Test User', referralCode: 'TEST1234', status: 'ACTIVE' } }),
 }))
 
+function market(symbol: string, quoteAsset: string, baseAsset: string) {
+  return {
+    id: symbol, symbol, quoteAsset, baseAsset,
+    dataSource: 'LIVE', tradingEnabled: true, maintenanceMode: false,
+    displayName: symbol, marketType: 'CRYPTO_SPOT', enabled: true,
+    pricePrecision: 2, quantityPrecision: 8, provider: null, providerSymbol: null,
+  }
+}
+
 vi.mock('../store/useStore', () => ({
   useAccountSummary: () => ({ summary: mockSummary, loading: false, error: null }),
   useCashBalance: () => ({ balance: mockUsdtBalance, loading: false }),
@@ -26,6 +35,7 @@ vi.mock('../store/useStore', () => ({
   useExecutionStatus: () => ({ status: { provider: 'BinanceSandbox', message: '' } }),
   usePositions: () => ({ positions: [] }),
   computePositionPnl: () => 0,
+  useMarketConfigs: () => ({ markets: [market('BTC/USDT', 'USDT', 'BTC'), market('XAU/USD', 'USD', 'XAU')] }),
 }))
 
 function renderDashboard() {
@@ -65,5 +75,27 @@ describe('DashboardPage — USDT primary Spot Balance (USDT Primary Currency UX 
     renderDashboard()
     expect(screen.getByText('Spot Holdings')).toBeInTheDocument()
     expect(screen.getByText('0.00138 BTC')).toBeInTheDocument()
+  })
+
+  it('builds the referral link from the real page origin, never a hardcoded domain', () => {
+    renderDashboard()
+    expect(screen.getByText(`${window.location.origin}/r/TEST1234`)).toBeInTheDocument()
+    expect(screen.queryByText(/trust\.io/)).not.toBeInTheDocument()
+  })
+
+  it('does not claim an unsupported referral commission (P1-6)', () => {
+    renderDashboard()
+    expect(screen.queryByText(/10% commission/i)).not.toBeInTheDocument()
+    expect(screen.queryByText('Share this link with others.')).toBeInTheDocument()
+  })
+
+  it('labels a USDT-quoted trending market with USDT, not a bare "$" (P1-3)', () => {
+    renderDashboard()
+    expect(screen.getAllByText('65,000 USDT').length).toBeGreaterThan(0)
+  })
+
+  it('labels a USD-quoted trending market with USD, preserving existing USD behavior (P1-3)', () => {
+    renderDashboard()
+    expect(screen.getAllByText('65,000 USD').length).toBeGreaterThan(0)
   })
 })

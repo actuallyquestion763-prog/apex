@@ -20,9 +20,9 @@ export interface SubmitKycFiles {
 
 // Real submission + private document storage (extends the previous
 // status-tracking-only design). Documents are saved via the existing shared
-// MediaStorageService (private disk, random storage key, magic-byte
-// validated) — the exact same mechanism CmsMedia, SupportAttachment, and
-// Deposit proofs already use. Never a public URL; every read goes through
+// MediaStorageService (private S3-compatible bucket, random storage key,
+// magic-byte validated) — the exact same mechanism CmsMedia, SupportAttachment,
+// and Deposit proofs already use. Never a public URL; every read goes through
 // getDocumentFile()/adminGetDocumentFile()'s ownership-or-permission check.
 @Injectable()
 export class KycService {
@@ -52,11 +52,14 @@ export class KycService {
 
     const isResubmission = user.kycStatus === 'REJECTED'
 
-    // Disk writes happen before the DB transaction (MediaStorageService is
-    // synchronous local-disk I/O) — same ordering as DepositsService.uploadProof.
-    const storedFront = this.media.save(front.originalname, front.mimetype, front.buffer)
-    const storedBack = back ? this.media.save(back.originalname, back.mimetype, back.buffer) : null
-    const storedSelfie = this.media.save(selfie.originalname, selfie.mimetype, selfie.buffer)
+    // Storage writes happen before the DB transaction (same ordering as
+    // DepositsService.uploadProof) — a transaction failure after a
+    // successful upload can leave an orphaned object; this is a pre-existing,
+    // accepted tradeoff carried over unchanged from the local-disk version,
+    // not something this storage-backend swap needed to fix.
+    const storedFront = await this.media.save(front.originalname, front.mimetype, front.buffer)
+    const storedBack = back ? await this.media.save(back.originalname, back.mimetype, back.buffer) : null
+    const storedSelfie = await this.media.save(selfie.originalname, selfie.mimetype, selfie.buffer)
 
     const documents = [
       { kind: 'FRONT' as const, storageKey: storedFront.storageKey, mimeType: front.mimetype, filename: front.originalname, size: storedFront.size },
@@ -108,7 +111,8 @@ export class KycService {
     const doc = await this.prisma.kycDocument.findUnique({ where: { id: documentId }, include: { verification: true } })
     if (!doc) throw new NotFoundException('Document not found.')
     if (doc.verification.userId !== requesterId) throw new NotFoundException('Document not found.')
-    return { path: this.media.pathFor(doc.storageKey), mimeType: doc.mimeType, filename: doc.filename }
+    const stream = await this.media.getObjectStream(doc.storageKey)
+    return { stream, mimeType: doc.mimeType, filename: doc.filename }
   }
 
   // ---- Admin -----------------------------------------------------------
@@ -158,7 +162,8 @@ export class KycService {
       targetId: doc.verification.userId,
       metadata: { verificationId: doc.verificationId, documentId, kind: doc.kind },
     })
-    return { path: this.media.pathFor(doc.storageKey), mimeType: doc.mimeType, filename: doc.filename }
+    const stream = await this.media.getObjectStream(doc.storageKey)
+    return { stream, mimeType: doc.mimeType, filename: doc.filename }
   }
 
   async approve(verificationId: string, adminId: string) {

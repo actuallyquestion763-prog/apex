@@ -5,6 +5,7 @@ import { AuthService } from './auth.service'
 import { RegisterDto } from './dto/register.dto'
 import { LoginDto } from './dto/login.dto'
 import { VerifyTotpDto } from './dto/verify-totp.dto'
+import { ChangePasswordDto } from './dto/change-password.dto'
 import { SESSION_COOKIE_NAME } from './auth.constants'
 import { SessionAuthGuard } from '../common/guards/session-auth.guard'
 import { CurrentUser } from '../common/decorators/current-user.decorator'
@@ -75,6 +76,7 @@ export class AuthController {
 
   @Post('2fa/setup')
   @UseGuards(SessionAuthGuard)
+  @Throttle(AUTH_THROTTLE)
   setupTwoFactor(@CurrentUser() user: AuthenticatedUser) {
     return this.authService.setupTwoFactor(user.id)
   }
@@ -85,6 +87,15 @@ export class AuthController {
   @Throttle(AUTH_THROTTLE)
   async confirmTwoFactor(@CurrentUser() user: AuthenticatedUser, @Body() dto: VerifyTotpDto) {
     await this.authService.confirmTwoFactor(user.id, dto.code)
+    return { ok: true }
+  }
+
+  @Post('change-password')
+  @HttpCode(200)
+  @UseGuards(SessionAuthGuard)
+  @Throttle(AUTH_THROTTLE)
+  async changePassword(@CurrentUser() user: AuthenticatedUser, @Body() dto: ChangePasswordDto, @Req() req: Request) {
+    await this.authService.changePassword(user.id, user.sessionId, dto, requestMeta(req))
     return { ok: true }
   }
 }

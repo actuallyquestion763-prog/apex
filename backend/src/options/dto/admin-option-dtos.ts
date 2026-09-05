@@ -1,4 +1,4 @@
-import { IsBoolean, IsIn, IsInt, IsNumberString, IsOptional, IsString, Min, MinLength } from 'class-validator'
+import { IsBoolean, IsEmail, IsIn, IsInt, IsNumberString, IsOptional, IsString, Min, MinLength } from 'class-validator'
 
 export class CreateOptionMarketDto {
   @IsString()
@@ -49,6 +49,14 @@ export class UpsertOptionDurationDto {
 
   @IsNumberString()
   payoutPercent!: string
+
+  // Amount-tier trading ticket (Part 29) — the minimum investment that
+  // qualifies for this duration/payout. Optional; omitted/undefined leaves
+  // an existing tier's threshold unchanged, defaults to '0' (unenforced) on
+  // first creation.
+  @IsOptional()
+  @IsNumberString()
+  minAmount?: string
 }
 
 export class UpdateOptionsSettingsDto {
@@ -72,6 +80,48 @@ export class UpdateOptionsSettingsDto {
   @IsOptional()
   @IsIn(['RANDOM', 'FORCE_WIN', 'FORCE_LOSS'])
   sandboxOutcomeMode?: 'RANDOM' | 'FORCE_WIN' | 'FORCE_LOSS'
+
+  @IsString()
+  @MinLength(3)
+  reason!: string
+
+  @IsString()
+  confirmPassword!: string
+
+  @IsString()
+  totpCode!: string
+}
+
+// Creates a brand-new, dedicated test/sandbox user (isTestUser: true) —
+// mirrors CreateAdminDto's shape exactly. Deliberately NOT an "update an
+// existing user" DTO: there is no way to flag an existing account as a test
+// user, by design (see the User model's doc comment in schema.prisma).
+export class CreateTestUserDto {
+  @IsEmail()
+  email!: string
+
+  @IsOptional()
+  @IsString()
+  fullName?: string
+
+  @IsString()
+  @MinLength(12)
+  password!: string
+
+  @IsString()
+  @MinLength(5)
+  reason!: string
+
+  @IsString()
+  confirmPassword!: string
+
+  @IsString()
+  totpCode!: string
+}
+
+export class SetTestUserOutcomeDto {
+  @IsIn(['NORMAL', 'FORCE_WIN', 'FORCE_LOSS'])
+  testOutcomeMode!: 'NORMAL' | 'FORCE_WIN' | 'FORCE_LOSS'
 
   @IsString()
   @MinLength(3)

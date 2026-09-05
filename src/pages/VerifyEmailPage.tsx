@@ -39,7 +39,7 @@ export function VerifyEmailPage() {
           </div>
           <h1 className="mt-5 text-2xl font-bold text-white">Verify your email</h1>
           <p className="mt-2 text-sm text-slate-400">
-            We sent a 6-digit verification code to <span className="font-semibold text-white">{user?.email || 'your email'}</span>. Enter it below to activate your account.
+            This demo does not send real emails. Enter any 6-digit code below to simulate verifying <span className="font-semibold text-white">{user?.email || 'your email'}</span>.
           </p>
           <form onSubmit={submit} className="mt-6 space-y-4">
             <input

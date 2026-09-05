@@ -1,32 +1,40 @@
-import { BadRequestException, Injectable } from '@nestjs/common'
+import { BadRequestException, Inject, Injectable, InternalServerErrorException, NotFoundException } from '@nestjs/common'
 import { randomUUID } from 'crypto'
-import { mkdirSync, writeFileSync, unlinkSync, existsSync } from 'fs'
-import { join } from 'path'
+import type { Readable } from 'stream'
+import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
 import { matchesFileSignature } from './file-signature.util'
+import { S3_CLIENT } from './media-storage.tokens'
 
-// Development storage backend: local disk, under backend/uploads/ (gitignored,
-// never PostgreSQL — see CmsMedia's schema comment for why). Deliberately a
-// small, swappable interface — a production deployment replaces only this
-// one file with an S3-compatible implementation; nothing else in the CMS
-// module knows or cares where bytes physically live, it only ever sees a
-// storageKey. No external storage provider is wired up in this phase.
+// Production storage backend: an S3-compatible bucket (Cloudflare R2 in
+// production; any S3-compatible endpoint works, since every provider-facing
+// detail lives in s3-client.factory.ts / environment variables, never here —
+// see that file's comment). Deliberately the same small, swappable
+// interface it always was — nothing outside this class knows or cares
+// whether bytes live on local disk or in a bucket, it only ever sees a
+// storageKey. This used to be local-disk I/O (backend/uploads/); the
+// interface is now async throughout because a real object-storage call
+// always is, but the shape callers see is otherwise unchanged.
 //
-// Shared by BOTH CmsMedia uploads and SupportAttachment uploads (Phase 4,
-// Part 15) — same allowlist, same size limit, same magic-byte check, same
-// random-storage-key scheme. There is deliberately one storage abstraction,
-// not two bespoke ones.
-const UPLOAD_ROOT = join(__dirname, '..', '..', 'uploads')
-
-// image/svg+xml was removed in Phase 4 (Part 10): SVG is XML that can carry
-// active content (<script>, event handlers, foreignObject), and there is no
-// vetted SVG sanitizer in this project to safely neutralize that — the spec
-// explicitly allows restricting SVG until a proper sanitizer exists rather
-// than half-sanitizing it, which is what this does.
+// Shared by CmsMedia, SupportAttachment, Deposit-proof, and KycDocument
+// uploads — same allowlist, same size limit, same magic-byte check, same
+// random-storage-key scheme, same single storage abstraction, exactly as
+// before.
 const ALLOWED_MIME_TYPES = new Set([
   'image/png', 'image/jpeg', 'image/webp', 'image/gif',
   'application/pdf',
 ])
 const MAX_BYTES = 5 * 1024 * 1024 // 5MB
+
+// storageKey is always server-generated (see save() below) as a UUID plus a
+// fixed, known extension — never derived from client input. This pattern is
+// the defense-in-depth check that a value about to be used as an S3 object
+// key actually looks like one of ours, mirroring the old safeBasename()
+// guard that stripped directory components before touching the filesystem.
+// An S3 key that doesn't match this can never have been produced by save(),
+// so refusing it here costs nothing and closes off any path where a
+// corrupted/tampered storageKey could be used to address an unintended
+// object.
+const STORAGE_KEY_PATTERN = /^[0-9a-f-]{36}\.(png|jpg|webp|gif|pdf)$/
 
 export interface StoredFile {
   storageKey: string
@@ -35,13 +43,21 @@ export interface StoredFile {
 
 @Injectable()
 export class MediaStorageService {
-  // Validates the CLIENT-DECLARED mimeType against an allowlist AND (Phase 4
-  // hardening) the actual leading bytes of the file against that same
-  // mimeType's real signature — a caller can no longer upload an arbitrary
-  // file mislabeled as an allowed image/PDF type. Never trusts the filename
-  // extension for anything (storageKey is a fresh random name, the original
-  // filename is stored only as display metadata).
-  save(originalFilename: string, mimeType: string, buffer: Buffer): StoredFile {
+  constructor(@Inject(S3_CLIENT) private readonly s3: S3Client) {}
+
+  private get bucket(): string {
+    const bucket = process.env.S3_BUCKET
+    if (!bucket) throw new InternalServerErrorException('Object storage is not configured.')
+    return bucket
+  }
+
+  // Validates the CLIENT-DECLARED mimeType against an allowlist AND the
+  // actual leading bytes of the file against that same mimeType's real
+  // signature — a caller can no longer upload an arbitrary file mislabeled
+  // as an allowed image/PDF type. Never trusts the filename extension for
+  // anything (storageKey is a fresh random name, the original filename is
+  // stored only as display metadata) — all unchanged from before.
+  async save(originalFilename: string, mimeType: string, buffer: Buffer): Promise<StoredFile> {
     if (!ALLOWED_MIME_TYPES.has(mimeType)) {
       throw new BadRequestException(`File type "${mimeType}" is not allowed.`)
     }
@@ -51,30 +67,67 @@ export class MediaStorageService {
       throw new BadRequestException('File content does not match its declared type.')
     }
 
-    if (!existsSync(UPLOAD_ROOT)) mkdirSync(UPLOAD_ROOT, { recursive: true })
-
     // Random name, not the client-supplied filename — prevents path
-    // traversal (e.g. "../../etc/passwd") and never executes based on
-    // extension since nothing in this service interprets the name.
+    // traversal / key-injection and never executes based on extension since
+    // nothing interprets the name; this object key is opaque.
     const safeExt = extensionFor(mimeType)
     const storageKey = `${randomUUID()}${safeExt}`
-    writeFileSync(join(UPLOAD_ROOT, storageKey), buffer)
+
+    try {
+      await this.s3.send(new PutObjectCommand({
+        Bucket: this.bucket,
+        Key: storageKey,
+        Body: buffer,
+        ContentType: mimeType,
+      }))
+    } catch {
+      // Never surface the underlying SDK error (which can include the
+      // endpoint/bucket) to a client — a clean, generic failure here still
+      // lets the caller know the upload didn't happen.
+      throw new InternalServerErrorException('Could not store the uploaded file.')
+    }
 
     return { storageKey, size: buffer.length }
   }
 
-  delete(storageKey: string): void {
-    const path = join(UPLOAD_ROOT, safeBasename(storageKey))
-    if (existsSync(path)) unlinkSync(path)
+  async delete(storageKey: string): Promise<void> {
+    if (!STORAGE_KEY_PATTERN.test(storageKey)) return
+    try {
+      await this.s3.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: storageKey }))
+    } catch {
+      // Matches the previous local-disk behavior (existsSync guard — a
+      // missing file was never an error there either): deletion is
+      // best-effort cleanup, not a step whose failure should block the
+      // caller's own operation (e.g. replacing a deposit proof).
+    }
   }
 
-  pathFor(storageKey: string): string {
-    return join(UPLOAD_ROOT, safeBasename(storageKey))
+  // Replaces pathFor()'s filesystem-path assumption. Returns a live
+  // Readable the caller pipes straight into a StreamableFile, exactly as
+  // they previously did with createReadStream(path) — the read side of the
+  // interface is otherwise unchanged in shape.
+  async getObjectStream(storageKey: string): Promise<Readable> {
+    if (!STORAGE_KEY_PATTERN.test(storageKey)) throw new NotFoundException('File not found.')
+    try {
+      const res = await this.s3.send(new GetObjectCommand({ Bucket: this.bucket, Key: storageKey }))
+      // In the Node.js runtime (this backend), GetObjectCommand's Body is
+      // always a Node Readable — the wider SdkStream/Blob/WebReadableStream
+      // union in the SDK's own types only applies to browser/edge runtimes.
+      return res.Body as Readable
+    } catch (err) {
+      if (isNotFoundError(err)) throw new NotFoundException('File not found.')
+      throw new InternalServerErrorException('Could not retrieve the requested file.')
+    }
   }
 }
 
+function isNotFoundError(err: unknown): boolean {
+  const name = (err as { name?: string } | null)?.name
+  return name === 'NoSuchKey' || name === 'NotFound'
+}
+
 // Only a fixed, known allowlist of extensions is ever produced — never
-// derived from client input — so a stored file can never end in something
+// derived from client input — so a stored object can never end in something
 // like ".php" or ".exe" no matter what a caller claims its mimeType is.
 function extensionFor(mimeType: string): string {
   const map: Record<string, string> = {
@@ -85,11 +138,4 @@ function extensionFor(mimeType: string): string {
     'application/pdf': '.pdf',
   }
   return map[mimeType] ?? ''
-}
-
-// Defense in depth against path traversal even though storageKey is always
-// server-generated: strip any directory components before touching the
-// filesystem.
-function safeBasename(storageKey: string): string {
-  return storageKey.replace(/^.*[\\/]/, '')
 }

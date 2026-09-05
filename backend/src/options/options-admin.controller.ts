@@ -1,4 +1,4 @@
-import { Body, Controller, ForbiddenException, Get, Param, Patch, Post, UseGuards } from '@nestjs/common'
+import { Body, Controller, ForbiddenException, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common'
 import { OptionsService } from './options.service'
 import { OptionsMarketService } from './options-market.service'
 import { OptionsSettingsService } from './options-settings.service'
@@ -6,7 +6,7 @@ import { isDemoResultModeAllowed } from './sandbox-env'
 import { StepUpService } from '../common/security/step-up.service'
 import { AuditService } from '../audit/audit.service'
 import { AuditEvent } from '../audit/audit-events'
-import { CreateOptionMarketDto, UpdateOptionMarketDto, UpdateOptionsSettingsDto, UpsertOptionDurationDto } from './dto/admin-option-dtos'
+import { CreateOptionMarketDto, CreateTestUserDto, SetTestUserOutcomeDto, UpdateOptionMarketDto, UpdateOptionsSettingsDto, UpsertOptionDurationDto } from './dto/admin-option-dtos'
 import { SessionAuthGuard } from '../common/guards/session-auth.guard'
 import { RolesGuard } from '../common/guards/roles.guard'
 import { PermissionsGuard } from '../common/guards/permissions.guard'
@@ -130,10 +130,45 @@ export class OptionsAdminController {
     return this.optionsService.listUnresolvedTrades()
   }
 
+  // Admin Trade Management page — real, individual, cross-customer trades
+  // (not just aggregate stats). Read-only reporting; never touches a
+  // trade's result or status.
+  @Get('trades')
+  @RequirePermissions('options.read')
+  listTrades(@Query('status') status?: 'ACTIVE' | 'SETTLED' | 'UNRESOLVED', @Query('userId') userId?: string) {
+    return this.optionsService.adminListTrades(status, userId)
+  }
+
   @Get('stats')
   @RequirePermissions('options.read')
   getStats() {
     return this.optionsService.getStats()
+  }
+
+  // ---- Trade Management "USER CONTROL" — designated test/sandbox users
+  // (Part 28). Both routes are hard-rejected outside development/test,
+  // independent of anything a caller sends — same isDemoResultModeAllowed()
+  // gate as PATCH settings' sandboxOutcomeMode above, same step-up tier
+  // (these create a real account / change how a user's trades settle). ---
+
+  @Post('test-users')
+  @RequirePermissions('options.control')
+  async createTestUser(@Body() dto: CreateTestUserDto, @CurrentUser() admin: AuthenticatedUser) {
+    await this.stepUp.assertStepUpAuthorized(admin.id, dto.confirmPassword, dto.totpCode)
+    if (!isDemoResultModeAllowed()) {
+      throw new ForbiddenException('Test/sandbox users can only be created in this environment.')
+    }
+    return this.optionsService.createTestUser(admin.id, dto.email, dto.fullName, dto.password, dto.reason)
+  }
+
+  @Patch('test-users/:userId')
+  @RequirePermissions('options.control')
+  async setTestUserOutcomeMode(@Param('userId') userId: string, @Body() dto: SetTestUserOutcomeDto, @CurrentUser() admin: AuthenticatedUser) {
+    await this.stepUp.assertStepUpAuthorized(admin.id, dto.confirmPassword, dto.totpCode)
+    if (!isDemoResultModeAllowed()) {
+      throw new ForbiddenException('Per-user test outcome overrides are not available in this environment.')
+    }
+    return this.optionsService.setTestUserOutcomeMode(admin.id, userId, dto.testOutcomeMode, dto.reason)
   }
 
   // On-demand retry sweep — genuinely useful after a price-feed outage

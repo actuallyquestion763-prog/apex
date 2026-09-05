@@ -9,11 +9,16 @@ const path = require('path')
 
 const dataDir = path.join(__dirname, '..', '.pgdata-dev')
 
+// Port 5432 is occupied by an unrelated, pre-existing Windows PostgreSQL
+// service on this machine (installed outside this project, auto-starts on
+// boot) — using 5435 instead avoids depending on that foreign service being
+// stopped every time this machine restarts. Purely a network-binding
+// change; the actual data directory/cluster is untouched.
 const pg = new EmbeddedPostgres({
   databaseDir: dataDir,
   user: 'postgres',
   password: 'devpassword',
-  port: 5432,
+  port: 5435,
   persistent: true,
 })
 
@@ -33,7 +38,7 @@ async function start() {
   } catch {
     // already exists from a previous run — fine.
   }
-  console.log('READY postgresql://postgres:devpassword@localhost:5432/trust_dev?schema=public')
+  console.log('READY postgresql://postgres:devpassword@localhost:5435/trust_dev?schema=public')
 
   const shutdown = async () => {
     try { await pg.stop() } catch { /* already stopped */ }

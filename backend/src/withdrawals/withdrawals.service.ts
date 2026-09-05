@@ -84,9 +84,12 @@ export class WithdrawalsService {
     return this.prisma.withdrawal.findMany({ where: { userId }, orderBy: { createdAt: 'desc' } })
   }
 
-  async listAll(status?: string) {
+  async listAll(status?: string, userId?: string) {
     return this.prisma.withdrawal.findMany({
-      where: status ? { status: status as any } : undefined,
+      where: {
+        ...(status ? { status: status as any } : {}),
+        ...(userId ? { userId } : {}),
+      },
       orderBy: { createdAt: 'desc' },
       include: { user: { select: { id: true, email: true, fullName: true } } },
     })

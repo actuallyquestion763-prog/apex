@@ -43,17 +43,35 @@ describe('Security (real PostgreSQL)', () => {
     expect(JSON.stringify(me.body)).not.toMatch(/passwordHash|\$argon2/)
   })
 
+  // Part 33 — XAU/USD itself moved off GOLDAPI onto Binance/PAXGUSDT (a
+  // real, no-key gold-token proxy), so it no longer touches MARKET_API_KEY
+  // at all. GoldAPI is still a real provider this codebase supports (any
+  // MarketConfig row can still be pointed at it), so its key-leakage and
+  // honest-unavailability behavior is still worth testing — just against a
+  // dedicated, uniquely-named GOLDAPI-provider fixture symbol instead of
+  // the now-Binance-backed XAU/USD, mirroring the TEST/SIM fixture pattern
+  // already used above for the SIMULATED provider.
   it('MARKET_API_KEY is never present in any API response', async () => {
+    await prisma.marketConfig.upsert({
+      where: { symbol: 'TEST/GOLDAPI' },
+      create: { symbol: 'TEST/GOLDAPI', dataSource: 'LIVE', enabled: true, provider: 'GOLDAPI', providerSymbol: 'XAU/USD', baseAsset: 'TEST', quoteAsset: 'GOLDAPI', displayName: 'Test GoldAPI', marketType: 'CFD' },
+      update: {},
+    })
     process.env.MARKET_API_KEY = 'test-fake-goldapi-key-should-never-leak'
-    const res = await request(server).get('/markets/XAU%2FUSD/quote')
+    const res = await request(server).get('/markets/TEST%2FGOLDAPI/quote')
     expect(JSON.stringify(res.body)).not.toMatch(/test-fake-goldapi-key-should-never-leak/)
     delete process.env.MARKET_API_KEY
   })
 
   it('the market data endpoint returns an honest UNAVAILABLE status, never a fabricated price, when no API key is configured', async () => {
+    await prisma.marketConfig.upsert({
+      where: { symbol: 'TEST/GOLDAPI' },
+      create: { symbol: 'TEST/GOLDAPI', dataSource: 'LIVE', enabled: true, provider: 'GOLDAPI', providerSymbol: 'XAU/USD', baseAsset: 'TEST', quoteAsset: 'GOLDAPI', displayName: 'Test GoldAPI', marketType: 'CFD' },
+      update: {},
+    })
     const original = process.env.MARKET_API_KEY
     delete process.env.MARKET_API_KEY
-    const res = await request(server).get('/markets/XAU%2FUSD/quote').expect(200)
+    const res = await request(server).get('/markets/TEST%2FGOLDAPI/quote').expect(200)
     expect(res.body.status).toBe('UNAVAILABLE')
     expect(res.body.last).toBeUndefined()
     expect(res.body.price).toBeUndefined()

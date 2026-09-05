@@ -1,31 +1,43 @@
-import { Check } from 'lucide-react'
-
-// Structured for future growth (Part 7) — adding a language is adding one
-// entry here, not retyping strings across every page. No translation
-// system exists yet in the app, so only English is offered; this list is
-// deliberately not padded with unsupported languages marked "coming soon"
-// to avoid implying translation work that hasn't happened.
-const LANGUAGES = [
-  { code: 'en', label: 'English', nativeLabel: 'English' },
-] as const
+import { Check, Globe2 } from 'lucide-react'
+import { LANGUAGES } from '../i18n/languages'
+import { useI18n } from '../i18n'
 
 export function LanguagesPage() {
-  const active = 'en'
+  const { language, setLanguage, t } = useI18n()
 
   return (
     <div className="space-y-6">
+      <div className="card p-6">
+        <div className="flex items-center gap-3">
+          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-ocean-500/15 text-ocean-400">
+            <Globe2 className="h-5 w-5" />
+          </div>
+          <div>
+            <h1 className="text-lg font-bold text-white">{t('languages.title')}</h1>
+            <p className="text-sm text-slate-400">{t('languages.subtitle')}</p>
+          </div>
+        </div>
+      </div>
+
       <div className="card overflow-hidden">
         {LANGUAGES.map((lang) => (
-          <div key={lang.code} className="flex items-center gap-3 border-b border-ink-700/60 px-5 py-4 text-sm text-slate-300 last:border-b-0">
+          <button
+            key={lang.code}
+            onClick={() => setLanguage(lang.code)}
+            className="flex w-full items-center gap-3 border-b border-ink-700/60 px-5 py-4 text-left text-sm text-slate-300 transition last:border-b-0 hover:bg-ink-800/40 hover:text-white"
+          >
             <div className="flex-1">
               <p className="font-medium text-white">{lang.nativeLabel}</p>
               <p className="text-xs text-slate-500">{lang.label}</p>
             </div>
-            {lang.code === active && <Check className="h-4 w-4 text-bull" />}
-          </div>
+            {lang.code === language && <Check className="h-4 w-4 shrink-0 text-bull" />}
+          </button>
         ))}
       </div>
-      <p className="text-xs text-slate-500">TRUST is currently available in English only. More languages will appear here as they become available.</p>
+
+      <p className="text-xs text-slate-500">{t('languages.footnote')}</p>
     </div>
   )
 }
+
+export default LanguagesPage

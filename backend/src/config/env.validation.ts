@@ -50,6 +50,12 @@ export interface ValidatedEnv {
   PORT: string
   SESSION_TTL_HOURS: string
   MARKET_API_KEY: string
+  S3_ENDPOINT: string
+  S3_REGION: string
+  S3_BUCKET: string
+  S3_ACCESS_KEY_ID: string
+  S3_SECRET_ACCESS_KEY: string
+  S3_FORCE_PATH_STYLE: string
 }
 
 export function validateEnv(config: Record<string, unknown>): ValidatedEnv {
@@ -64,6 +70,10 @@ export function validateEnv(config: Record<string, unknown>): ValidatedEnv {
   const databaseUrl = String(config.DATABASE_URL ?? '')
   const sessionSecret = String(config.SESSION_SECRET ?? '')
   const frontendOrigin = String(config.FRONTEND_ORIGIN ?? '')
+  const s3Endpoint = String(config.S3_ENDPOINT ?? '')
+  const s3Bucket = String(config.S3_BUCKET ?? '')
+  const s3AccessKeyId = String(config.S3_ACCESS_KEY_ID ?? '')
+  const s3SecretAccessKey = String(config.S3_SECRET_ACCESS_KEY ?? '')
 
   if (!databaseUrl) {
     errors.push('DATABASE_URL is required.')
@@ -95,6 +105,13 @@ export function validateEnv(config: Record<string, unknown>): ValidatedEnv {
     if (!frontendOrigin.startsWith('https://')) {
       errors.push(`FRONTEND_ORIGIN must be an https:// origin in ${env} (Part 16/18 — cookies are Secure-flagged and CORS credentials require it).`)
     }
+    // File uploads (KYC documents, deposit proofs, support attachments, CMS
+    // media) require a real S3-compatible bucket outside development/test —
+    // refusing to boot rather than letting every upload endpoint fail with a
+    // vague "Object storage is not configured" error the first time it's hit.
+    if (!s3Endpoint || !s3Bucket || !s3AccessKeyId || !s3SecretAccessKey) {
+      errors.push(`S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY_ID, and S3_SECRET_ACCESS_KEY must all be set in ${env} — file uploads require a real S3-compatible bucket in this environment.`)
+    }
   }
 
   if (env === 'development' || env === 'test') {
@@ -117,5 +134,11 @@ export function validateEnv(config: Record<string, unknown>): ValidatedEnv {
     PORT: String(config.PORT ?? '4100'),
     SESSION_TTL_HOURS: String(config.SESSION_TTL_HOURS ?? '24'),
     MARKET_API_KEY: String(config.MARKET_API_KEY ?? ''),
+    S3_ENDPOINT: s3Endpoint,
+    S3_REGION: String(config.S3_REGION ?? 'auto'),
+    S3_BUCKET: s3Bucket,
+    S3_ACCESS_KEY_ID: s3AccessKeyId,
+    S3_SECRET_ACCESS_KEY: s3SecretAccessKey,
+    S3_FORCE_PATH_STYLE: String(config.S3_FORCE_PATH_STYLE ?? 'false'),
   }
 }

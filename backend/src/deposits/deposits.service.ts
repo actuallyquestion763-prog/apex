@@ -118,11 +118,11 @@ export class DepositsService {
       throw new BadRequestException(`Cannot attach proof to a deposit in status ${deposit.status}.`)
     }
 
-    const stored = this.media.save(file.originalname, file.mimetype, file.buffer)
+    const stored = await this.media.save(file.originalname, file.mimetype, file.buffer)
     // Replaces any previously-uploaded proof for this deposit (the old
-    // stored file is deleted) — a deposit has at most one current proof,
+    // stored object is deleted) — a deposit has at most one current proof,
     // matching the single "Upload Slip" area in the product's own screenshot.
-    if (deposit.proofStorageKey) this.media.delete(deposit.proofStorageKey)
+    if (deposit.proofStorageKey) await this.media.delete(deposit.proofStorageKey)
 
     const updated = await this.prisma.deposit.update({
       where: { id: depositId },
@@ -144,12 +144,16 @@ export class DepositsService {
     const deposit = await this.prisma.deposit.findUnique({ where: { id: depositId } })
     if (!deposit || !deposit.proofStorageKey) throw new NotFoundException('No proof on file for this deposit.')
     if (deposit.userId !== requesterId && !requesterIsPrivileged) throw new NotFoundException('Deposit not found.')
-    return { path: this.media.pathFor(deposit.proofStorageKey), mimeType: deposit.proofMimeType!, filename: deposit.proofFilename! }
+    const stream = await this.media.getObjectStream(deposit.proofStorageKey)
+    return { stream, mimeType: deposit.proofMimeType!, filename: deposit.proofFilename! }
   }
 
-  async listAll(status?: string) {
+  async listAll(status?: string, userId?: string) {
     return this.prisma.deposit.findMany({
-      where: status ? { status: status as any } : undefined,
+      where: {
+        ...(status ? { status: status as any } : {}),
+        ...(userId ? { userId } : {}),
+      },
       orderBy: { createdAt: 'desc' },
       include: { user: { select: { id: true, email: true, fullName: true } } },
     })

@@ -13,6 +13,8 @@ export const PERMISSIONS = [
   'deposits.review',
   'crypto_deposits.read',
   'crypto_deposits.control', // receiving-address/asset/network configuration — a distinct, more sensitive capability than day-to-day deposit approval (deposits.review)
+  'admin_contacts.read',
+  'admin_contacts.control', // customer-facing support contact links (LINE/Telegram/etc) — not financial, kept as its own permission rather than folded into cms.* since it's not CMS content
   'withdrawals.read',
   'withdrawals.review',
   'trading.read',

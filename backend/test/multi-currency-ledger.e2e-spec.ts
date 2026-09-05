@@ -1,5 +1,6 @@
 import type { INestApplication } from '@nestjs/common'
-import { createTestApp, uniqueEmail, createUserDirect } from './helpers/test-app'
+import request from 'supertest'
+import { createTestApp, uniqueEmail, createUserDirect, extractSessionCookie } from './helpers/test-app'
 import { LedgerService } from '../src/ledger/ledger.service'
 import type { PrismaService } from '../src/prisma/prisma.service'
 
@@ -15,12 +16,14 @@ describe('Multi-currency ledger foundation (real PostgreSQL)', () => {
   let app: INestApplication
   let prisma: PrismaService
   let ledger: LedgerService
+  let server: any
 
   beforeAll(async () => {
     const t = await createTestApp()
     app = t.app
     prisma = t.prisma
     ledger = app.get(LedgerService)
+    server = app.getHttpServer()
   })
 
   afterAll(async () => {
@@ -31,6 +34,14 @@ describe('Multi-currency ledger foundation (real PostgreSQL)', () => {
     const email = uniqueEmail(prefix)
     const { account } = await createUserDirect(prisma, { email, password: 'correct-horse-battery', fullName: 'Multi Currency Test' })
     return account.id
+  }
+
+  async function makeAccountAndLogin(prefix: string) {
+    const email = uniqueEmail(prefix)
+    const password = 'correct-horse-battery'
+    const { user, account } = await createUserDirect(prisma, { email, password, fullName: 'Multi Currency Test' })
+    const res = await request(server).post('/auth/login').send({ email, password }).expect(200)
+    return { userId: user.id, accountId: account.id, cookie: extractSessionCookie(res) }
   }
 
   it('1. one Account can hold CASH/USD, CASH/USDT, CASH/BTC, RESERVED/USDT and RESERVED/BTC simultaneously', async () => {
@@ -155,5 +166,40 @@ describe('Multi-currency ledger foundation (real PostgreSQL)', () => {
     })
     const balances = await ledger.getAccountBalances(accountId)
     expect(balances.cash.toString()).toBe('250')
+  })
+
+  // Phase G blocker fix — GET /accounts/me/summary's equity/unrealizedPnl
+  // used to sum unrealized P&L across ALL open positions regardless of the
+  // market's quote currency, then add that raw sum to the USD cash balance.
+  // A USDT-quoted position's P&L is a USDT amount; adding it into a USD
+  // total as if the same unit was a real financial-correctness bug. Proves
+  // the fix: only the USD-quoted position's P&L is folded into USD equity,
+  // and a USDT-quoted position's P&L (even a large, clearly-distinguishable
+  // one) is excluded entirely rather than silently mixed in.
+  it('8. GET /accounts/me/summary equity only folds in P&L from USD-quoted positions, never a USDT-quoted position\'s P&L', async () => {
+    const usdSymbol = `TESTUSD-${Date.now()}`
+    const usdtSymbol = `TESTUSDT-${Date.now()}`
+    await prisma.marketConfig.create({
+      data: { symbol: usdSymbol, dataSource: 'SIMULATED', tradingEnabled: true, enabled: true, baseAsset: 'TU', quoteAsset: 'USD', marketType: 'CFD' },
+    })
+    await prisma.marketConfig.create({
+      data: { symbol: usdtSymbol, dataSource: 'SIMULATED', tradingEnabled: true, enabled: true, baseAsset: 'TU2', quoteAsset: 'USDT', marketType: 'CRYPTO_SPOT' },
+    })
+
+    const { userId, accountId, cookie } = await makeAccountAndLogin('equitycurrency')
+
+    // USD-quoted position: entry 100 -> current 110, qty 2, BUY => +20 USD P&L.
+    await prisma.position.create({
+      data: { userId, accountId, symbol: usdSymbol, side: 'BUY', quantity: '2', avgEntryPrice: '100', currentPrice: '110', status: 'OPEN' },
+    })
+    // USDT-quoted position: entry 100 -> current 200, qty 5, BUY => +500 USDT
+    // P&L — deliberately large so a bug that includes it is unmistakable.
+    await prisma.position.create({
+      data: { userId, accountId, symbol: usdtSymbol, side: 'BUY', quantity: '5', avgEntryPrice: '100', currentPrice: '200', status: 'OPEN' },
+    })
+
+    const res = await request(server).get('/accounts/me/summary').set('Cookie', cookie).expect(200)
+    expect(res.body.unrealizedPnl).toBe('20')
+    expect(res.body.equity).toBe('20') // cash is 0, so equity === unrealizedPnl here
   })
 })

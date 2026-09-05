@@ -12,6 +12,19 @@ import { LedgerService } from '../ledger/ledger.service'
 import type { AuthenticatedUser } from '../common/types/authenticated-user'
 import { FINANCIAL_CREATE_THROTTLE } from '../common/rate-limits'
 
+// Part 31 — options trading is back in the normal-user experience (the
+// Trade page's amount-tier ticket): any signed-in user can create/view
+// options trades through this controller, same as spot Orders. Only
+// SessionAuthGuard is required — no role gate — because every route below
+// is already independently scoped to @CurrentUser()'s own id at the
+// service layer (createTrade(user.id, ...), listMyActiveTrades(user.id),
+// listMyTrades(user.id, ...), getTrade(user.id, id) — which throws
+// NotFoundException if the trade belongs to someone else, see
+// OptionsService.getOwnedTrade). No cross-customer read/write is possible
+// through this controller regardless of role. The separate /admin/options/*
+// management surface (OptionsAdminController) is completely untouched and
+// keeps its own existing ADMIN/SUPER_ADMIN + permission gate — this change
+// does not affect it.
 @Controller('options')
 @UseGuards(SessionAuthGuard)
 export class OptionsController {

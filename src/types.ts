@@ -376,6 +376,7 @@ export interface SupportTicket {
 export interface OptionDurationConfig {
   durationSeconds: number
   payoutPercent: string
+  minAmount: string
 }
 
 export interface OptionMarketConfig {
@@ -436,7 +437,7 @@ export interface OptionMarketAdminRow {
   currency: string
   minInvestment: string
   maxInvestment: string | null
-  durations: { id: ID; durationSeconds: number; enabled: boolean; payoutPercent: string }[]
+  durations: { id: ID; durationSeconds: number; enabled: boolean; payoutPercent: string; minAmount: string }[]
 }
 
 export interface OptionsStats {

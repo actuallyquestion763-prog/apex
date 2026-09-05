@@ -42,7 +42,7 @@ export class OptionsMarketService {
         currency: m.currency,
         minInvestment: m.minInvestment,
         maxInvestment: m.maxInvestment,
-        durations: m.durations.map((d) => ({ durationSeconds: d.durationSeconds, payoutPercent: d.payoutPercent })),
+        durations: m.durations.map((d) => ({ durationSeconds: d.durationSeconds, payoutPercent: d.payoutPercent, minAmount: d.minAmount })),
       })
     }
     return results
@@ -124,7 +124,7 @@ export class OptionsMarketService {
   async upsertDuration(
     adminId: string,
     symbol: string,
-    input: { durationSeconds: number; enabled?: boolean; payoutPercent: string },
+    input: { durationSeconds: number; enabled?: boolean; payoutPercent: string; minAmount?: string },
   ) {
     const market = await this.prisma.optionMarket.findUnique({ where: { symbol } })
     if (!market) throw new NotFoundException(`No OptionMarket for symbol "${symbol}".`)
@@ -141,10 +141,12 @@ export class OptionsMarketService {
         durationSeconds: input.durationSeconds,
         enabled: input.enabled ?? true,
         payoutPercent: new Decimal(input.payoutPercent),
+        minAmount: new Decimal(input.minAmount ?? '0'),
       },
       update: {
         ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
         payoutPercent: new Decimal(input.payoutPercent),
+        ...(input.minAmount !== undefined ? { minAmount: new Decimal(input.minAmount) } : {}),
       },
     })
 
@@ -153,8 +155,8 @@ export class OptionsMarketService {
       action: AuditEvent.OPTION_DURATION_CHANGED,
       targetType: 'OPTION_DURATION',
       targetId: updated.id,
-      previousState: before ? { enabled: before.enabled, payoutPercent: before.payoutPercent.toString() } : undefined,
-      newState: { symbol, durationSeconds: updated.durationSeconds, enabled: updated.enabled, payoutPercent: updated.payoutPercent.toString() },
+      previousState: before ? { enabled: before.enabled, payoutPercent: before.payoutPercent.toString(), minAmount: before.minAmount.toString() } : undefined,
+      newState: { symbol, durationSeconds: updated.durationSeconds, enabled: updated.enabled, payoutPercent: updated.payoutPercent.toString(), minAmount: updated.minAmount.toString() },
     })
     return updated
   }

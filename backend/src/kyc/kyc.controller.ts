@@ -1,7 +1,6 @@
 import { Body, Controller, Get, Param, Post, StreamableFile, UploadedFiles, UseGuards, UseInterceptors } from '@nestjs/common'
 import { Throttle } from '@nestjs/throttler'
 import { FileFieldsInterceptor } from '@nestjs/platform-express'
-import { createReadStream } from 'fs'
 import { KycService, type SubmitKycFiles } from './kyc.service'
 import { SubmitKycDto } from './dto/submit-kyc.dto'
 import { SessionAuthGuard } from '../common/guards/session-auth.guard'
@@ -33,7 +32,6 @@ export class KycController {
   @Get('documents/:id')
   async getDocument(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
     const file = await this.kycService.getDocumentFile(user.id, id)
-    const stream = createReadStream(file.path)
-    return new StreamableFile(stream, { type: file.mimeType, disposition: `inline; filename="${encodeURIComponent(file.filename)}"` })
+    return new StreamableFile(file.stream, { type: file.mimeType, disposition: `inline; filename="${encodeURIComponent(file.filename)}"` })
   }
 }

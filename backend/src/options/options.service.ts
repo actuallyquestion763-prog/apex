@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto'
+import * as argon2 from 'argon2'
 import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit, ServiceUnavailableException } from '@nestjs/common'
 import { Decimal } from '@prisma/client/runtime/library'
 import type { OptionTrade, Prisma } from '@prisma/client'
@@ -9,6 +10,8 @@ import { AccountsService } from '../accounts/accounts.service'
 import { MarketDataService } from '../markets/market-data.service'
 import { AuditService } from '../audit/audit.service'
 import { AuditEvent } from '../audit/audit-events'
+import { generateReferralCode } from '../auth/referral-code.util'
+import { toPublicUser } from '../users/public-user'
 import { OptionsMarketService } from './options-market.service'
 import { OptionsRiskService } from './options-risk.service'
 import { computeProfit, computeReturn, determineResult } from './option-math'
@@ -238,11 +241,38 @@ export class OptionsService implements OnModuleInit, OnModuleDestroy {
     let expirySource: string
     let result: 'WIN' | 'LOSS' | 'DRAW'
 
-    if (trade.requestedResultMode !== 'NORMAL') {
-      // Demo/test forced outcome (Part 26) — already validated as
-      // environment-allowed at creation time; settlement just honors what
-      // was recorded then. Still attempts a real price for realistic
-      // display, but the OUTCOME is never derived from it.
+    // Sandbox/test override chain (Part 28) — every branch below is skipped
+    // entirely outside development/test (re-checked here independently of
+    // whatever any row currently holds — defense in depth, since every
+    // write path already refuses to store a forcing value outside those
+    // environments). Production/staging always falls straight to the real
+    // price-derived result at the bottom, byte-for-byte the same path as
+    // before this chain existed. Priority, highest first:
+    //   1. the trade's OWN user's per-user testOutcomeMode — only ever
+    //      non-NORMAL for a user with isTestUser=true (see
+    //      setTestUserOutcomeMode), which can never be a real customer
+    //      (see schema.prisma's User.isTestUser doc comment).
+    //   2. the platform-wide sandboxOutcomeMode dial (ALL USER CONTROL).
+    //   3. the trade's own per-trade requestedResultMode (Part 26),
+    //      chosen by whoever created it.
+    let forcedResult: 'WIN' | 'LOSS' | 'DRAW' | null = null
+    if (isDemoResultModeAllowed()) {
+      const trader = await this.prisma.user.findUnique({ where: { id: trade.userId }, select: { isTestUser: true, testOutcomeMode: true } })
+      if (trader?.isTestUser && trader.testOutcomeMode !== 'NORMAL') {
+        forcedResult = trader.testOutcomeMode === 'FORCE_WIN' ? 'WIN' : 'LOSS'
+      } else {
+        const settings = await this.optionsSettings.get()
+        if (settings.sandboxOutcomeMode !== 'RANDOM') {
+          forcedResult = settings.sandboxOutcomeMode === 'FORCE_WIN' ? 'WIN' : 'LOSS'
+        } else if (trade.requestedResultMode !== 'NORMAL') {
+          forcedResult = trade.requestedResultMode === 'FORCE_WIN' ? 'WIN' : trade.requestedResultMode === 'FORCE_LOSS' ? 'LOSS' : 'DRAW'
+        }
+      }
+    }
+
+    if (forcedResult !== null) {
+      // Demo/test forced outcome — still attempts a real price for
+      // realistic display, but the OUTCOME is never derived from it.
       const quote = await this.marketData.getQuote(trade.symbol).catch(() => null)
       if (quote && (quote.status === 'LIVE' || quote.status === 'SIMULATED')) {
         expiryPrice = new Decimal(quote.last)
@@ -253,7 +283,7 @@ export class OptionsService implements OnModuleInit, OnModuleDestroy {
         expiryPriceTimestamp = new Date()
         expirySource = 'DEMO_FORCED'
       }
-      result = trade.requestedResultMode === 'FORCE_WIN' ? 'WIN' : trade.requestedResultMode === 'FORCE_LOSS' ? 'LOSS' : 'DRAW'
+      result = forcedResult
     } else {
       const quote = await this.marketData.getQuote(trade.symbol)
       if (quote.status !== 'LIVE' && quote.status !== 'SIMULATED') {
@@ -262,20 +292,7 @@ export class OptionsService implements OnModuleInit, OnModuleDestroy {
       expiryPrice = new Decimal(quote.last)
       expiryPriceTimestamp = new Date(quote.timestamp)
       expirySource = quote.source
-
-      // Platform-wide sandbox outcome dial (Part 8) — only ever consulted
-      // for a trade that did NOT request its own per-trade override (the
-      // branch above), and only ever honored in development/test, re-
-      // checked here independently of whatever the settings row currently
-      // holds (defense in depth — the write path already refuses to store
-      // a non-RANDOM value outside those environments).
-      const sandboxMode = isDemoResultModeAllowed() ? (await this.optionsSettings.get()).sandboxOutcomeMode : 'RANDOM'
-      result =
-        sandboxMode === 'RANDOM'
-          ? determineResult(trade.direction, trade.entryPrice, expiryPrice)
-          : sandboxMode === 'FORCE_WIN'
-            ? 'WIN'
-            : 'LOSS'
+      result = determineResult(trade.direction, trade.entryPrice, expiryPrice)
     }
 
     return this.postSettlement(trade, { expiryPrice, expiryPriceTimestamp, expirySource, result })
@@ -444,6 +461,94 @@ export class OptionsService implements OnModuleInit, OnModuleDestroy {
   async listUnresolvedTrades() {
     const trades = await this.prisma.optionTrade.findMany({ where: { status: 'UNRESOLVED' }, orderBy: { expiryAt: 'asc' } })
     return { count: trades.length, trades }
+  }
+
+  // Admin Trade Management — a general, cross-customer, real trade listing.
+  // Previously the only admin-reachable trade data was aggregate counts
+  // (getStats, below) and the UNRESOLVED-only list above; nothing let an
+  // admin see individual ACTIVE or SETTLED trades across all customers.
+  // Read-only, capped, same user-join shape as DepositsService/
+  // WithdrawalsService's admin listings. Never mutates a trade or its
+  // result — this is reporting only.
+  // userId is an optional additional filter (Trade Management's "USER
+  // CONTROL" search/select — a real, honest per-user trade filter, not an
+  // outcome override; nothing about a trade's result or status is affected
+  // by which user is selected here).
+  async adminListTrades(status?: 'ACTIVE' | 'SETTLED' | 'UNRESOLVED', userId?: string) {
+    return this.prisma.optionTrade.findMany({
+      where: { ...(status ? { status } : {}), ...(userId ? { userId } : {}) },
+      include: { user: { select: { id: true, email: true, fullName: true } } },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+    })
+  }
+
+  // ===========================================================================
+  // Trade Management "USER CONTROL" — designated test/sandbox users (Part 28).
+  // Environment gate, step-up, and audit logging all happen in
+  // OptionsAdminController, mirroring AdminService.createAdmin exactly (same
+  // transaction shape: User + Account together, argon2 password hash). This
+  // is the ONLY place isTestUser is ever set to true, and it only ever
+  // creates a brand-new account — never modifies an existing one.
+  // ===========================================================================
+
+  async createTestUser(adminId: string, email: string, fullName: string | undefined, password: string, reason: string) {
+    const normalizedEmail = email.toLowerCase()
+    const existing = await this.prisma.user.findUnique({ where: { email: normalizedEmail } })
+    if (existing) throw new BadRequestException('An account with this email already exists.')
+
+    const passwordHash = await argon2.hash(password)
+    const user = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.user.create({
+        data: {
+          email: normalizedEmail,
+          passwordHash,
+          fullName: fullName?.trim() || normalizedEmail,
+          role: 'USER',
+          status: 'ACTIVE',
+          isTestUser: true,
+          referralCode: generateReferralCode(),
+        },
+      })
+      await tx.account.create({ data: { userId: created.id } })
+      return created
+    })
+
+    await this.audit.record({
+      actorId: adminId,
+      action: AuditEvent.TEST_USER_CREATED,
+      targetType: 'USER',
+      targetId: user.id,
+      reason,
+      metadata: { email: user.email },
+    })
+    return toPublicUser(user)
+  }
+
+  async setTestUserOutcomeMode(adminId: string, userId: string, testOutcomeMode: 'NORMAL' | 'FORCE_WIN' | 'FORCE_LOSS', reason: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } })
+    if (!user) throw new NotFoundException('User not found.')
+    // The one check that keeps this a sandbox-only feature: even inside
+    // development/test, a per-user outcome override can only ever be set on
+    // an account that was created through createTestUser above — never on
+    // an existing/real account, no matter who selects it in USER CONTROL.
+    if (!user.isTestUser) {
+      throw new ForbiddenException('This user is not a designated test/sandbox user. Create a dedicated test user to use these controls.')
+    }
+
+    const before = user.testOutcomeMode
+    const updated = await this.prisma.user.update({ where: { id: userId }, data: { testOutcomeMode } })
+
+    await this.audit.record({
+      actorId: adminId,
+      action: AuditEvent.TEST_USER_OUTCOME_MODE_CHANGED,
+      targetType: 'USER',
+      targetId: userId,
+      reason,
+      previousState: { testOutcomeMode: before },
+      newState: { testOutcomeMode: updated.testOutcomeMode },
+    })
+    return toPublicUser(updated)
   }
 
   async getStats() {

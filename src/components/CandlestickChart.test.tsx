@@ -106,4 +106,15 @@ describe('CandlestickChart — TradingView-style chart (lightweight-charts)', ()
     unmount()
     expect(removeChart).toHaveBeenCalledTimes(1)
   })
+
+  it('labels the price with the market\'s real quoteAsset, never a hardcoded "$", when quoteAsset is supplied', () => {
+    render(<CandlestickChart symbol="BTC/USDT" quoteAsset="USDT" />)
+    expect(screen.getByText('65,000 USDT')).toBeInTheDocument()
+    expect(screen.queryByText(/^\$/)).not.toBeInTheDocument()
+  })
+
+  it('shows the raw price with no currency suffix when quoteAsset is not supplied, rather than guessing one', () => {
+    render(<CandlestickChart symbol="BTC/USDT" />)
+    expect(screen.getByText('65,000')).toBeInTheDocument()
+  })
 })

@@ -14,6 +14,27 @@ export default {
         },
         ocean: { 400: '#38bdf8', 500: '#0ea5e9', 600: '#0284c7', 700: '#0369a1' },
         bull: '#22c55e', bear: '#ef4444',
+        // Admin-only design tokens (TRUST Admin final UI polish pass) — a
+        // deliberately separate namespace from ink/gold/ocean above so this
+        // redesign cannot shift the customer-facing site's look. Only
+        // classes under src/pages/admin/** and src/components/admin/**
+        // reference these. Values match the reference screenshots' spec.
+        admin: {
+          bg: '#070B13',
+          bg2: '#050911',
+          card: '#0D1423',
+          card2: '#0B1120',
+          surface: '#111B2F',
+          surface2: '#142039',
+          border: '#1D2A42',
+          borderLight: '#263552',
+          text: '#F5F7FA',
+          muted: '#91A2BA',
+          mutedDim: '#7F91AA',
+          gold: '#F5B400',
+          goldLight: '#FFC61A',
+          goldDark: '#B37D00',
+        },
       },
       fontFamily: {
         sans: ['Inter', 'system-ui', 'sans-serif'],

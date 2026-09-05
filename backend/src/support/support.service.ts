@@ -357,7 +357,7 @@ export class SupportService {
 
   private async createMessageWithAttachment(ticketId: string, authorId: string, visibility: 'PUBLIC' | 'INTERNAL', file: UploadedFileLike, body?: string) {
     const safeName = sanitizeText(file.originalname).slice(0, 200) || 'attachment'
-    const { storageKey, size } = this.media.save(file.originalname, file.mimetype, file.buffer)
+    const { storageKey, size } = await this.media.save(file.originalname, file.mimetype, file.buffer)
     return this.prisma.supportMessage.create({
       data: {
         ticketId,
@@ -387,7 +387,8 @@ export class SupportService {
     if (ticket.userId !== requesterId) {
       await this.assertPermission(requesterId, 'support.tickets.read')
     }
-    return { path: this.media.pathFor(attachment.storageKey), mimeType: attachment.mimeType, filename: attachment.filename }
+    const stream = await this.media.getObjectStream(attachment.storageKey)
+    return { stream, mimeType: attachment.mimeType, filename: attachment.filename }
   }
 
   // Mirrors PermissionsGuard's own check (SUPER_ADMIN bypasses; ADMIN needs

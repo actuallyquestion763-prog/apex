@@ -1,7 +1,6 @@
 import { Body, Controller, Get, Param, Post, StreamableFile, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common'
 import { Throttle } from '@nestjs/throttler'
 import { FileInterceptor } from '@nestjs/platform-express'
-import { createReadStream } from 'fs'
 import { DepositsService } from './deposits.service'
 import { CreateDepositDto } from './dto/create-deposit.dto'
 import { SessionAuthGuard } from '../common/guards/session-auth.guard'
@@ -53,7 +52,6 @@ export class DepositsController {
   @Get(':id/proof')
   async getProof(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
     const file = await this.depositsService.getProofFile(user.id, false, id)
-    const stream = createReadStream(file.path)
-    return new StreamableFile(stream, { type: file.mimeType, disposition: `attachment; filename="${encodeURIComponent(file.filename)}"` })
+    return new StreamableFile(file.stream, { type: file.mimeType, disposition: `attachment; filename="${encodeURIComponent(file.filename)}"` })
   }
 }

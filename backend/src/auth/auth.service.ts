@@ -11,6 +11,7 @@ import { generateReferralCode } from './referral-code.util'
 import { AuditEvent } from '../audit/audit-events'
 import type { RegisterDto } from './dto/register.dto'
 import type { LoginDto } from './dto/login.dto'
+import type { ChangePasswordDto } from './dto/change-password.dto'
 
 const REFERRAL_CODE_MAX_ATTEMPTS = 5
 
@@ -134,6 +135,32 @@ export class AuthService {
   async logout(sessionId: string, userId: string, meta: RequestMeta) {
     await this.prisma.session.update({ where: { id: sessionId }, data: { revokedAt: new Date() } })
     await this.audit.record({ actorId: userId, action: AuditEvent.LOGOUT, targetType: 'USER', targetId: userId, ipAddress: meta.ipAddress, userAgent: meta.userAgent })
+  }
+
+  // Requires the current password (never trusts session presence alone for
+  // a credential change) and, on success, revokes every OTHER active
+  // session for this user — a changed password should end any session an
+  // attacker (or a stale forgotten device) might be holding, without also
+  // logging the user out of the device they're changing it from.
+  async changePassword(userId: string, currentSessionId: string, dto: ChangePasswordDto, meta: RequestMeta) {
+    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } })
+
+    const valid = await argon2.verify(user.passwordHash, dto.currentPassword)
+    if (!valid) {
+      await this.audit.record({ actorId: userId, action: AuditEvent.LOGIN_FAILED, targetType: 'USER', targetId: userId, reason: 'bad current password on change-password', ipAddress: meta.ipAddress, userAgent: meta.userAgent })
+      throw new UnauthorizedException('Current password is incorrect.')
+    }
+
+    const passwordHash = await argon2.hash(dto.newPassword)
+    await this.prisma.$transaction([
+      this.prisma.user.update({ where: { id: userId }, data: { passwordHash } }),
+      this.prisma.session.updateMany({
+        where: { userId, revokedAt: null, id: { not: currentSessionId } },
+        data: { revokedAt: new Date() },
+      }),
+    ])
+
+    await this.audit.record({ actorId: userId, action: AuditEvent.PASSWORD_CHANGED, targetType: 'USER', targetId: userId, ipAddress: meta.ipAddress, userAgent: meta.userAgent })
   }
 
   async setupTwoFactor(userId: string) {

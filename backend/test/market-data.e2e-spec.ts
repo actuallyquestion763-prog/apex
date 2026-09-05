@@ -24,14 +24,31 @@ describe('Market Data API (real PostgreSQL)', () => {
     await app.close()
   })
 
-  it('GET /markets lists configured instruments in the normalized Instrument shape, database-driven (Part 4) — BTC/USDT is BINANCE as of Phase 6C', async () => {
+  it('GET /markets lists configured instruments in the normalized Instrument shape, database-driven (Part 4) — BTC/USDT and XAU/USD are both BINANCE as of Phase 6C / Part 33', async () => {
     const res = await request(server).get('/markets').expect(200)
     expect(Array.isArray(res.body)).toBe(true)
+    // Part 33 — XAU/USD moved off GOLDAPI (which requires a real
+    // MARKET_API_KEY this project never fabricates) onto Binance's
+    // PAXGUSDT (PAX Gold, a real token backed 1:1 by physical gold) — a
+    // real, live, no-key price feed via the same integration every other
+    // pair already uses. marketType stays CFD; only the price source moved.
     const xau = res.body.find((m: any) => m.symbol === 'XAU/USD')
     expect(xau).toBeDefined()
-    expect(xau).toMatchObject({ baseAsset: 'XAU', quoteAsset: 'USD', marketType: 'CFD', provider: 'GOLDAPI' })
+    expect(xau).toMatchObject({ baseAsset: 'XAU', quoteAsset: 'USD', marketType: 'CFD', provider: 'BINANCE', providerSymbol: 'PAXGUSDT' })
     const btc = res.body.find((m: any) => m.symbol === 'BTC/USDT')
     expect(btc).toMatchObject({ baseAsset: 'BTC', quoteAsset: 'USDT', marketType: 'CRYPTO_SPOT', provider: 'BINANCE', providerSymbol: 'BTCUSDT' })
+  })
+
+  it('33b. GET /markets/:symbol/quote returns a real LIVE quote for XAU/USD via its PAXGUSDT proxy, a genuine gold-tracking price — never fabricated', async () => {
+    const res = await request(server).get('/markets/XAU%2FUSD/quote').expect(200)
+    expect(res.body.status).toBe('LIVE')
+    expect(res.body.source).toBe('Binance')
+    expect(typeof res.body.last).toBe('number')
+    expect(Number.isFinite(res.body.last)).toBe(true)
+    // A real gold price is in the thousands of dollars per troy ounce, not
+    // a stray small number — loosely sanity-checks this is actually
+    // tracking gold, not some unrelated cheap asset.
+    expect(res.body.last).toBeGreaterThan(500)
   })
 
   it('33. GET /markets/:symbol/quote returns a real LIVE quote for a Binance-backed instrument, with 24h stats, never SIMULATED', async () => {
@@ -88,7 +105,7 @@ describe('Market Data API (real PostgreSQL)', () => {
     expect(eth.last).toBeGreaterThan(0)
   })
 
-  it('candles: a Binance-backed LIVE market returns real klines; XAU/USD honestly reports OHLC_UNAVAILABLE, never a fabricated candle', async () => {
+  it('candles: a Binance-backed LIVE market returns real klines — Part 33: XAU/USD now does too, via its PAXGUSDT proxy, never a fabricated candle', async () => {
     const btcCandles = await request(server).get('/markets/BTC%2FUSDT/candles?interval=1m&limit=5').expect(200)
     expect(btcCandles.body.status).toBe('OK')
     expect(btcCandles.body.candles).toHaveLength(5)
@@ -99,9 +116,16 @@ describe('Market Data API (real PostgreSQL)', () => {
       expect(Number.isFinite(c.close)).toBe(true)
     }
 
-    const xauCandles = await request(server).get('/markets/XAU%2FUSD/candles').expect(200)
-    expect(xauCandles.body.status).toBe('OHLC_UNAVAILABLE')
-    expect(xauCandles.body.candles).toBeUndefined()
+    // Before Part 33, XAU/USD (GOLDAPI) honestly reported OHLC_UNAVAILABLE
+    // — GoldAPI supplies no candle data at all. Now that it's Binance-backed
+    // (PAXGUSDT), it gets real klines exactly like every other Binance pair.
+    const xauCandles = await request(server).get('/markets/XAU%2FUSD/candles?interval=1m&limit=5').expect(200)
+    expect(xauCandles.body.status).toBe('OK')
+    expect(xauCandles.body.candles).toHaveLength(5)
+    for (const c of xauCandles.body.candles) {
+      expect(Number.isFinite(c.open)).toBe(true)
+      expect(Number.isFinite(c.close)).toBe(true)
+    }
 
     await request(server).get('/markets/BTC%2FUSDT/candles?interval=invalid').expect(400)
   })
@@ -114,30 +138,26 @@ describe('Market Data API (real PostgreSQL)', () => {
 
   // 19/20/21 — market-data failure must never touch deposits/withdrawals/
   // support. Structural proof (no financial/support import anywhere in the
-  // markets module) plus a live behavioral proof: even with
-  // MARKET_API_KEY unset (XAU/USD guaranteed UNAVAILABLE), a deposit still
-  // works completely normally.
+  // markets module) plus a live behavioral proof: an unconfigured symbol
+  // (guaranteed UNAVAILABLE, deterministic — Part 33: XAU/USD no longer
+  // depends on MARKET_API_KEY at all, now that it's Binance-backed, so this
+  // no longer uses the unset-the-env-var trick) still leaves deposit
+  // creation completely unaffected.
   it('18/19/20. market-data unavailability does not affect deposits, withdrawals, or their creation flow', async () => {
-    const original = process.env.MARKET_API_KEY
-    delete process.env.MARKET_API_KEY
-    try {
-      const email = uniqueEmail('marketfail')
-      const password = 'correct-horse-battery'
-      await createUserDirect(prisma, { email, password })
-      const loginRes = await request(server).post('/auth/login').send({ email, password }).expect(200)
-      const cookie = extractSessionCookie(loginRes)
+    const email = uniqueEmail('marketfail')
+    const password = 'correct-horse-battery'
+    await createUserDirect(prisma, { email, password })
+    const loginRes = await request(server).post('/auth/login').send({ email, password }).expect(200)
+    const cookie = extractSessionCookie(loginRes)
 
-      // Market data is confirmed unavailable...
-      const quote = await request(server).get('/markets/XAU%2FUSD/quote').expect(200)
-      expect(quote.body.status).toBe('UNAVAILABLE')
+    // Market data is confirmed unavailable for a symbol nothing configures...
+    const quote = await request(server).get('/markets/NOPE%2FNOTREAL/quote').expect(200)
+    expect(quote.body.status).toBe('UNAVAILABLE')
 
-      // ...yet a deposit request creation is completely unaffected (deposits
-      // never touch MarketsService/MarketDataService at all).
-      const deposit = await request(server).post('/deposits').set('Cookie', cookie).send({ amount: '10', method: 'card' }).expect(201)
-      expect(deposit.body.status).toBe('PENDING')
-    } finally {
-      if (original) process.env.MARKET_API_KEY = original
-    }
+    // ...yet a deposit request creation is completely unaffected (deposits
+    // never touch MarketsService/MarketDataService at all).
+    const deposit = await request(server).post('/deposits').set('Cookie', cookie).send({ amount: '10', method: 'card' }).expect(201)
+    expect(deposit.body.status).toBe('PENDING')
   })
 
   // Phase 6F Checkpoint G, Part 8/19 (#19) — the backend must be the sole

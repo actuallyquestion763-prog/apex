@@ -4,15 +4,15 @@ import { MessageSquare, X, Send, Bot } from 'lucide-react'
 interface Msg { from: 'bot' | 'me'; text: string }
 
 const SCRIPTED: { keys: string[]; reply: string }[] = [
-  { keys: ['deposit', 'fund', 'add money', 'top up'], reply: "You can deposit via USDT (TRC-20), bank transfer, or card. Go to the Deposit page and scan the QR code for your chosen method. Deposits are credited within 10–30 minutes after network confirmation." },
+  { keys: ['deposit', 'fund', 'add money', 'top up'], reply: "You can deposit USDT from the Deposit page — pick a network, send USDT to the address shown, and upload proof of payment. Deposits are credited after admin verification." },
   { keys: ['withdraw', 'cash out', 'payout'], reply: "To withdraw, head to the Withdraw page and enter your destination address. Withdrawals are reviewed by our team and typically process within 24 hours." },
-  { keys: ['kyc', 'verify', 'identity', 'document'], reply: "KYC verification keeps your account secure. Upload a clear photo of the front and back of your government-issued ID on the Verification page. Review takes 1–2 business days." },
-  { keys: ['bonus', 'promot', '20%'], reply: "Right now we're running a deposit bonus: deposit $500 or more and receive a 20% bonus credited to your account. See the banner on the Deposit page for the countdown." },
-  { keys: ['leverage', 'margin'], reply: "You can trade with leverage from 1x up to 100x. Use the leverage slider on the trade panel. Higher leverage increases both potential profit and liquidation risk." },
+  { keys: ['kyc', 'verify', 'identity', 'document'], reply: "KYC verification keeps your account secure. Upload a clear photo of the front and back of your government-issued ID on the Verification page." },
+  { keys: ['bonus', 'promot', '20%'], reply: "There's currently no deposit bonus on TRUST." },
+  { keys: ['leverage', 'margin'], reply: "Leveraged trading isn't available on TRUST right now — trades use your available balance directly, with no leverage multiplier." },
   { keys: ['2fa', 'two factor', 'authenticator'], reply: "Enable 2FA from your account security page by scanning the QR code with Google Authenticator or a similar app. It adds a strong layer of protection to withdrawals and account changes." },
-  { keys: ['referral', 'affiliate', 'commission'], reply: "Earn 10% commission on every trade made by users you refer. Share your referral link from the dashboard — commissions are paid in real time to your balance." },
-  { keys: ['support', 'help', 'human', 'agent'], reply: "Our support team is available 24/7. For account-specific issues, email support@trust.io and include your account email so we can locate your profile." },
-  { keys: ['secure', 'safe', 'regulated', 'license'], reply: "TRUST is registered with the fictional Digital Asset Authority and holds ISO 27001 certification for information security. Client funds are held in segregated cold-storage wallets." },
+  { keys: ['referral', 'affiliate', 'commission'], reply: "You have a personal referral link on your Dashboard that you're welcome to share. There's currently no commission or reward program tied to it." },
+  { keys: ['support', 'help', 'human', 'agent'], reply: "Our support team responds through the Support page — open a ticket there with your question and we'll get back to you." },
+  { keys: ['secure', 'safe', 'regulated', 'license'], reply: "TRUST is a fictional demonstration platform built to showcase trading UX. It isn't a regulated financial service and doesn't hold real customer funds." },
   { keys: ['demo', 'practice', 'test'], reply: "New accounts start at $0 — deposit funds to explore the platform. This account isn't connected to a real broker or exchange, so no real money is involved." },
 ]
 

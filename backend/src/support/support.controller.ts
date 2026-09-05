@@ -1,7 +1,6 @@
 import { Body, Controller, Get, Param, Patch, Post, StreamableFile, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common'
 import { Throttle } from '@nestjs/throttler'
 import { FileInterceptor } from '@nestjs/platform-express'
-import { createReadStream } from 'fs'
 import { SupportService } from './support.service'
 import { CreateTicketDto, CreateMessageDto, AttachmentBodyDto, MarkNotificationsReadDto } from './dto/ticket.dto'
 import { SessionAuthGuard } from '../common/guards/session-auth.guard'
@@ -68,8 +67,7 @@ export class SupportController {
   @Get('attachments/:id')
   async getAttachment(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
     const file = await this.support.getAttachmentFile(user.id, id)
-    const stream = createReadStream(file.path)
-    return new StreamableFile(stream, { type: file.mimeType, disposition: `attachment; filename="${encodeURIComponent(file.filename)}"` })
+    return new StreamableFile(file.stream, { type: file.mimeType, disposition: `attachment; filename="${encodeURIComponent(file.filename)}"` })
   }
 
   @Get('notifications')

@@ -1,7 +1,10 @@
-import { Injectable, NotFoundException } from '@nestjs/common'
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
 import { Decimal } from '@prisma/client/runtime/library'
 import { PrismaService } from '../prisma/prisma.service'
 import { LedgerService } from '../ledger/ledger.service'
+import { MarketDataService } from '../markets/market-data.service'
+import { CONVERT_SYMBOL } from './convert-currencies'
+import type { ConvertDto } from './dto/convert.dto'
 
 // Unrealized P&L for one open position: (current - entry) * qty for BUY,
 // (entry - current) * qty for SELL. Matches the existing frontend's
@@ -20,6 +23,7 @@ export class AccountsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly ledger: LedgerService,
+    private readonly marketData: MarketDataService,
   ) {}
 
   async getPrimaryAccount(userId: string) {
@@ -38,10 +42,16 @@ export class AccountsService {
     const openPositions = await this.prisma.position.findMany({
       where: { accountId: account.id, status: 'OPEN' },
     })
-    const unrealizedPnl = openPositions.reduce(
-      (sum, p) => sum.plus(unrealizedPnlFor(p)),
-      new Decimal(0),
+    // equity/cash/total here are USD-denominated (see getCashBalance's
+    // comment above) — only fold in P&L from USD-quoted positions. Most
+    // crypto markets are USDT-quoted; that P&L is a USDT amount and must
+    // never be added to a USD total as if the same unit.
+    const usdSymbols = new Set(
+      (await this.prisma.marketConfig.findMany({ where: { quoteAsset: 'USD' }, select: { symbol: true } })).map((m) => m.symbol),
     )
+    const unrealizedPnl = openPositions
+      .filter((p) => usdSymbols.has(p.symbol))
+      .reduce((sum, p) => sum.plus(unrealizedPnlFor(p)), new Decimal(0))
 
     return {
       accountId: account.id,
@@ -138,5 +148,103 @@ export class AccountsService {
       relatedId: e.transaction.relatedId,
       createdAt: e.createdAt,
     }))
+  }
+
+  // ===========================================================================
+  // Currency conversion (Part 32) — exchanges one currency the user holds
+  // for another, at a rate derived entirely from real MarketDataService
+  // quotes (never a hardcoded or client-supplied rate). LedgerService's
+  // validateEntries() requires credits==debits WITHIN EACH currency (real
+  // double-entry bookkeeping) — a single entry pair can never move value
+  // across two different currencies. So this posts TWO separately-balanced
+  // legs atomically in one advisory-locked transaction: DEBIT the user's
+  // source cash / CREDIT a system REVENUE account (same currency, same
+  // amount — balanced), then DEBIT that system REVENUE account in the
+  // destination currency / CREDIT the user's destination cash (balanced).
+  // Same system-account pattern AdminService.createFinancialAdjustment
+  // already uses for a currency-neutral value move — no value is created or
+  // destroyed here, only exchanged.
+  //
+  // Exactly-once-per-idempotency-key is guaranteed by the CALLER
+  // (AccountsController wraps this whole method in IdempotencyService.run(),
+  // which never re-invokes it for a repeated key) — this method itself
+  // takes no idempotency key, since a single client key would collide
+  // across the two separate LedgerTransaction rows below.
+  // ===========================================================================
+
+  private async priceInUsdt(currency: string): Promise<Decimal> {
+    if (currency === 'USDT') return new Decimal(1)
+    const symbol = CONVERT_SYMBOL[currency]
+    if (!(currency in CONVERT_SYMBOL) || !symbol) throw new BadRequestException(`"${currency}" is not a supported conversion currency.`)
+    const quote = await this.marketData.getQuote(symbol)
+    if (quote.status !== 'LIVE' && quote.status !== 'SIMULATED') {
+      throw new BadRequestException(`Market price for ${symbol} is not currently available (${quote.status}). Try again shortly.`)
+    }
+    return new Decimal(quote.last)
+  }
+
+  async convert(userId: string, dto: ConvertDto) {
+    if (dto.fromCurrency === dto.toCurrency) {
+      throw new BadRequestException('Choose two different currencies to convert between.')
+    }
+    const amount = new Decimal(dto.amount)
+    if (!amount.isFinite() || amount.lte(0)) {
+      throw new BadRequestException('Amount must be a positive number.')
+    }
+
+    const account = await this.getPrimaryAccount(userId)
+
+    // Prices read before the lock — display/rate math only. The
+    // authoritative balance check happens inside the locked section below,
+    // exactly like every other financial-creation path in this codebase.
+    const [fromPrice, toPrice] = await Promise.all([this.priceInUsdt(dto.fromCurrency), this.priceInUsdt(dto.toCurrency)])
+    // Rounded to the ledger column's own precision (Decimal(20,8)) so the
+    // amount reported back to the caller is byte-for-byte what actually
+    // gets persisted — never a higher-precision phantom value the database
+    // silently truncates after the fact.
+    const toAmount = amount.times(fromPrice).dividedBy(toPrice).toDecimalPlaces(8)
+
+    const { cash: fromCash } = await this.ledger.getOrCreateUserLedgerAccounts(account.id, dto.fromCurrency)
+    const { cash: toCash } = await this.ledger.getOrCreateUserLedgerAccounts(account.id, dto.toCurrency)
+    const fromSystem = await this.ledger.getSystemLedgerAccount('REVENUE', dto.fromCurrency)
+    const toSystem = await this.ledger.getSystemLedgerAccount('REVENUE', dto.toCurrency)
+
+    const description = `Converted ${amount.toString()} ${dto.fromCurrency} to ${dto.toCurrency}`
+    const transactionId = await this.prisma.$transaction(async (tx) => {
+      // Only the SOURCE account can ever go invalid (negative) from this
+      // operation — the destination is only ever credited, which can never
+      // fail a balance check, so only fromCash needs the advisory lock.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${fromCash.id}))`
+      const balance = await this.ledger.getLedgerAccountBalanceLocked(tx, fromCash.id)
+      if (balance.lt(amount)) throw new BadRequestException('Insufficient balance for this conversion.')
+
+      const outLeg = await this.ledger.insertTransactionInLock(tx, {
+        description,
+        relatedType: 'CONVERSION',
+        relatedId: account.id,
+        entries: [
+          { ledgerAccountId: fromCash.id, direction: 'DEBIT', amount, currency: dto.fromCurrency, entryType: 'CONVERSION' },
+          { ledgerAccountId: fromSystem.id, direction: 'CREDIT', amount, currency: dto.fromCurrency, entryType: 'CONVERSION' },
+        ],
+      })
+      await this.ledger.insertTransactionInLock(tx, {
+        description,
+        relatedType: 'CONVERSION',
+        relatedId: account.id,
+        entries: [
+          { ledgerAccountId: toSystem.id, direction: 'DEBIT', amount: toAmount, currency: dto.toCurrency, entryType: 'CONVERSION' },
+          { ledgerAccountId: toCash.id, direction: 'CREDIT', amount: toAmount, currency: dto.toCurrency, entryType: 'CONVERSION' },
+        ],
+      })
+      return outLeg.id
+    })
+
+    return {
+      transactionId,
+      fromCurrency: dto.fromCurrency,
+      toCurrency: dto.toCurrency,
+      fromAmount: amount.toString(),
+      toAmount: toAmount.toString(),
+    }
   }
 }

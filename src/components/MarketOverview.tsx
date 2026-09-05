@@ -1,4 +1,5 @@
 import { snapshot, getMarketStatus } from '../store/priceFeed'
+import { useMarketConfigs } from '../store/useStore'
 import { useNavigate } from 'react-router-dom'
 import { AssetIcon } from './AssetIcon'
 import { StatusBadge } from './StatusBadge'
@@ -6,11 +7,13 @@ import { PriceChange } from './PriceChange'
 
 export default function MarketOverview({ symbols }: { symbols: string[] }) {
   const nav = useNavigate()
+  const { markets } = useMarketConfigs()
   const rows = snapshot().filter(r => symbols.includes(r.symbol))
   return (
     <div className="-mx-1 flex gap-3 overflow-x-auto px-1 pb-1 sm:grid sm:grid-cols-3 sm:overflow-visible lg:grid-cols-6">
       {rows.map(r => {
         const status = getMarketStatus(r.symbol)
+        const quoteAsset = markets.find((m) => m.symbol === r.symbol)?.quoteAsset || 'USD'
         return (
           <div key={r.symbol} className="card min-w-[150px] flex-1 cursor-pointer p-3.5 transition hover:border-ocean-500/40 sm:min-w-0" onClick={() => nav(`/trade?symbol=${encodeURIComponent(r.symbol)}`)}>
             <div className="flex items-center gap-2">
@@ -20,7 +23,7 @@ export default function MarketOverview({ symbols }: { symbols: string[] }) {
                 <div className="truncate text-[11px] text-slate-500">{r.name}</div>
               </div>
             </div>
-            <div className="mt-2.5 font-mono text-base font-bold text-white">${r.price.toLocaleString(undefined, { maximumFractionDigits: r.price < 1 ? 4 : 2 })}</div>
+            <div className="mt-2.5 font-mono text-base font-bold text-white">{r.price.toLocaleString(undefined, { maximumFractionDigits: r.price < 1 ? 4 : 2 })} {quoteAsset}</div>
             <div className="mt-1.5 flex items-center justify-between">
               <PriceChange value={r.changePct} />
               <StatusBadge status={status} />

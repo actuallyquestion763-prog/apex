@@ -25,6 +25,7 @@ describe('Trade Experience — currency-aware balance, execution status, sandbox
   let superCookie: string
   let superPassword: string
   let superSecret: string
+  let superAdminId: string
 
   beforeAll(async () => {
     const t = await createTestApp()
@@ -38,6 +39,7 @@ describe('Trade Experience — currency-aware balance, execution status, sandbox
     const email = uniqueEmail('tradexpsuper')
     superPassword = 'correct-horse-battery'
     const { user } = await createUserDirect(prisma, { email, password: superPassword, role: 'SUPER_ADMIN' })
+    superAdminId = user.id
     superSecret = await enableTotpDirect(prisma, user.id)
     const loginRes = await request(server).post('/auth/login').send({ email, password: superPassword }).expect(200)
     const verifyRes = await request(server).post('/auth/2fa/login-verify').send({ pendingToken: loginRes.body.pendingToken, code: currentTotpCode(superSecret) }).expect(200)
@@ -63,10 +65,18 @@ describe('Trade Experience — currency-aware balance, execution status, sandbox
     await app.close()
   })
 
-  async function registerAndLogin(prefix: string) {
+  // Defaults to 'USER' — most tests in this file exercise plain-USER-
+  // accessible endpoints (balance, deposits, execution status). A few
+  // sandbox-outcome tests that place an actual options trade pass role:
+  // 'SUPER_ADMIN' explicitly — this is no longer required (Part 31:
+  // OptionsController now has no role gate at all, just SessionAuthGuard —
+  // see options.controller.ts), but SUPER_ADMIN can still do everything a
+  // plain USER can through the customer-facing options endpoints, so those
+  // tests remain valid without needing to change the role passed here.
+  async function registerAndLogin(prefix: string, role: 'USER' | 'SUPER_ADMIN' = 'USER') {
     const email = uniqueEmail(prefix)
     const password = 'correct-horse-battery'
-    const { user } = await createUserDirect(prisma, { email, password, fullName: 'Trade Experience Test' })
+    const { user } = await createUserDirect(prisma, { email, password, fullName: 'Trade Experience Test', role })
     const res = await request(server).post('/auth/login').send({ email, password }).expect(200)
     return { userId: user.id, cookie: extractSessionCookie(res) }
   }
@@ -246,7 +256,7 @@ describe('Trade Experience — currency-aware balance, execution status, sandbox
 
   it('FORCE_WIN via the admin dial makes a NORMAL-mode trade settle WIN, and FORCE_LOSS makes it settle LOSS — deterministically, not just probably', async () => {
     const symbol = await setupOptionMarket()
-    const { userId, cookie } = await registerAndLogin('sandboxforcewin')
+    const { userId, cookie } = await registerAndLogin('sandboxforcewin', 'SUPER_ADMIN')
     await grantAsset(userId, 'USDT', '1000')
 
     await request(server)
@@ -271,9 +281,9 @@ describe('Trade Experience — currency-aware balance, execution status, sandbox
     expect(settledLoss.result).toBe('LOSS')
   })
 
-  it('a per-trade requestedResultMode override takes priority over the platform-wide sandbox dial', async () => {
+  it('the platform-wide sandbox dial takes priority over a per-trade requestedResultMode override (Part 28 priority reorder)', async () => {
     const symbol = await setupOptionMarket()
-    const { userId, cookie } = await registerAndLogin('sandboxprecedence')
+    const { userId, cookie } = await registerAndLogin('sandboxprecedence', 'SUPER_ADMIN')
     await grantAsset(userId, 'USDT', '1000')
 
     await request(server)
@@ -282,11 +292,15 @@ describe('Trade Experience — currency-aware balance, execution status, sandbox
       .send({ sandboxOutcomeMode: 'FORCE_WIN', reason: 'e2e precedence check', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
       .expect(200)
 
-    // The customer explicitly requests FORCE_LOSS for their own trade — this
-    // must win over the admin's platform-wide FORCE_WIN dial.
+    // The customer explicitly requests FORCE_LOSS for their own trade, but
+    // ALL USER CONTROL (the platform-wide dial) now outranks a per-trade
+    // request — Part 28's priority order is: per-user test override, then
+    // the platform-wide dial, then the trade's own requestedResultMode, then
+    // random. Neither this trade's user nor anyone is a designated test
+    // user here, so the platform-wide FORCE_WIN dial applies.
     const res = await request(server).post('/options/trades').set('Cookie', cookie).send({ symbol, direction: 'BUY', investment: '10', durationSeconds: 30, requestedResultMode: 'FORCE_LOSS' }).expect(201)
     const settled = await options.settleTrade(res.body.id)
-    expect(settled.result).toBe('LOSS')
+    expect(settled.result).toBe('WIN')
 
     await request(server)
       .patch('/admin/options/settings')
@@ -331,5 +345,227 @@ describe('Trade Experience — currency-aware balance, execution status, sandbox
       .set('Cookie', superCookie)
       .send({ sandboxOutcomeMode: 'RANDOM', reason: 'e2e cleanup', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
       .expect(200)
+  })
+
+  // ---- USER CONTROL — designated test/sandbox users (Part 28) -----------
+
+  async function createTestUserDirect() {
+    const email = uniqueEmail('sandboxtestuser')
+    const res = await request(server)
+      .post('/admin/options/test-users')
+      .set('Cookie', superCookie)
+      .send({ email, fullName: 'E2E Test User', password: 'correct-horse-battery-12', reason: 'e2e fixture test user', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+      .expect(201)
+    return res.body as { id: string; email: string; isTestUser: boolean; testOutcomeMode: string }
+  }
+
+  it('POST /admin/options/test-users creates a new account with isTestUser true, and it is reachable via /admin/users', async () => {
+    const created = await createTestUserDirect()
+    expect(created.isTestUser).toBe(true)
+    expect(created.testOutcomeMode).toBe('NORMAL')
+
+    const listed = await request(server).get(`/admin/users?q=${encodeURIComponent(created.email)}`).set('Cookie', superCookie).expect(200)
+    const row = listed.body.find((u: any) => u.id === created.id)
+    expect(row).toBeTruthy()
+    expect(row.isTestUser).toBe(true)
+    expect(row.usdtBalance).toBe('0')
+  })
+
+  it('POST /admin/options/test-users writes a TEST_USER_CREATED audit event with the admin as actor', async () => {
+    const created = await createTestUserDirect()
+    const events = await prisma.auditLog.findMany({ where: { action: 'TEST_USER_CREATED', targetId: created.id } })
+    expect(events.length).toBe(1)
+    expect(events[0].actorId).toBe(superAdminId)
+  })
+
+  it('a plain USER and a permission-less ADMIN cannot create a test user', async () => {
+    const user = await registerAndLogin('sandboxtestusernoperm')
+    const noPerm = await makeAdminWith()
+    for (const cookie of [user.cookie, noPerm.cookie]) {
+      const res = await request(server)
+        .post('/admin/options/test-users')
+        .set('Cookie', cookie)
+        .send({ email: uniqueEmail('shouldnotcreate'), password: 'correct-horse-battery-12', reason: 'unauthorized attempt', confirmPassword: 'whatever', totpCode: '000000' })
+      expect(res.status).toBe(403)
+    }
+  })
+
+  it('creating a test user is rejected outside development/test, even with valid step-up', async () => {
+    const original = process.env.NODE_ENV
+    try {
+      process.env.NODE_ENV = 'production'
+      const res = await request(server)
+        .post('/admin/options/test-users')
+        .set('Cookie', superCookie)
+        .send({ email: uniqueEmail('prodtestuser'), password: 'correct-horse-battery-12', reason: 'attempted prod test-user creation', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+      expect(res.status).toBe(403)
+    } finally {
+      process.env.NODE_ENV = original
+    }
+  })
+
+  it('PATCH /admin/options/test-users/:userId is rejected with 403 for a user who is NOT a designated test user — an admin cannot convert an existing real customer', async () => {
+    const { userId } = await registerAndLogin('sandboxrealcustomer')
+    const res = await request(server)
+      .patch(`/admin/options/test-users/${userId}`)
+      .set('Cookie', superCookie)
+      .send({ testOutcomeMode: 'FORCE_WIN', reason: 'attempted override on a real customer', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+    expect(res.status).toBe(403)
+
+    // Confirm nothing was written — the real customer's row is untouched.
+    const stillNormal = await request(server).get(`/admin/users?q=sandboxrealcustomer`).set('Cookie', superCookie).expect(200)
+    const row = stillNormal.body.find((u: any) => u.id === userId)
+    expect(row.isTestUser).toBe(false)
+    expect(row.testOutcomeMode).toBe('NORMAL')
+  })
+
+  it('PATCH /admin/options/test-users/:userId sets testOutcomeMode for a designated test user and persists it', async () => {
+    const testUser = await createTestUserDirect()
+    const res = await request(server)
+      .patch(`/admin/options/test-users/${testUser.id}`)
+      .set('Cookie', superCookie)
+      .send({ testOutcomeMode: 'FORCE_WIN', reason: 'e2e set test user outcome', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+      .expect(200)
+    expect(res.body.testOutcomeMode).toBe('FORCE_WIN')
+
+    // Persists — a fresh read (simulating an admin page refresh) still shows it.
+    const listed = await request(server).get(`/admin/users?q=${encodeURIComponent(testUser.email)}`).set('Cookie', superCookie).expect(200)
+    expect(listed.body.find((u: any) => u.id === testUser.id).testOutcomeMode).toBe('FORCE_WIN')
+
+    const events = await prisma.auditLog.findMany({ where: { action: 'TEST_USER_OUTCOME_MODE_CHANGED', targetId: testUser.id } })
+    expect(events.length).toBe(1)
+    expect((events[0].newState as any)?.testOutcomeMode).toBe('FORCE_WIN')
+  })
+
+  it("a test user's TEST USER WIN overrides the platform-wide LOSE ALL dial (per-user takes priority)", async () => {
+    const symbol = await setupOptionMarket()
+    const testUser = await createTestUserDirect()
+    await grantAsset(testUser.id, 'USDT', '1000')
+    const loginRes = await request(server).post('/auth/login').send({ email: testUser.email, password: 'correct-horse-battery-12' }).expect(200)
+    const testUserCookie = extractSessionCookie(loginRes)
+    // Test users are plain USER role — elevate role directly so they can hit
+    // the SUPER_ADMIN-only /options/trades route, same as every other trade
+    // fixture in this suite (registerAndLogin's role param does the same).
+    await prisma.user.update({ where: { id: testUser.id }, data: { role: 'SUPER_ADMIN' } })
+
+    await request(server)
+      .patch('/admin/options/settings')
+      .set('Cookie', superCookie)
+      .send({ sandboxOutcomeMode: 'FORCE_LOSS', reason: 'e2e per-user priority check', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+      .expect(200)
+    await request(server)
+      .patch(`/admin/options/test-users/${testUser.id}`)
+      .set('Cookie', superCookie)
+      .send({ testOutcomeMode: 'FORCE_WIN', reason: 'e2e per-user priority check', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+      .expect(200)
+
+    const res = await request(server).post('/options/trades').set('Cookie', testUserCookie).send({ symbol, direction: 'BUY', investment: '10', durationSeconds: 30 }).expect(201)
+    const settled = await options.settleTrade(res.body.id)
+    expect(settled.result).toBe('WIN')
+
+    await request(server)
+      .patch('/admin/options/settings')
+      .set('Cookie', superCookie)
+      .send({ sandboxOutcomeMode: 'RANDOM', reason: 'e2e cleanup', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+      .expect(200)
+  })
+
+  it("a test user's per-user override does NOT affect a different user's trades — the platform dial still applies to everyone else", async () => {
+    const symbol = await setupOptionMarket()
+    const testUser = await createTestUserDirect()
+    await grantAsset(testUser.id, 'USDT', '1000')
+    await prisma.user.update({ where: { id: testUser.id }, data: { role: 'SUPER_ADMIN' } })
+    await request(server)
+      .patch(`/admin/options/test-users/${testUser.id}`)
+      .set('Cookie', superCookie)
+      .send({ testOutcomeMode: 'FORCE_WIN', reason: 'e2e isolation check', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+      .expect(200)
+
+    const { userId: otherUserId, cookie: otherCookie } = await registerAndLogin('sandboxotheruser', 'SUPER_ADMIN')
+    await grantAsset(otherUserId, 'USDT', '1000')
+
+    await request(server)
+      .patch('/admin/options/settings')
+      .set('Cookie', superCookie)
+      .send({ sandboxOutcomeMode: 'FORCE_LOSS', reason: 'e2e isolation check', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+      .expect(200)
+
+    const res = await request(server).post('/options/trades').set('Cookie', otherCookie).send({ symbol, direction: 'BUY', investment: '10', durationSeconds: 30 }).expect(201)
+    const settled = await options.settleTrade(res.body.id)
+    // The OTHER user has no isTestUser/testOutcomeMode of their own — the
+    // test user's FORCE_WIN setting must not leak onto them. Falls through
+    // to the platform-wide dial, which is FORCE_LOSS.
+    expect(settled.result).toBe('LOSS')
+
+    await request(server)
+      .patch('/admin/options/settings')
+      .set('Cookie', superCookie)
+      .send({ sandboxOutcomeMode: 'RANDOM', reason: 'e2e cleanup', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+      .expect(200)
+  })
+
+  it("setting a test user back to NORMAL removes their override — settlement falls through to the platform dial again", async () => {
+    const symbol = await setupOptionMarket()
+    const testUser = await createTestUserDirect()
+    await grantAsset(testUser.id, 'USDT', '1000')
+    await prisma.user.update({ where: { id: testUser.id }, data: { role: 'SUPER_ADMIN' } })
+    const loginRes = await request(server).post('/auth/login').send({ email: testUser.email, password: 'correct-horse-battery-12' }).expect(200)
+    const testUserCookie = extractSessionCookie(loginRes)
+
+    await request(server)
+      .patch(`/admin/options/test-users/${testUser.id}`)
+      .set('Cookie', superCookie)
+      .send({ testOutcomeMode: 'FORCE_WIN', reason: 'e2e normal-restores check', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+      .expect(200)
+    await request(server)
+      .patch(`/admin/options/test-users/${testUser.id}`)
+      .set('Cookie', superCookie)
+      .send({ testOutcomeMode: 'NORMAL', reason: 'e2e normal-restores check', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+      .expect(200)
+    await request(server)
+      .patch('/admin/options/settings')
+      .set('Cookie', superCookie)
+      .send({ sandboxOutcomeMode: 'FORCE_LOSS', reason: 'e2e normal-restores check', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+      .expect(200)
+
+    const res = await request(server).post('/options/trades').set('Cookie', testUserCookie).send({ symbol, direction: 'BUY', investment: '10', durationSeconds: 30 }).expect(201)
+    const settled = await options.settleTrade(res.body.id)
+    expect(settled.result).toBe('LOSS') // NORMAL cleared the per-user override, so the platform dial now applies
+
+    await request(server)
+      .patch('/admin/options/settings')
+      .set('Cookie', superCookie)
+      .send({ sandboxOutcomeMode: 'RANDOM', reason: 'e2e cleanup', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+      .expect(200)
+  })
+
+  it('a test user\'s FORCE_WIN override has zero effect outside development/test — production settlement is untouched (defense in depth)', async () => {
+    const symbol = await setupOptionMarket()
+    const testUser = await createTestUserDirect()
+    await grantAsset(testUser.id, 'USDT', '1000')
+    await prisma.user.update({ where: { id: testUser.id }, data: { role: 'SUPER_ADMIN' } })
+    const loginRes = await request(server).post('/auth/login').send({ email: testUser.email, password: 'correct-horse-battery-12' }).expect(200)
+    const testUserCookie = extractSessionCookie(loginRes)
+
+    await request(server)
+      .patch(`/admin/options/test-users/${testUser.id}`)
+      .set('Cookie', superCookie)
+      .send({ testOutcomeMode: 'FORCE_WIN', reason: 'e2e production-safety check', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+      .expect(200)
+
+    const res = await request(server).post('/options/trades').set('Cookie', testUserCookie).send({ symbol, direction: 'BUY', investment: '10', durationSeconds: 30 }).expect(201)
+
+    const original = process.env.NODE_ENV
+    try {
+      process.env.NODE_ENV = 'production'
+      // Even though this row's testOutcomeMode is FORCE_WIN in the database,
+      // settlement outside development/test never consults it at all — the
+      // isDemoResultModeAllowed() gate is checked first and short-circuits
+      // the entire override chain.
+      const settled = await options.settleTrade(res.body.id)
+      expect(['WIN', 'LOSS', 'DRAW']).toContain(settled.result) // real price-derived, not forced
+    } finally {
+      process.env.NODE_ENV = original
+    }
   })
 })

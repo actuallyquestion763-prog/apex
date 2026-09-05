@@ -1,6 +1,7 @@
 import type { INestApplication } from '@nestjs/common'
 import request from 'supertest'
 import * as argon2 from 'argon2'
+import { Decimal } from '@prisma/client/runtime/library'
 import { createTestApp, uniqueEmail, extractSessionCookie, createUserDirect, enableTotpDirect, currentTotpCode } from './helpers/test-app'
 import type { PrismaService } from '../src/prisma/prisma.service'
 
@@ -47,6 +48,44 @@ describe('Authorization: roles + fine-grained permissions (real PostgreSQL)', ()
     const cookie = await loginCookie(server, email, password)
 
     await request(server).get('/admin/overview').set('Cookie', cookie).expect(403)
+  })
+
+  // Admin Panel redesign — one representative endpoint per Admin frontend
+  // section (Trading, Users, Deposits, Withdrawals, KYC, Settings, Admin
+  // Management, Deposit Wallet, Contacts, Wallet Adjustment). Proves the
+  // backend rejects a normal, authenticated customer from every one of
+  // them — this is the real security boundary; the frontend nav item and
+  // AdminOnly route wrapper are only a UX convenience on top of this.
+  it('a plain USER is rejected (401/403) from every Admin frontend section\'s backing endpoint', async () => {
+    const email = uniqueEmail('customerdashboard')
+    const password = 'correct-horse-battery'
+    await createUserDirect(prisma, { email, password, role: 'USER' })
+    const cookie = await loginCookie(server, email, password)
+
+    const protectedRoutes: { method: 'get' | 'patch' | 'post'; path: string }[] = [
+      { method: 'get', path: '/admin/overview' },                              // Dashboard stats
+      { method: 'get', path: '/admin/options/settings' },                      // Trading
+      { method: 'get', path: '/admin/users' },                                 // Users
+      { method: 'get', path: '/admin/deposits' },                              // Deposit Management
+      { method: 'get', path: '/admin/withdrawals' },                           // Withdrawal Management
+      { method: 'get', path: '/admin/kyc/submissions' },                       // KYC Verification
+      { method: 'patch', path: '/admin/platform-settings' },                   // Settings (kill switches)
+      { method: 'get', path: '/admin/admins' },                                // Admin Management
+      { method: 'get', path: '/admin/crypto-deposits/assets' },                // Deposit Wallet
+      { method: 'get', path: '/admin/contacts' },                              // Admin Contact
+      { method: 'post', path: '/admin/financial-adjustment' },                 // Manual Wallet Adjustment
+      { method: 'get', path: '/admin/audit-logs' },                            // Audit Logs
+    ]
+
+    for (const route of protectedRoutes) {
+      const res = await request(server)[route.method](route.path).set('Cookie', cookie).send({})
+      expect([401, 403]).toContain(res.status)
+    }
+  })
+
+  it('an unauthenticated request (no session cookie at all) gets 401, not a redirect or a 200', async () => {
+    await request(server).get('/admin/overview').expect(401)
+    await request(server).get('/admin/users').expect(401)
   })
 
   it('an ADMIN with no granted permissions is rejected from a permission-gated route', async () => {
@@ -115,5 +154,51 @@ describe('Authorization: roles + fine-grained permissions (real PostgreSQL)', ()
     await request(server).get('/admin/overview').set('Cookie', cookie).expect(200)
     await request(server).get('/admin/users').set('Cookie', cookie).expect(200)
     await request(server).get('/admin/audit-logs').set('Cookie', cookie).expect(200)
+  })
+
+  // Phase F currency audit — /admin/overview's totalCustomerAssets used to
+  // blindly sum every currency's CASH+RESERVED balance into one Decimal
+  // (a USD balance and a USDT balance are not the same unit). Proves the
+  // fix: a user holding both currencies shows up as a real per-currency
+  // breakdown, never a single combined number.
+  it('reports total customer assets per currency, never as one blindly-summed figure across currencies', async () => {
+    const { LedgerService } = await import('../src/ledger/ledger.service')
+    const ledger = app.get(LedgerService)
+
+    const { account } = await createUserDirect(prisma, { email: uniqueEmail('multicurrencyholder'), password: 'correct-horse-battery' })
+    const revenue = await ledger.getSystemLedgerAccount('REVENUE')
+
+    const { cash: usdCash } = await ledger.getOrCreateUserLedgerAccounts(account.id, 'USD')
+    await ledger.postTransaction({
+      description: 'test fixture: USD credit',
+      relatedType: 'ADMIN_ADJUSTMENT',
+      relatedId: account.id,
+      entries: [
+        { ledgerAccountId: revenue.id, direction: 'DEBIT', amount: new Decimal('100'), entryType: 'ADJUSTMENT', currency: 'USD' },
+        { ledgerAccountId: usdCash.id, direction: 'CREDIT', amount: new Decimal('100'), entryType: 'ADJUSTMENT', currency: 'USD' },
+      ],
+    })
+
+    const { cash: usdtCash } = await ledger.getOrCreateUserLedgerAccounts(account.id, 'USDT')
+    const revenueUsdt = await ledger.getSystemLedgerAccount('REVENUE', 'USDT')
+    await ledger.postTransaction({
+      description: 'test fixture: USDT credit',
+      relatedType: 'ADMIN_ADJUSTMENT',
+      relatedId: account.id,
+      entries: [
+        { ledgerAccountId: revenueUsdt.id, direction: 'DEBIT', amount: new Decimal('50'), entryType: 'ADJUSTMENT', currency: 'USDT' },
+        { ledgerAccountId: usdtCash.id, direction: 'CREDIT', amount: new Decimal('50'), entryType: 'ADJUSTMENT', currency: 'USDT' },
+      ],
+    })
+
+    const email = uniqueEmail('overviewreader')
+    const password = 'correct-horse-battery'
+    await createUserDirect(prisma, { email, password, role: 'SUPER_ADMIN' })
+    const cookie = await loginCookie(server, email, password)
+
+    const res = await request(server).get('/admin/overview').set('Cookie', cookie).expect(200)
+    expect(typeof res.body.totalCustomerAssets).toBe('object')
+    expect(Number(res.body.totalCustomerAssets.USD)).toBeGreaterThanOrEqual(100)
+    expect(Number(res.body.totalCustomerAssets.USDT)).toBeGreaterThanOrEqual(50)
   })
 })

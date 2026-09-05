@@ -12,6 +12,10 @@ const validProd = {
   DATABASE_URL: 'postgresql://trust_app:realpassword@db.internal:5432/trust_prod?schema=public',
   SESSION_SECRET: 'a'.repeat(48),
   FRONTEND_ORIGIN: 'https://app.example.com',
+  S3_ENDPOINT: 'https://example.r2.cloudflarestorage.com',
+  S3_BUCKET: 'trust-uploads',
+  S3_ACCESS_KEY_ID: 'test-access-key-id',
+  S3_SECRET_ACCESS_KEY: 'test-secret-access-key',
 }
 
 describe('validateEnv', () => {
@@ -102,5 +106,43 @@ describe('validateEnv', () => {
 
   it('accepts both postgresql:// and postgres:// schemes', () => {
     expect(() => validateEnv({ ...validDev, DATABASE_URL: 'postgres://trust_app:x@localhost:5432/trust_dev' })).not.toThrow()
+  })
+
+  // P1-A: object storage (KYC documents, deposit proofs, support
+  // attachments, CMS media) requires a real S3-compatible bucket outside
+  // development/test — refusing to boot is preferable to every upload
+  // endpoint failing individually the first time it's hit.
+  describe('S3 object storage configuration', () => {
+    it('9. missing S3_ENDPOINT fails in production', () => {
+      expect(() => validateEnv({ ...validProd, S3_ENDPOINT: undefined })).toThrow(/S3_ENDPOINT/)
+    })
+
+    it('10. missing S3_BUCKET fails in production', () => {
+      expect(() => validateEnv({ ...validProd, S3_BUCKET: undefined })).toThrow(/S3_BUCKET/)
+    })
+
+    it('11. missing S3_ACCESS_KEY_ID fails in production', () => {
+      expect(() => validateEnv({ ...validProd, S3_ACCESS_KEY_ID: undefined })).toThrow(/S3_ACCESS_KEY_ID/)
+    })
+
+    it('12. missing S3_SECRET_ACCESS_KEY fails in production', () => {
+      expect(() => validateEnv({ ...validProd, S3_SECRET_ACCESS_KEY: undefined })).toThrow(/S3_SECRET_ACCESS_KEY/)
+    })
+
+    it('13. staging is held to the same S3 requirement as production', () => {
+      expect(() => validateEnv({ ...validProd, NODE_ENV: 'staging', S3_BUCKET: undefined })).toThrow(/S3_BUCKET/)
+    })
+
+    it('development does not require any S3 variable to be set', () => {
+      expect(() => validateEnv(validDev)).not.toThrow()
+    })
+
+    it('defaults S3_REGION to "auto" (Cloudflare R2-compatible) when unset', () => {
+      expect(validateEnv(validProd).S3_REGION).toBe('auto')
+    })
+
+    it('accepts an explicit S3_REGION override', () => {
+      expect(validateEnv({ ...validProd, S3_REGION: 'us-east-1' }).S3_REGION).toBe('us-east-1')
+    })
   })
 })

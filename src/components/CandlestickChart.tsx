@@ -43,7 +43,7 @@ function toVolumeBar(c: Candle) {
   return { time: Math.floor(c.time / 1000) as UTCTimestamp, value: c.volume ?? 0, color: c.close >= c.open ? '#22c55e55' : '#ef444455' }
 }
 
-export function CandlestickChart({ symbol, height = 320 }: { symbol: string; height?: number }) {
+export function CandlestickChart({ symbol, height = 320, quoteAsset }: { symbol: string; height?: number; quoteAsset?: string }) {
   const wrapperRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
@@ -194,7 +194,7 @@ export function CandlestickChart({ symbol, height = 320 }: { symbol: string; hei
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <span className="text-sm font-bold text-white">{symbol}</span>
-          <span className="font-mono text-sm font-semibold text-white">${priceLabel}</span>
+          <span className="font-mono text-sm font-semibold text-white">{priceLabel}{quoteAsset ? ` ${quoteAsset}` : ''}</span>
           <StatusBadge status={status} />
         </div>
         <div className="flex flex-wrap items-center gap-1.5">

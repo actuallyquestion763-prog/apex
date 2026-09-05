@@ -23,6 +23,8 @@ const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   'deposits.review': 'Confirm or reject deposits',
   'crypto_deposits.read': 'View crypto deposit asset/network/receiving-address configuration',
   'crypto_deposits.control': 'Manage crypto deposit assets, networks, and receiving addresses',
+  'admin_contacts.read': 'View customer-facing support contact links',
+  'admin_contacts.control': 'Manage customer-facing support contact links (LINE, Telegram, etc.)',
   'withdrawals.read': 'View withdrawals',
   'withdrawals.review': 'Approve or reject withdrawals',
   'trading.read': 'View trading activity',
@@ -105,14 +107,13 @@ async function seedCmsContent() {
   }
 
   const homepageSections = [
-    { type: 'hero', fields: { badge: 'Registered · ISO 27001 Certified', title: 'Trade crypto with confidence', subtitle: 'The institutional-grade trading platform. Deep liquidity, 100x leverage, and bank-grade security — all in one elegant interface.', ctaLabel: 'Open free account', ctaHref: '/signup' } },
-    { type: 'stats', fields: { stat1: '2.4M+ traders', stat2: '$18B+ volume', stat3: '140+ countries' } },
-    { type: 'feature', fields: { title: 'Instant execution', desc: 'Sub-millisecond order matching with deep liquidity pools.' } },
+    { type: 'hero', fields: { badge: 'Demo Platform · No Real Funds', title: 'Trade crypto with confidence', subtitle: 'A clean, fast interface for spot crypto trading, backed by a real order and ledger system.', ctaLabel: 'Open free account', ctaHref: '/signup' } },
+    { type: 'feature', fields: { title: 'Instant execution', desc: 'Orders are placed directly with the connected execution provider and reflected in your account right away.' } },
     { type: 'feature', fields: { title: 'Pro charts', desc: 'Real-time candlestick charts with 1m, 5m, and 1h timeframes.' } },
-    { type: 'feature', fields: { title: 'Bank-grade security', desc: 'Cold storage, 2FA, and withdrawal whitelisting keep your funds safe.' } },
-    { type: 'feature', fields: { title: 'Low fees', desc: '0.1% per trade. Volume discounts available.' } },
-    { type: 'trust', fields: { badge1: 'Regulated', badge2: 'ISO 27001' } },
-    { type: 'cta', fields: { title: 'Ready to start trading?', subtitle: 'Join 2.4 million traders. Open your free account in seconds.', ctaLabel: 'Create free account', ctaHref: '/signup' } },
+    { type: 'feature', fields: { title: 'Account security', desc: 'Two-factor authentication adds a strong layer of protection to your account.' } },
+    { type: 'feature', fields: { title: 'Low fees', desc: '0.1% per trade.' } },
+    { type: 'trust', fields: { badge1: 'Demo Platform', badge2: 'No Real Funds' } },
+    { type: 'cta', fields: { title: 'Ready to start trading?', subtitle: 'Open your free account in seconds.', ctaLabel: 'Create free account', ctaHref: '/signup' } },
     { type: 'footer', fields: { tagline: 'The institutional-grade crypto trading platform. Trade with confidence.' } },
   ]
 
@@ -126,11 +127,11 @@ async function seedCmsContent() {
   ]
 
   const FAQS: { question: string; answer: string; order: number }[] = [
-    { question: 'Is TRUST a regulated platform?', answer: 'TRUST is registered with the fictional Digital Asset Authority and complies with international AML/KYC standards. Client funds are held in segregated cold-storage wallets.', order: 0 },
-    { question: 'How long do deposits take?', answer: 'USDT deposits confirm within 10–30 minutes on the TRC-20 network. Bank transfers take 1–3 business days, and card deposits are instant.', order: 1 },
-    { question: 'What are the trading fees?', answer: 'Trading fees start at 0.1% per transaction. Fees decrease with higher trading volume.', order: 2 },
+    { question: 'Is TRUST a real trading platform?', answer: 'TRUST is a fictional demonstration platform. It is not connected to a real broker, exchange, or payment provider, and no real funds are involved in any account.', order: 0 },
+    { question: 'How long do deposits take?', answer: 'USDT deposits are submitted with a transaction proof and reviewed by an administrator before being credited to your account.', order: 1 },
+    { question: 'What are the trading fees?', answer: 'Trading fees start at 0.1% per transaction.', order: 2 },
     { question: 'How much starting balance do I get?', answer: 'New accounts start at $0 — deposit funds to fund your account, or ask an administrator about a demo credit for exploring the platform.', order: 3 },
-    { question: 'How does the referral program work?', answer: 'Share your unique referral link. You earn 10% commission on every trade made by users you refer, credited in real time to your balance.', order: 4 },
+    { question: 'How does the referral program work?', answer: 'Every account gets a unique referral link, available from your Dashboard after you sign up.', order: 4 },
     { question: 'How do I open a position?', answer: 'Pick a market on the Trade page, enter your amount, and choose Buy or Sell. Your position updates in real time with the live market price until you close it.', order: 5 },
   ]
 
@@ -201,14 +202,28 @@ async function main() {
   // to do independently of tradingEnabled (which stays false — Part 6/24:
   // trading is never auto-enabled just because data is live; see
   // OrdersService, whose very first check is tradingEnabled, before it
-  // ever looks at dataSource). XAU/USD (GoldAPI) is unchanged.
+  // ever looks at dataSource).
+  //
+  // Part 33 — XAU/USD switched from GOLDAPI to BINANCE/PAXGUSDT. GoldAPI
+  // requires a real MARKET_API_KEY this project has never had (and never
+  // fabricates), so gold was permanently UNAVAILABLE without one. PAXG
+  // (PAX Gold) is a real, exchange-listed token backed 1:1 by physical
+  // gold in a Brink's vault — its USDT price tracks spot gold closely (at
+  // the time of this change: PAXGUSDT $4,484.00 vs spot gold ~$4,486) and
+  // needs no API key at all, via the SAME public Binance integration every
+  // other crypto pair already uses. tickSize/stepSize verified live against
+  // Binance's own exchangeInfo for PAXGUSDT, exactly like every pair below.
+  // This is a real, live, verifiable price — a proxy for gold, not gold's
+  // own official spot fix, and can drift slightly from a dedicated gold
+  // feed. marketType stays CFD (trading mechanics unchanged, only the price
+  // source moved).
   const markets: {
     symbol: string; dataSource: MarketDataSource; tradingEnabled: boolean
     baseAsset: string; quoteAsset: string; displayName: string
     marketType: 'CRYPTO_SPOT' | 'CFD'; pricePrecision: number; quantityPrecision: number
     provider: string; providerSymbol: string
   }[] = [
-    { symbol: 'XAU/USD', dataSource: MarketDataSource.LIVE, tradingEnabled: false, baseAsset: 'XAU', quoteAsset: 'USD', displayName: 'Gold', marketType: 'CFD', pricePrecision: 2, quantityPrecision: 8, provider: 'GOLDAPI', providerSymbol: 'XAU/USD' },
+    { symbol: 'XAU/USD', dataSource: MarketDataSource.LIVE, tradingEnabled: false, baseAsset: 'XAU', quoteAsset: 'USD', displayName: 'Gold', marketType: 'CFD', pricePrecision: 2, quantityPrecision: 4, provider: 'BINANCE', providerSymbol: 'PAXGUSDT' },
     { symbol: 'BTC/USDT', dataSource: MarketDataSource.LIVE, tradingEnabled: false, baseAsset: 'BTC', quoteAsset: 'USDT', displayName: 'Bitcoin', marketType: 'CRYPTO_SPOT', pricePrecision: 2, quantityPrecision: 5, provider: 'BINANCE', providerSymbol: 'BTCUSDT' },
     { symbol: 'ETH/USDT', dataSource: MarketDataSource.LIVE, tradingEnabled: false, baseAsset: 'ETH', quoteAsset: 'USDT', displayName: 'Ethereum', marketType: 'CRYPTO_SPOT', pricePrecision: 2, quantityPrecision: 4, provider: 'BINANCE', providerSymbol: 'ETHUSDT' },
     { symbol: 'USDT/USD', dataSource: MarketDataSource.LIVE, tradingEnabled: false, baseAsset: 'USDT', quoteAsset: 'USD', displayName: 'Tether', marketType: 'CRYPTO_SPOT', pricePrecision: 5, quantityPrecision: 0, provider: 'BINANCE', providerSymbol: 'USDTUSD' },
@@ -242,9 +257,12 @@ async function main() {
     update: {},
   })
 
-  const OPTION_MARKETS: { symbol: string; currency: string; minInvestment: string; maxInvestment: string; durations: { durationSeconds: number; payoutPercent: string }[] }[] = [
+  // maxInvestment is null (no per-trade ceiling beyond platform-wide
+  // limits) across every asset — an admin explicit request, not a default
+  // this script invented.
+  const OPTION_MARKETS: { symbol: string; currency: string; minInvestment: string; maxInvestment: string | null; durations: { durationSeconds: number; payoutPercent: string }[] }[] = [
     {
-      symbol: 'XAU/USD', currency: 'USDT', minInvestment: '1', maxInvestment: '1000',
+      symbol: 'XAU/USD', currency: 'USDT', minInvestment: '1', maxInvestment: null,
       durations: [
         { durationSeconds: 30, payoutPercent: '5' },
         { durationSeconds: 60, payoutPercent: '7' },
@@ -253,15 +271,21 @@ async function main() {
         { durationSeconds: 180, payoutPercent: '15' },
       ],
     },
-    {
-      symbol: 'BTC/USDT', currency: 'USDT', minInvestment: '1', maxInvestment: '1000',
+    // Every other spot asset (see the `markets` array above) gets the same
+    // duration/payout structure as BTC/USDT — no per-asset risk judgment is
+    // being made here (that would be inventing data this script has no
+    // basis for); it's the one already-reviewed structure, applied
+    // consistently so every spot asset has a working options ticket once an
+    // admin turns the platform-wide kill switch on.
+    ...(['BTC/USDT', 'ETH/USDT', 'BNB/USDT', 'XRP/USDT', 'SOL/USDT', 'ADA/USDT', 'DOGE/USDT', 'USDT/USD'] as const).map((symbol) => ({
+      symbol, currency: 'USDT', minInvestment: '1', maxInvestment: null,
       durations: [
         { durationSeconds: 30, payoutPercent: '5' },
         { durationSeconds: 60, payoutPercent: '7' },
         { durationSeconds: 120, payoutPercent: '12' },
         { durationSeconds: 180, payoutPercent: '15' },
       ],
-    },
+    })),
   ]
   for (const m of OPTION_MARKETS) {
     const market = await prisma.optionMarket.upsert({

@@ -249,25 +249,38 @@ describe('Concurrency & idempotency hardening (real PostgreSQL)', () => {
   it('an order against XAU/USD honestly rejects when the market feed is unavailable — never a fabricated execution price', async () => {
     const { userId, cookie } = await registerAndLogin('xauunavail')
     await grantBalance(userId, '1000')
-    await prisma.marketConfig.upsert({
-      where: { symbol: 'XAU/USD' },
-      create: { symbol: 'XAU/USD', dataSource: 'LIVE', tradingEnabled: true },
-      update: { dataSource: 'LIVE', tradingEnabled: true },
-    })
-    // MARKET_API_KEY is intentionally unset in the test environment (see
-    // test/setup-env.ts / .env.test) — getXauQuote() therefore returns an
-    // honest {error: 'market_api_key_missing'} shape, never a price.
-    expect(process.env.MARKET_API_KEY).toBeFalsy()
+    // Part 33 — XAU/USD is Binance-backed (PAXGUSDT) by default now, so
+    // it's normally LIVE regardless of MARKET_API_KEY. This test needs a
+    // genuinely unavailable feed, so it explicitly clears the provider —
+    // and restores it in `finally`, since this is a real, shared symbol
+    // other e2e files (market-data.e2e-spec.ts) depend on being correctly
+    // configured, unlike this file's other fixtures which use dedicated
+    // one-off symbols (RACE/USD, etc.) that never need restoring.
+    const original = await prisma.marketConfig.findUnique({ where: { symbol: 'XAU/USD' } })
+    try {
+      await prisma.marketConfig.upsert({
+        where: { symbol: 'XAU/USD' },
+        create: { symbol: 'XAU/USD', dataSource: 'LIVE', tradingEnabled: true, provider: null, providerSymbol: null },
+        update: { dataSource: 'LIVE', tradingEnabled: true, provider: null, providerSymbol: null },
+      })
 
-    const res = await request(server).post('/orders').set('Cookie', cookie).send({ symbol: 'XAU/USD', side: 'BUY', quantity: '100' }).expect(201)
-    expect(res.body.status).toBe('REJECTED')
-    expect(res.body.executedPrice).toBeNull()
-    expect(res.body.rejectionReason).toMatch(/not currently live/i)
+      const res = await request(server).post('/orders').set('Cookie', cookie).send({ symbol: 'XAU/USD', side: 'BUY', quantity: '100' }).expect(201)
+      expect(res.body.status).toBe('REJECTED')
+      expect(res.body.executedPrice).toBeNull()
+      expect(res.body.rejectionReason).toMatch(/not currently live/i)
 
-    // No money was left reserved or lost because of the unavailable feed.
-    const account = await prisma.account.findFirstOrThrow({ where: { userId } })
-    const balances = await ledger.getAccountBalances(account.id)
-    expect(balances.cash.toString()).toBe('1000')
+      // No money was left reserved or lost because of the unavailable feed.
+      const account = await prisma.account.findFirstOrThrow({ where: { userId } })
+      const balances = await ledger.getAccountBalances(account.id)
+      expect(balances.cash.toString()).toBe('1000')
+    } finally {
+      if (original) {
+        await prisma.marketConfig.update({
+          where: { symbol: 'XAU/USD' },
+          data: { dataSource: original.dataSource, tradingEnabled: original.tradingEnabled, provider: original.provider, providerSymbol: original.providerSymbol },
+        })
+      }
+    }
   })
 
   it('a SIMULATED market order can never carry a client- or server-fabricated execution price', async () => {

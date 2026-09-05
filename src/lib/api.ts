@@ -67,8 +67,9 @@ export const api = {
   get: <T>(path: string) => request<T>('GET', path),
   post: <T>(path: string, body?: unknown) => request<T>('POST', path, body ?? {}),
   patch: <T>(path: string, body?: unknown) => request<T>('PATCH', path, body ?? {}),
-  del: <T>(path: string) => request<T>('DELETE', path),
+  del: <T>(path: string, body?: unknown) => request<T>('DELETE', path, body),
   postForm: <T>(path: string, form: FormData) => requestForm<T>('POST', path, form),
+  patchForm: <T>(path: string, form: FormData) => requestForm<T>('PATCH', path, form),
 }
 
 // The public /cms/media/:id and /support/attachments/:id endpoints stream
@@ -85,4 +86,10 @@ export function kycDocumentUrl(id: string): string {
 }
 export function adminKycDocumentUrl(id: string): string {
   return `/api/admin/kyc/documents/${id}`
+}
+export function cryptoDepositQrUrl(symbol: string, networkCode: string): string {
+  return `/api/crypto-deposits/assets/${encodeURIComponent(symbol)}/networks/${encodeURIComponent(networkCode)}/qr`
+}
+export function adminContactIconUrl(id: string): string {
+  return `/api/contacts/${id}/icon`
 }

@@ -291,7 +291,7 @@ export class CmsService {
   }
 
   async uploadMedia(file: { originalname: string; mimetype: string; buffer: Buffer }, kind: string, adminId: string) {
-    const { storageKey, size } = this.media.save(file.originalname, file.mimetype, file.buffer)
+    const { storageKey, size } = await this.media.save(file.originalname, file.mimetype, file.buffer)
     const row = await this.prisma.cmsMedia.create({
       data: {
         filename: sanitizeText(file.originalname).slice(0, 200) || 'upload',
@@ -324,7 +324,7 @@ export class CmsService {
       throw new BadRequestException(`This media is referenced by the published page "${referencedBy.title}" (/${referencedBy.slug}). Unpublish or update that page before deleting this media.`)
     }
 
-    this.media.delete(row.storageKey)
+    await this.media.delete(row.storageKey)
     await this.prisma.cmsMedia.delete({ where: { id } })
     await this.audit.record({ actorId: adminId, action: AuditEvent.MEDIA_DELETED, targetType: 'CMS_MEDIA', targetId: id })
     return { ok: true }
@@ -335,14 +335,20 @@ export class CmsService {
   // row exists specifically to back public site content (hero images, logos,
   // banners, linked PDFs). There is no "private media" concept here, so
   // exposing any valid row's bytes through this controlled, ID-looked-up
-  // endpoint (never a raw filesystem path — see MediaStorageService.pathFor,
+  // endpoint (never a bucket URL directly — see MediaStorageService.getObjectStream,
   // which is only ever called with a storageKey this service itself looked
   // up from the database) is the intended behavior, not a gap. A random
-  // guess at a nonexistent id gets a 404, same as any other resource.
+  // guess at a nonexistent id gets a 404, same as any other resource. The
+  // storage object itself lives in the same private bucket as every other
+  // upload category — "public" here is an application-layer decision (this
+  // method requires no ownership/permission check, unlike KYC/deposit/support),
+  // not a bucket-level ACL, so a misconfigured bucket can never accidentally
+  // expose KYC documents, deposit proofs, or support attachments.
   async getMediaFile(id: string) {
     const row = await this.prisma.cmsMedia.findUnique({ where: { id } })
     if (!row) throw new NotFoundException('Media not found.')
-    return { path: this.media.pathFor(row.storageKey), mimeType: row.mimeType, filename: row.filename }
+    const stream = await this.media.getObjectStream(row.storageKey)
+    return { stream, mimeType: row.mimeType, filename: row.filename }
   }
 
   // ---- Revisions ------------------------------------------------------------------

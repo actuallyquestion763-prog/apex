@@ -1,4 +1,3 @@
-import { Suspense, lazy } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { useAuth } from './store/auth'
 import { LandingPage } from './pages/LandingPage'
@@ -16,21 +15,31 @@ import AssetsPage from './pages/AssetsPage'
 import { WalletPage } from './pages/WalletPage'
 import { ProfilePage } from './pages/ProfilePage'
 import { DepositPage } from './pages/DepositPage'
+import { ConvertPage } from './pages/ConvertPage'
 import { WithdrawPage } from './pages/WithdrawPage'
 import { KycPage } from './pages/KycPage'
 import { SecurityPage } from './pages/SecurityPage'
+import { SetNewPasswordPage } from './pages/SetNewPasswordPage'
 import { LanguagesPage } from './pages/LanguagesPage'
 import { AboutPage } from './pages/AboutPage'
 import { SupportPage } from './pages/SupportPage'
-import { AdminPage } from './pages/AdminPage'
 import { CmsPageView } from './pages/CmsPageView'
-
-// Checkpoint J — lazy-loaded on its own: OptionsPage pulls in
-// lightweight-charts (Options' own dedicated chart, ~60KB gzip), which the
-// vast majority of routes never need. Code-splitting it here keeps every
-// OTHER page's initial bundle exactly as small as before this checkpoint —
-// the cost is paid only by a user who actually navigates to /options.
-const OptionsPage = lazy(() => import('./pages/OptionsPage'))
+import { AdminLayout } from './pages/admin/AdminLayout'
+import { AdminDashboardPage } from './pages/admin/AdminDashboardPage'
+import { TradingPage } from './pages/admin/TradingPage'
+import { SupportPage as AdminSupportPage } from './pages/admin/SupportPage'
+import { DepositsPage as AdminDepositsPage } from './pages/admin/DepositsPage'
+import { WithdrawalsPage as AdminWithdrawalsPage } from './pages/admin/WithdrawalsPage'
+import { UsersPage as AdminUsersPage } from './pages/admin/UsersPage'
+import { WalletAdjustmentPage } from './pages/admin/WalletAdjustmentPage'
+import { DepositWalletPage } from './pages/admin/DepositWalletPage'
+import { ContactsPage as AdminContactsPage } from './pages/admin/ContactsPage'
+import { KycPage as AdminKycPage } from './pages/admin/KycPage'
+import { SettingsPage as AdminSettingsPage } from './pages/admin/SettingsPage'
+import { AdminManagementPage } from './pages/admin/AdminManagementPage'
+import { CmsPage as AdminCmsPage } from './pages/admin/CmsPage'
+import { AuditPage as AdminAuditPage } from './pages/admin/AuditPage'
+import { isAdminRole } from './lib/roles'
 
 function Protected({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth()
@@ -43,7 +52,11 @@ function AdminOnly({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth()
   if (loading) return <div className="flex min-h-screen items-center justify-center"><p className="text-slate-500">Loading…</p></div>
   if (!user) return <Navigate to="/login" replace />
-  if (user.role === 'USER') return <Navigate to="/dashboard" replace />
+  // Fail-closed allow-list — see src/lib/roles.ts. This client-side check
+  // is a UX convenience only; the real security boundary is the backend's
+  // RolesGuard, which independently rejects every /admin/* request from a
+  // non-admin role regardless of what this component renders.
+  if (!isAdminRole(user.role)) return <Navigate to="/dashboard" replace />
   return <>{children}</>
 }
 
@@ -62,19 +75,46 @@ export default function App() {
         <Route path="/dashboard" element={<HomePage />} />
         <Route path="/markets" element={<MarketsPage />} />
         <Route path="/trade" element={<TradePage />} />
-        <Route path="/options" element={<Suspense fallback={<div className="card p-10 text-center text-sm text-slate-500">Loading…</div>}><OptionsPage /></Suspense>} />
+        {/* Options Trading is removed from the normal-user experience —
+            see admin panel's own "Options Trading" tab, which is unaffected.
+            Direct navigation to the old URL redirects to Trade rather than
+            404ing or exposing the page. */}
+        <Route path="/options" element={<Navigate to="/trade" replace />} />
         <Route path="/assets" element={<AssetsPage />} />
         <Route path="/profile" element={<ProfilePage />} />
         <Route path="/wallet" element={<WalletPage />} />
         <Route path="/deposit" element={<DepositPage />} />
         <Route path="/withdraw" element={<WithdrawPage />} />
+        <Route path="/convert" element={<ConvertPage />} />
         <Route path="/kyc" element={<KycPage />} />
         <Route path="/security" element={<SecurityPage />} />
+        <Route path="/security/password" element={<SetNewPasswordPage />} />
         <Route path="/languages" element={<LanguagesPage />} />
         <Route path="/about" element={<AboutPage />} />
         <Route path="/support" element={<SupportPage />} />
       </Route>
-      <Route path="/admin" element={<AdminOnly><AdminPage /></AdminOnly>} />
+      <Route path="/admin" element={<AdminOnly><AdminLayout /></AdminOnly>}>
+        <Route index element={<AdminDashboardPage />} />
+        <Route path="trading" element={<TradingPage />} />
+        <Route path="support" element={<AdminSupportPage />} />
+        <Route path="deposits" element={<AdminDepositsPage />} />
+        <Route path="withdrawals" element={<AdminWithdrawalsPage />} />
+        <Route path="users" element={<AdminUsersPage />} />
+        <Route path="wallet-adjustment" element={<WalletAdjustmentPage />} />
+        <Route path="deposit-wallet" element={<DepositWalletPage />} />
+        <Route path="contacts" element={<AdminContactsPage />} />
+        {/* "Admin Contact" and "Contact Admin" name the same destination in
+            the reference spec — this keeps both URLs real instead of
+            building a second, duplicate CRUD page. */}
+        <Route path="contact-admin" element={<Navigate to="/admin/contacts" replace />} />
+        <Route path="kyc" element={<AdminKycPage />} />
+        <Route path="settings" element={<AdminSettingsPage />} />
+        <Route path="admin-management" element={<AdminManagementPage />} />
+        {/* Not primary dashboard cards, but real working sections — reachable
+            from Settings ("More") rather than removed. */}
+        <Route path="cms" element={<AdminCmsPage />} />
+        <Route path="audit-logs" element={<AdminAuditPage />} />
+      </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )

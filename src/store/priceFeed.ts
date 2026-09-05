@@ -1,26 +1,27 @@
 import type { Candle, TickerPrice } from '../types'
 
 // Phase 6B — this module is now a thin, backend-driven client. The
-// symbol list, live quotes (XAU/USD via GoldAPI), and simulated demo
-// quotes (everything else — no real crypto exchange is connected, see the
-// Phase 6B report's "Provider Limitations" section) all come from the
-// backend's centralized Market Data Service (backend/src/markets/), never
-// generated or faked in this file anymore. The public functions below keep
-// their EXACT pre-Phase-6B signatures so every consuming component
-// (PriceTicker, MarketOverview, MarketPrice, CandlestickChart, MarketsPage,
-// TradePage, DashboardPage) needed zero changes — only where the data
-// comes from changed.
+// symbol list, live quotes (Binance-backed for every pair, including
+// XAU/USD via its PAXGUSDT gold-token proxy as of Part 33), and simulated
+// demo quotes (anything not backed by a real provider — no real crypto
+// exchange is connected for those, see the Phase 6B report's "Provider
+// Limitations" section) all come from the backend's centralized Market
+// Data Service (backend/src/markets/), never generated or faked in this
+// file anymore. The public functions below keep their EXACT pre-Phase-6B
+// signatures so every consuming component (PriceTicker, MarketOverview,
+// MarketPrice, CandlestickChart, MarketsPage, TradePage, DashboardPage)
+// needed zero changes — only where the data comes from changed.
 export type MarketStatus = 'loading' | 'live' | 'stale' | 'unavailable' | 'simulated'
 
 export const SYMBOLS: { symbol: string; name: string; base: number }[] = []
 
 const priceState: Record<string, number> = {}
 // Reference price used only to compute a display "24h change" for
-// SIMULATED symbols (set on first observed tick this session) — LIVE
-// symbols (XAU/USD) never get a fabricated change%, matching the
-// pre-Phase-6B behavior: GoldAPI's response here carries no real 24h-change
-// field, so TRUST has never displayed one for it (Part 14: "24h change only
-// if a trusted provider supplies it").
+// SIMULATED symbols (set on first observed tick this session) — a LIVE
+// symbol never gets a fabricated change%, it shows the real
+// provider-supplied figure (see stats24h below) or, if the provider
+// doesn't supply one, an honest 0/no-change (Part 14: "24h change only if
+// a trusted provider supplies it").
 const referencePrice: Record<string, number> = {}
 
 interface MarketMeta { status: MarketStatus; bid: number | null; ask: number | null; timestamp: number | null; source: string | null; lastFetch: number | null }
@@ -100,7 +101,7 @@ async function fetchQuotes() {
 // Backend already caches per its own FRESH_MS window (market-data.service.ts)
 // — this interval controls how often the FRONTEND asks, not how often the
 // upstream provider is hit (Part 7/8). 15s matches the pre-Phase-6B polling
-// cadence this project already used for XAU/USD specifically.
+// cadence this project already used for its original live symbol.
 const POLL_INTERVAL_MS = 15_000
 
 let started = false
@@ -135,9 +136,10 @@ function toTickerPrice(s: { symbol: string; name: string }): TickerPrice {
   const ref = referencePrice[s.symbol]
   const status = marketMeta[s.symbol]?.status
   // Phase 6C: a LIVE symbol with a real provider-supplied 24h change
-  // (Binance-backed pairs) shows that REAL value — never computed here.
-  // A SIMULATED symbol falls back to the locally-tracked reference-price
-  // delta (already-labeled demo data). Anything else (e.g. XAU/USD, whose
+  // (every Binance-backed pair, including XAU/USD's PAXGUSDT proxy as of
+  // Part 33) shows that REAL value — never computed here. A SIMULATED
+  // symbol falls back to the locally-tracked reference-price delta
+  // (already-labeled demo data). Anything else (a LIVE symbol whose
   // provider supplies no 24h-change field) honestly reports 0/no change,
   // never a guessed value.
   const real = stats24h[s.symbol]
@@ -170,8 +172,8 @@ export function tickAll(): TickerPrice[] {
 // StatusBadge already renders 'simulated' distinctly from 'live'). Moving
 // this generator server-side would add real complexity for zero honesty
 // benefit, since it only ever runs for symbols already flagged non-live.
-// LIVE symbols (XAU/USD) never get fabricated candles — see the explicit
-// guard below and CandlestickChart.tsx's own empty-state handling.
+// LIVE symbols never get fabricated candles — see the explicit guard below
+// and CandlestickChart.tsx's own empty-state handling.
 // Widened to the full interval set the backend/BinanceProvider genuinely
 // supports end to end (backend/src/markets/markets.controller.ts's
 // VALID_INTERVALS) — TradingView-style Chart checkpoint. 30m is deliberately
@@ -221,9 +223,10 @@ export function nextCandle(prev: Candle, tf: keyof typeof TF_MS = '1m'): Candle 
 // For any non-simulated symbol (LIVE — e.g. Binance-backed pairs), fetches
 // REAL klines from the backend rather than ever calling generateHistory()
 // above. Returns null (not []) specifically to distinguish "asked, got
-// nothing" (OHLC_UNAVAILABLE — e.g. XAU/USD, no real history provider) from
-// "haven't asked yet" — the caller (CandlestickChart) uses that to show an
-// honest unavailable state rather than an empty-but-still-loading chart.
+// nothing" (OHLC_UNAVAILABLE — a LIVE symbol whose provider has no real
+// history, e.g. GoldAPI) from "haven't asked yet" — the caller
+// (CandlestickChart) uses that to show an honest unavailable state rather
+// than an empty-but-still-loading chart.
 export async function fetchRealCandles(symbol: string, tf: keyof typeof TF_MS, limit = 60): Promise<Candle[] | null> {
   try {
     const res = await fetch(`/api/markets/${encodeURIComponent(symbol)}/candles?interval=${tf}&limit=${limit}`)

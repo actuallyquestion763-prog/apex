@@ -1,0 +1,33 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+# /api/* is proxied (not redirected) to the Render backend at Netlify's
+# edge, so the browser only ever sees requests to this site's own origin.
+# This is required, not optional: src/lib/api.ts always calls a relative
+# `/api/...` path (see its own comment) and never a configurable base URL,
+# and the session cookie is httpOnly/SameSite=Lax — both depend on the
+# frontend and API appearing same-origin to the browser. A plain CORS-based
+# cross-origin setup would need application code changes; this does not.
+#
+# status = 200 makes this a proxy (Netlify fetches from the destination and
+# returns the response under the original URL) rather than a 3xx redirect,
+# which is what makes it same-origin from the browser's point of view.
+#
+# DEPLOY-TIME CONFIGURATION REQUIRED: replace the destination below with the
+# real Render backend URL once it exists — a real hostname was deliberately
+# not invented here.
+[[redirects]]
+  from = "/api/*"
+  to = "https://REPLACE_WITH_RENDER_BACKEND_URL.onrender.com/:splat"
+  status = 200
+  force = true
+
+# SPA fallback — any other path (e.g. a direct refresh on /trade, /wallet,
+# /admin) serves index.html so BrowserRouter can take over client-side,
+# instead of Netlify 404ing a path it has no static file for. Must come
+# after the /api/* rule above (Netlify matches redirects in file order).
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

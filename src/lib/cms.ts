@@ -1,7 +1,8 @@
 // Public, read-only CMS data fetching (Phase 4) — talks only to the public
 // /cms/* endpoints (never /admin/cms/*), which only ever return PUBLISHED,
 // currently-visible content (see backend/src/cms/cms.controller.ts). Kept
-// deliberately separate from the admin CMS data-fetching in AdminPage.tsx.
+// deliberately separate from the admin CMS data-fetching in
+// src/pages/admin/CmsPage.tsx.
 import { useEffect, useState } from 'react'
 import { api, ApiError } from './api'
 import type { CmsPage, CmsAnnouncement, CmsFaq, CmsNavigationItem, CmsSection } from '../types'
