@@ -88,13 +88,19 @@ an example file or anywhere in source control.
 npm --prefix backend test
 
 # Backend integration/e2e tests (spins up a real, disposable PostgreSQL
-# instance on a separate port — never touches your dev database)
+# instance and a real local S3-compatible server, both on separate
+# ports — neither touches your dev database or dev object storage)
 npm --prefix backend run test:db:start   # in one terminal, leave running
+npm --prefix backend run test:s3:start   # in another terminal, leave running
 # in another terminal:
 DATABASE_URL="postgresql://postgres:devpassword@localhost:5433/trust_test?schema=public" npx prisma --schema backend/prisma/schema.prisma migrate deploy
 # the migration creates trust_app without a password (see above) — set the
 # same value backend/.env.test already expects for local test runs:
 psql "postgresql://postgres:devpassword@localhost:5433/trust_test" -c "ALTER ROLE trust_app WITH PASSWORD '<value from backend/.env.test>';"
+# seed permissions/platform settings/market configs — several e2e suites
+# (market-data, options, etc.) expect real seeded instrument config, not
+# just an empty schema:
+DATABASE_URL="postgresql://trust_app:<value from backend/.env.test>@localhost:5433/trust_test?schema=public" npm --prefix backend run seed
 npm --prefix backend run test:e2e
 ```
 
