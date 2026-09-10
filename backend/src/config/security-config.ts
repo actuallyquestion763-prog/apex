@@ -9,20 +9,35 @@
 
 export interface CookieOptions {
   httpOnly: boolean
-  sameSite: 'lax'
+  sameSite: 'lax' | 'none'
   secure: boolean
   path: '/'
 }
 
 export function getCookieOptions(nodeEnv: string): CookieOptions {
+  const secure = nodeEnv === 'production' || nodeEnv === 'staging'
   return {
     httpOnly: true,
-    sameSite: 'lax',
+    // 'none' is required whenever the frontend and backend can be on
+    // different origins (e.g. a frontend on static hosting calling this
+    // backend's own domain directly, with no same-origin proxy in front) —
+    // browsers refuse to send a Lax cookie on a cross-site fetch/XHR at all.
+    // 'none' still works perfectly fine for a same-origin deployment too
+    // (it's a strict superset of what Lax allows), so this doesn't regress
+    // the same-origin-proxy case this app was originally built around. The
+    // real CSRF defense here isn't SameSite — it's that CORS only ever
+    // allows the one exact configured FRONTEND_ORIGIN (resolveCorsOrigin
+    // above), so a credentialed cross-origin request from anywhere else
+    // never completes preflight, regardless of this cookie's SameSite value.
+    // Browsers require Secure whenever SameSite=None; only used at all when
+    // `secure` is already true (production/staging, which are HTTPS-only —
+    // see env.validation.ts), so this pairing is always valid.
+    sameSite: secure ? 'none' : 'lax',
     // Secure-flagged cookies are only ever sent over HTTPS — required in
     // production (env.validation.ts already requires FRONTEND_ORIGIN to be
     // https:// there), and deliberately off in development so cookies still
     // work over plain http://localhost.
-    secure: nodeEnv === 'production' || nodeEnv === 'staging',
+    secure,
     path: '/',
   }
 }

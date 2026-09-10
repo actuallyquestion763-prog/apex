@@ -14,12 +14,23 @@ describe('getCookieOptions', () => {
     expect(getCookieOptions('development').secure).toBe(false)
   })
 
-  it('always sets httpOnly and sameSite=lax regardless of environment', () => {
+  it('always sets httpOnly regardless of environment', () => {
     for (const env of ['development', 'test', 'staging', 'production']) {
-      const opts = getCookieOptions(env)
-      expect(opts.httpOnly).toBe(true)
-      expect(opts.sameSite).toBe('lax')
+      expect(getCookieOptions(env).httpOnly).toBe(true)
     }
+  })
+
+  // sameSite=lax in dev/test (plain http, no cross-site concern locally);
+  // sameSite=none in production/staging, required for a frontend and this
+  // backend deployed on separate origins with no same-origin proxy between
+  // them — see the comment in security-config.ts for why this doesn't
+  // weaken CSRF protection (CORS's single-origin allow-list is the real
+  // boundary, not SameSite).
+  it('sets sameSite=lax in development/test, sameSite=none in production/staging', () => {
+    expect(getCookieOptions('development').sameSite).toBe('lax')
+    expect(getCookieOptions('test').sameSite).toBe('lax')
+    expect(getCookieOptions('staging').sameSite).toBe('none')
+    expect(getCookieOptions('production').sameSite).toBe('none')
   })
 })
 
