@@ -2,15 +2,20 @@
 // sends credentials (the httpOnly session cookie) and never touches
 // localStorage — the backend is the only source of truth for anything this
 // client asks for. By default this stays same-origin: in local dev, Vite
-// proxies /api -> the backend (vite.config.ts); in a same-origin production
-// deployment, the frontend's own host does the equivalent proxying. Set
+// proxies /api -> the backend and STRIPS the /api prefix before forwarding
+// (vite.config.ts) — the backend's own routes have no /api prefix at all
+// (e.g. POST /auth/login, not POST /api/auth/login). A same-origin production
+// deployment needs an equivalent proxy that also strips it. Set
 // VITE_API_BASE_URL at build time (e.g. `VITE_API_BASE_URL=https://api.example.com`)
 // only when the frontend and backend are deployed on genuinely separate
-// origins with no server-side proxy between them — the backend's cookie
-// (SameSite=None; Secure in that case) and CORS (FRONTEND_ORIGIN) config
-// already support this. Left unset, this is the empty string, so `${API_BASE}/api`
-// is just `/api`, identical to before.
+// origins with no such proxy in between — the backend's cookie (SameSite=None;
+// Secure in that case) and CORS (FRONTEND_ORIGIN) config already support this.
+// In that case requests go directly to the backend's real, unprefixed routes
+// (no proxy left to strip anything), so API_PREFIX is empty. Left unset,
+// API_BASE is '' and API_PREFIX is '/api', identical to the original
+// same-origin-only behavior.
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? ''
+const API_PREFIX = API_BASE ? '' : '/api'
 
 export class ApiError extends Error {
   status: number
@@ -25,7 +30,7 @@ export class ApiError extends Error {
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   let res: Response
   try {
-    res = await fetch(`${API_BASE}/api${path}`, {
+    res = await fetch(`${API_BASE}${API_PREFIX}${path}`, {
       method,
       credentials: 'include',
       headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
@@ -56,7 +61,7 @@ async function requestForm<T>(method: string, path: string, form: FormData): Pro
     // No Content-Type header here on purpose — the browser sets the correct
     // multipart/form-data boundary itself; setting it manually breaks the
     // boundary and the backend's FileInterceptor can't parse the body.
-    res = await fetch(`${API_BASE}/api${path}`, { method, credentials: 'include', body: form })
+    res = await fetch(`${API_BASE}${API_PREFIX}${path}`, { method, credentials: 'include', body: form })
   } catch {
     throw new ApiError(0, 'Could not reach the server. Check your connection and try again.', null)
   }
@@ -86,20 +91,20 @@ export const api = {
 // sent on these automatically by the browser regardless of API_BASE, subject
 // to the same SameSite rules as any other request to the backend.
 export function mediaUrl(id: string): string {
-  return `${API_BASE}/api/cms/media/${id}`
+  return `${API_BASE}${API_PREFIX}/cms/media/${id}`
 }
 export function attachmentUrl(id: string): string {
-  return `${API_BASE}/api/support/attachments/${id}`
+  return `${API_BASE}${API_PREFIX}/support/attachments/${id}`
 }
 export function kycDocumentUrl(id: string): string {
-  return `${API_BASE}/api/kyc/documents/${id}`
+  return `${API_BASE}${API_PREFIX}/kyc/documents/${id}`
 }
 export function adminKycDocumentUrl(id: string): string {
-  return `${API_BASE}/api/admin/kyc/documents/${id}`
+  return `${API_BASE}${API_PREFIX}/admin/kyc/documents/${id}`
 }
 export function cryptoDepositQrUrl(symbol: string, networkCode: string): string {
-  return `${API_BASE}/api/crypto-deposits/assets/${encodeURIComponent(symbol)}/networks/${encodeURIComponent(networkCode)}/qr`
+  return `${API_BASE}${API_PREFIX}/crypto-deposits/assets/${encodeURIComponent(symbol)}/networks/${encodeURIComponent(networkCode)}/qr`
 }
 export function adminContactIconUrl(id: string): string {
-  return `${API_BASE}/api/contacts/${id}/icon`
+  return `${API_BASE}${API_PREFIX}/contacts/${id}/icon`
 }
