@@ -302,6 +302,33 @@ describe('Crypto Deposit Management (real PostgreSQL)', () => {
       .expect(401)
   })
 
+  // ---- 19c. A SUPER_ADMIN without 2FA enabled — the exact scenario from the
+  // "modal traps an admin with no way to satisfy it" bug report: this proves
+  // the backend's own refusal is deliberate policy (a clear 400 explaining
+  // 2FA must be enabled first), not a broken/misleading rejection, and that
+  // it can never be bypassed by supplying an arbitrary 6-digit code — the
+  // password is deliberately CORRECT here specifically to prove the block is
+  // about the missing 2FA factor, not a coincidental wrong-password failure.
+  it('19c. a SUPER_ADMIN with 2FA disabled is refused with a clear message (not a misleading "invalid code"), and the address is unchanged', async () => {
+    const { symbol, networkCode } = await setupCryptoAsset({ address: TEST_ETH_ADDRESS_A })
+    const email = uniqueEmail('cryptono2fa')
+    const password = 'correct-horse-battery'
+    await createUserDirect(prisma, { email, password, role: 'SUPER_ADMIN' })
+    const loginRes = await request(server).post('/auth/login').send({ email, password }).expect(200)
+    expect(loginRes.body.needsTwoFactor).toBeUndefined() // confirms this fixture genuinely has no 2FA
+    const noTwoFaCookie = extractSessionCookie(loginRes)
+
+    const res = await request(server)
+      .patch(`/admin/crypto-deposits/assets/${symbol}/networks`)
+      .set('Cookie', noTwoFaCookie)
+      .send({ networkCode, networkName: networkCode, receivingAddress: TEST_ETH_ADDRESS_B, reason: 'no 2fa enabled', confirmPassword: password, totpCode: '000000' })
+      .expect(400)
+    expect(res.body.message).toMatch(/two-factor authentication must be enabled/i)
+
+    const asset = await prisma.cryptoAsset.findUniqueOrThrow({ where: { symbol }, include: { networks: true } })
+    expect(asset.networks.find((n) => n.networkCode === networkCode)?.receivingAddress).toBe(TEST_ETH_ADDRESS_A)
+  })
+
   // ---- 20. Audit event created for address changes ---------------------------------
 
   it('20. a receiving-address change writes an audit event carrying the previous and new address', async () => {
