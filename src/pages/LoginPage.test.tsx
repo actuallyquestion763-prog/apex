@@ -12,10 +12,12 @@ function renderLogin() {
   return render(<MemoryRouter><ToastProvider><LoginPage /></ToastProvider></MemoryRouter>)
 }
 
-describe('LoginPage — no misleading "Forgot password?" link (P1-7)', () => {
-  it('does not show a "Forgot password?" link', () => {
+describe('LoginPage — real "Forgot password?" link to the recovery flow', () => {
+  it('shows a "Forgot password?" link to /forgot-password', () => {
     renderLogin()
-    expect(screen.queryByText('Forgot password?')).not.toBeInTheDocument()
+    const link = screen.getByText('Forgot password?')
+    expect(link).toBeInTheDocument()
+    expect(link.closest('a')).toHaveAttribute('href', '/forgot-password')
   })
 
   it('still shows the real "Create account" link to /signup', () => {

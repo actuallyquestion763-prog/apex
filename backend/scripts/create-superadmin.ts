@@ -16,13 +16,26 @@
 // The bootstrap logic (`runBootstrap`) is decoupled from the terminal I/O
 // (`ask`/`askHidden`) so it can be exercised in an automated test with a
 // fake, in-memory `io` implementation, without ever touching a real TTY or
-// a real credential — see test/create-superadmin.spec.ts.
+// a real credential — see test/create-superadmin.e2e-spec.ts.
+//
+// Email + password only, deliberately no TOTP step here: this script's job
+// is getting the FIRST admin into an otherwise-empty database, which is
+// exactly the moment a broken/unreachable authenticator setup would leave
+// an operator completely locked out with no existing admin able to help.
+// Ordinary 2FA (setup/confirm/login-verify — see src/auth/auth.service.ts
+// and src/auth/totp.util.ts) is completely unchanged and still fully
+// enforced for every account, including this one: the account created here
+// simply starts with twoFactorEnabled=false, same as any other new
+// account, and can enable real TOTP afterward through the normal
+// authenticated 2FA-setup flow like any user. Anything gated behind
+// step-up re-authentication (src/common/security/step-up.service.ts)
+// already refuses to proceed for an admin with 2FA disabled — that
+// protection is untouched and will apply here too until 2FA is enabled.
 import 'dotenv/config'
 import type { PrismaClient } from '@prisma/client'
 import { PrismaClient as RealPrismaClient } from '@prisma/client'
 import * as argon2 from 'argon2'
 import * as readline from 'readline'
-import { generateTotpSecret, buildOtpAuthUrl, verifyTotpCode } from '../src/auth/totp.util'
 import { generateReferralCode } from '../src/auth/referral-code.util'
 
 export interface BootstrapIO {
@@ -45,8 +58,9 @@ export async function runBootstrap(prisma: PrismaClient, io: BootstrapIO): Promi
   io.log('TRUST — Super Admin bootstrap')
   io.log('Creates the first SUPER_ADMIN account for this database. Your password is')
   io.log('typed here, never echoed, and is never written anywhere except as an Argon2')
-  io.log('hash in the database. Two-factor authentication is required and configured')
-  io.log('as part of this flow — the account will not be created without it.\n')
+  io.log('hash in the database. This account is created with two-factor authentication')
+  io.log('disabled — you can enable it afterward, once signed in, from your account')
+  io.log('security settings.\n')
 
   const existingSuperAdmins = await prisma.user.count({ where: { role: 'SUPER_ADMIN' } })
   if (existingSuperAdmins > 0) {
@@ -85,26 +99,6 @@ export async function runBootstrap(prisma: PrismaClient, io: BootstrapIO): Promi
     return { ok: false, reason: 'password_mismatch' }
   }
 
-  const secret = generateTotpSecret()
-  const otpAuthUrl = buildOtpAuthUrl(secret, email)
-  io.log('\nTwo-factor authentication is required for this account.')
-  io.log('Add it to your authenticator app now, either by pasting this URL somewhere')
-  io.log('that can render it as a QR code, or by entering the key manually:')
-  io.log(`\n  Key:  ${secret}`)
-  io.log(`  URL:  ${otpAuthUrl}\n`)
-
-  let verified = false
-  for (let attempt = 1; attempt <= 5 && !verified; attempt++) {
-    const code = (await io.ask(`Enter the 6-digit code from your authenticator app (attempt ${attempt}/5): `)).trim()
-    verified = verifyTotpCode(secret, code)
-    if (!verified) io.log('That code did not verify. Check the time on your device and try again.')
-  }
-  if (!verified) {
-    io.error('\nCould not verify two-factor authentication after 5 attempts. Aborting —')
-    io.error('no account was created. Run this script again when ready.')
-    return { ok: false, reason: 'totp_not_verified' }
-  }
-
   // Re-check immediately before writing to shrink the window between the
   // first check and now (a human was answering prompts in between). This is
   // best-effort, not a hard database constraint — an existing SUPER_ADMIN
@@ -123,19 +117,25 @@ export async function runBootstrap(prisma: PrismaClient, io: BootstrapIO): Promi
     const user = await tx.user.create({
       data: {
         email, passwordHash, fullName,
-        role: 'SUPER_ADMIN', status: 'ACTIVE', kycStatus: 'VERIFIED', twoFactorEnabled: true,
+        // twoFactorEnabled defaults to false in the schema — set explicitly
+        // here anyway so the intent is unambiguous at the call site: no
+        // TOTP secret is generated or stored for this account (no
+        // TwoFactorCredential row is created below either).
+        role: 'SUPER_ADMIN', status: 'ACTIVE', kycStatus: 'VERIFIED', twoFactorEnabled: false,
         referralCode: generateReferralCode(),
       },
     })
     await tx.account.create({ data: { userId: user.id } })
-    await tx.twoFactorCredential.create({ data: { userId: user.id, secret, enabled: true } })
     return user.id
   })
 
   io.log(`\nSuper Admin account created: ${email}`)
-  io.log('Only the Argon2 password hash and the TOTP secret were stored — the plain')
-  io.log('password was never written anywhere. You can sign in now with your email,')
-  io.log('password, and an authenticator code.')
+  io.log('Only the Argon2 password hash was stored — the plain password was never')
+  io.log('written anywhere. You can sign in now with your email and password.')
+  io.log('Two-factor authentication is not enabled on this account yet — you can turn')
+  io.log('it on afterward from your account security settings once signed in. Until')
+  io.log('then, actions that require step-up re-authentication (e.g. financial')
+  io.log('adjustments, role changes) will ask you to enable 2FA first.')
 
   return { ok: true, userId }
 }

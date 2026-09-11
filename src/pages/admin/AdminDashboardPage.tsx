@@ -12,7 +12,7 @@ import { useAuth } from '../../store/auth'
 import {
   ShieldAlert, Users, ArrowDownToLine, ArrowUpFromLine, ShieldCheck, Settings,
   Headset, Wallet, LineChart, DollarSign, MessageCircle, UserCog, LayoutDashboard,
-  TrendingUp, type LucideIcon,
+  TrendingUp, KeyRound, type LucideIcon,
 } from 'lucide-react'
 
 const QUICK_LINKS: { to: string; icon: LucideIcon; title: string; subtitle: string }[] = [
@@ -35,6 +35,7 @@ const CARDS: { to: string; icon: LucideIcon; title: string; description: string;
   { to: '/admin/support', icon: Headset, title: 'Support Chat', description: 'Chat with customers', from: 'from-sky-600', to2: 'to-sky-700' },
   { to: '/admin/settings', icon: Settings, title: 'Settings', description: 'System settings', from: 'from-slate-600', to2: 'to-slate-700' },
   { to: '/admin/admin-management', icon: UserCog, title: 'Admin Management', description: 'Administrator account', from: 'from-slate-800', to2: 'to-slate-900' },
+  { to: '/admin/account', icon: KeyRound, title: 'Account & Security', description: 'Your login email & password', from: 'from-indigo-600', to2: 'to-indigo-700' },
 ]
 
 export function AdminDashboardPage() {

@@ -1,9 +1,10 @@
-import { BadRequestException, ConflictException, Injectable, UnauthorizedException } from '@nestjs/common'
+import { BadRequestException, ConflictException, Injectable, Logger, UnauthorizedException } from '@nestjs/common'
 import * as argon2 from 'argon2'
 import { Prisma } from '@prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import { AuditService } from '../audit/audit.service'
 import { PlatformSettingsService } from '../platform-settings/platform-settings.service'
+import { EmailService } from '../email/email.service'
 import { generateSessionToken, hashToken } from './token.util'
 import { generateTotpSecret, verifyTotpCode, buildOtpAuthUrl } from './totp.util'
 import { issuePendingLoginToken, verifyPendingLoginToken } from './pending-login.util'
@@ -17,6 +18,13 @@ const REFERRAL_CODE_MAX_ATTEMPTS = 5
 
 const SESSION_TTL_MS = () => (Number(process.env.SESSION_TTL_HOURS ?? 24)) * 60 * 60 * 1000
 
+// Short-lived on purpose (Part 9/5) — a password-reset link is far more
+// sensitive than an ordinary session if intercepted (an inbox compromise or
+// a shared/forwarded email is a more realistic exposure than a stolen
+// cookie), so this is deliberately much shorter than SESSION_TTL_MS.
+const RESET_TOKEN_TTL_MS = 30 * 60 * 1000
+const RESET_TOKEN_TTL_MINUTES = RESET_TOKEN_TTL_MS / 60_000
+
 export interface RequestMeta {
   ipAddress?: string
   userAgent?: string
@@ -24,10 +32,13 @@ export interface RequestMeta {
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger('AuthService')
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly platformSettings: PlatformSettingsService,
+    private readonly email: EmailService,
   ) {}
 
   // Registration creates identity + an empty trading account and NOTHING
@@ -161,6 +172,81 @@ export class AuthService {
     ])
 
     await this.audit.record({ actorId: userId, action: AuditEvent.PASSWORD_CHANGED, targetType: 'USER', targetId: userId, ipAddress: meta.ipAddress, userAgent: meta.userAgent })
+  }
+
+  // Part 3 — the API response and timing profile must never reveal whether
+  // `email` belongs to an account: both branches below end the same way
+  // (this method returns void either way, and the controller always sends
+  // the same generic message regardless of what happened here). Works for
+  // ADMIN/SUPER_ADMIN exactly like any other role (Part 7) — nothing here
+  // branches on user.role; only whoever holds the emailed link can proceed,
+  // so this can never be used to take over an admin account merely by
+  // knowing its email.
+  async forgotPassword(email: string, meta: RequestMeta): Promise<void> {
+    const user = await this.prisma.user.findUnique({ where: { email: email.toLowerCase() } })
+    if (!user) {
+      await this.audit.record({ action: AuditEvent.PASSWORD_RESET_REQUESTED, targetType: 'USER', reason: 'unknown email', ipAddress: meta.ipAddress, userAgent: meta.userAgent })
+      return
+    }
+
+    const token = generateSessionToken() // same CSPRNG (crypto.randomBytes) as session tokens — never Math.random(), a timestamp, or any user-derived value
+    const tokenHash = hashToken(token)
+
+    await this.prisma.$transaction([
+      // Part 3 — invalidate previous unused reset tokens for this account,
+      // so at most one reset link is ever live at a time.
+      this.prisma.passwordResetToken.updateMany({
+        where: { userId: user.id, usedAt: null },
+        data: { usedAt: new Date() },
+      }),
+      this.prisma.passwordResetToken.create({
+        data: { userId: user.id, tokenHash, expiresAt: new Date(Date.now() + RESET_TOKEN_TTL_MS) },
+      }),
+    ])
+
+    await this.audit.record({ actorId: user.id, action: AuditEvent.PASSWORD_RESET_REQUESTED, targetType: 'USER', targetId: user.id, ipAddress: meta.ipAddress, userAgent: meta.userAgent })
+
+    const frontendOrigin = process.env.FRONTEND_ORIGIN || 'http://localhost:5173'
+    const resetUrl = `${frontendOrigin}/reset-password?token=${token}`
+    try {
+      await this.email.sendPasswordResetEmail(user.email, resetUrl, RESET_TOKEN_TTL_MINUTES)
+    } catch (err) {
+      // A delivery failure must never surface to the caller (that would be
+      // an observable difference from the "email doesn't exist" branch) and
+      // must never log the token/URL themselves (Part 3/9) — only that
+      // sending failed.
+      this.logger.error(`Failed to send password reset email: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+
+  // Deliberately does not authenticate the caller afterward (Part 6/12) —
+  // this only ever changes the password hash; it never touches
+  // TwoFactorCredential or User.twoFactorEnabled (Part 8), so an account
+  // that had 2FA enabled before a reset still has it enabled after, and
+  // still requires it on the very next login.
+  async resetPassword(rawToken: string, newPassword: string, meta: RequestMeta): Promise<void> {
+    const tokenHash = hashToken(rawToken)
+    const record = await this.prisma.passwordResetToken.findUnique({ where: { tokenHash } })
+
+    // Distinct messages for not-found/used/expired are safe here (unlike
+    // forgotPassword's account-existence check): the token itself is a
+    // 256-bit secret nobody can guess, so telling its holder which of these
+    // three happened leaks nothing about any account.
+    if (!record) throw new BadRequestException('This password reset link is invalid.')
+    if (record.usedAt) throw new BadRequestException('This password reset link has already been used.')
+    if (record.expiresAt < new Date()) throw new BadRequestException('This password reset link has expired. Please request a new one.')
+
+    const passwordHash = await argon2.hash(newPassword)
+    await this.prisma.$transaction([
+      this.prisma.user.update({ where: { id: record.userId }, data: { passwordHash } }),
+      this.prisma.passwordResetToken.update({ where: { id: record.id }, data: { usedAt: new Date() } }),
+      // No "current session" exists during an unauthenticated reset (unlike
+      // changePassword's "every OTHER session") — every active session for
+      // this account is revoked, so a reset always requires a fresh login.
+      this.prisma.session.updateMany({ where: { userId: record.userId, revokedAt: null }, data: { revokedAt: new Date() } }),
+    ])
+
+    await this.audit.record({ actorId: record.userId, action: AuditEvent.PASSWORD_RESET_COMPLETED, targetType: 'USER', targetId: record.userId, ipAddress: meta.ipAddress, userAgent: meta.userAgent })
   }
 
   async setupTwoFactor(userId: string) {

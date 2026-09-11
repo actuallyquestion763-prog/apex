@@ -32,7 +32,11 @@ export function LoginPage() {
             <div><label className="label">Email address</label>
               <div className="relative"><Mail className="absolute left-3 top-3 h-4 w-4 text-slate-500" /><input type="email" className="input pl-10" placeholder="you@example.com" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} required /></div>
             </div>
-            <div><label className="label">Password</label>
+            <div>
+              <div className="flex items-center justify-between">
+                <label className="label">Password</label>
+                <Link to="/forgot-password" className="mb-1.5 text-xs text-slate-500 hover:text-white">Forgot password?</Link>
+              </div>
               <div className="relative"><Lock className="absolute left-3 top-3 h-4 w-4 text-slate-500" /><input type="password" className="input pl-10" placeholder="••••••••" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} required /></div>
             </div>
             {error && <p className="rounded-lg bg-bear/10 px-3 py-2 text-sm text-bear">{error}</p>}

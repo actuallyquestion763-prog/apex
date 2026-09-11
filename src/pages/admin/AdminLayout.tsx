@@ -5,7 +5,7 @@
 // gradient body background — the reference has no gradients/decoration.
 import { Link, Outlet, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../store/auth'
-import { ShieldAlert, LogOut } from 'lucide-react'
+import { ShieldAlert, LogOut, UserCog } from 'lucide-react'
 
 export function AdminLayout() {
   const { user, signOut } = useAuth()
@@ -29,7 +29,10 @@ export function AdminLayout() {
               <p className="text-[11px] leading-tight text-admin-mutedDim">Exchange Management System</p>
             </div>
           </Link>
-          <button onClick={handleSignOut} className="admin-btn-secondary"><LogOut className="h-3.5 w-3.5" /> Logout</button>
+          <div className="flex items-center gap-2">
+            <Link to="/admin/account" className="admin-btn-secondary"><UserCog className="h-3.5 w-3.5" /> Account</Link>
+            <button onClick={handleSignOut} className="admin-btn-secondary"><LogOut className="h-3.5 w-3.5" /> Logout</button>
+          </div>
         </div>
       </div>
       <div className="mx-auto max-w-7xl px-4 py-6">

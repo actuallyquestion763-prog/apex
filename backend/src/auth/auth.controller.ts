@@ -6,13 +6,15 @@ import { RegisterDto } from './dto/register.dto'
 import { LoginDto } from './dto/login.dto'
 import { VerifyTotpDto } from './dto/verify-totp.dto'
 import { ChangePasswordDto } from './dto/change-password.dto'
+import { ForgotPasswordDto } from './dto/forgot-password.dto'
+import { ResetPasswordDto } from './dto/reset-password.dto'
 import { SESSION_COOKIE_NAME } from './auth.constants'
 import { SessionAuthGuard } from '../common/guards/session-auth.guard'
 import { CurrentUser } from '../common/decorators/current-user.decorator'
 import type { AuthenticatedUser } from '../common/types/authenticated-user'
 import { toPublicUser } from '../users/public-user'
 import { UsersService } from '../users/users.service'
-import { AUTH_THROTTLE, REGISTER_THROTTLE } from '../common/rate-limits'
+import { AUTH_THROTTLE, REGISTER_THROTTLE, FORGOT_PASSWORD_THROTTLE } from '../common/rate-limits'
 import { getCookieOptions } from '../config/security-config'
 
 function requestMeta(req: Request) {
@@ -96,6 +98,24 @@ export class AuthController {
   @Throttle(AUTH_THROTTLE)
   async changePassword(@CurrentUser() user: AuthenticatedUser, @Body() dto: ChangePasswordDto, @Req() req: Request) {
     await this.authService.changePassword(user.id, user.sessionId, dto, requestMeta(req))
+    return { ok: true }
+  }
+
+  // Part 3 — always the same response, whether or not `dto.email` belongs
+  // to an account; never branch this message on what authService did.
+  @Post('forgot-password')
+  @HttpCode(200)
+  @Throttle(FORGOT_PASSWORD_THROTTLE)
+  async forgotPassword(@Body() dto: ForgotPasswordDto, @Req() req: Request) {
+    await this.authService.forgotPassword(dto.email, requestMeta(req))
+    return { message: 'If an account exists for that email, a password reset link has been sent.' }
+  }
+
+  @Post('reset-password')
+  @HttpCode(200)
+  @Throttle(AUTH_THROTTLE)
+  async resetPassword(@Body() dto: ResetPasswordDto, @Req() req: Request) {
+    await this.authService.resetPassword(dto.token, dto.newPassword, requestMeta(req))
     return { ok: true }
   }
 }

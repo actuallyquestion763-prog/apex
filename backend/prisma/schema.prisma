@@ -75,6 +75,7 @@ model User {
   sessions            Session[]
   accounts            Account[]
   twoFactorCredential TwoFactorCredential?
+  passwordResetTokens PasswordResetToken[]
   orders              Order[]
   positions           Position[]
   deposits            Deposit[]
@@ -141,6 +142,30 @@ model TwoFactorCredential {
   updatedAt DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// Forgot/Reset Password (Part 5) — same principle as Session: the raw,
+// high-entropy random token is only ever sent to the user via email; the
+// database stores nothing but its SHA-256 hash (tokenHash, hashed with the
+// same hashToken() Session already uses), so a database read alone can
+// never be used to take over an account. Single-use (usedAt) and
+// short-lived (expiresAt — see auth.service.ts's RESET_TOKEN_TTL_MS).
+// usedAt is also set when a token is superseded by a newer request for the
+// same account (Part 3: "invalidate previous unused reset tokens"), not
+// only when a reset actually completes — both cases mean "this token can
+// never be redeemed again," which is the only thing resetPassword() checks.
+model PasswordResetToken {
+  id        String    @id @default(uuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
 }
 
 // Foundation for fine-grained permissions beyond the coarse Role enum.

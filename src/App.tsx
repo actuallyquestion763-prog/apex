@@ -3,6 +3,8 @@ import { useAuth } from './store/auth'
 import { LandingPage } from './pages/LandingPage'
 import { SignupPage } from './pages/SignupPage'
 import { LoginPage } from './pages/LoginPage'
+import { ForgotPasswordPage } from './pages/ForgotPasswordPage'
+import { ResetPasswordPage } from './pages/ResetPasswordPage'
 import { VerifyEmailPage } from './pages/VerifyEmailPage'
 import { TwoFactorSetupPage } from './pages/TwoFactorSetupPage'
 import { TwoFactorVerifyPage } from './pages/TwoFactorVerifyPage'
@@ -37,6 +39,7 @@ import { ContactsPage as AdminContactsPage } from './pages/admin/ContactsPage'
 import { KycPage as AdminKycPage } from './pages/admin/KycPage'
 import { SettingsPage as AdminSettingsPage } from './pages/admin/SettingsPage'
 import { AdminManagementPage } from './pages/admin/AdminManagementPage'
+import { AccountPage as AdminAccountPage } from './pages/admin/AccountPage'
 import { CmsPage as AdminCmsPage } from './pages/admin/CmsPage'
 import { AuditPage as AdminAuditPage } from './pages/admin/AuditPage'
 import { isAdminRole } from './lib/roles'
@@ -66,6 +69,8 @@ export default function App() {
       <Route path="/" element={<LandingPage />} />
       <Route path="/signup" element={<SignupPage />} />
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+      <Route path="/reset-password" element={<ResetPasswordPage />} />
       <Route path="/pages/:slug" element={<CmsPageView />} />
       <Route path="/verify-email" element={<Protected><VerifyEmailPage /></Protected>} />
       <Route path="/2fa-setup" element={<Protected><TwoFactorSetupPage /></Protected>} />
@@ -110,6 +115,7 @@ export default function App() {
         <Route path="kyc" element={<AdminKycPage />} />
         <Route path="settings" element={<AdminSettingsPage />} />
         <Route path="admin-management" element={<AdminManagementPage />} />
+        <Route path="account" element={<AdminAccountPage />} />
         {/* Not primary dashboard cards, but real working sections — reachable
             from Settings ("More") rather than removed. */}
         <Route path="cms" element={<AdminCmsPage />} />

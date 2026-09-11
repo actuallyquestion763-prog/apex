@@ -22,6 +22,12 @@ function preset(limit: number) {
 export const AUTH_THROTTLE = preset(10)
 export const REGISTER_THROTTLE = preset(5)
 
+// Forgot-password requests trigger an email send and a database write —
+// tighter than general AUTH_THROTTLE since this endpoint is a classic abuse
+// target (spamming a stranger's inbox, hammering the mail relay). Mirrors
+// REGISTER_THROTTLE's stricter limit for the same reason.
+export const FORGOT_PASSWORD_THROTTLE = preset(5)
+
 // Creating a financial record (not reading them) — deposits/withdrawals/orders.
 export const FINANCIAL_CREATE_THROTTLE = preset(15)
 

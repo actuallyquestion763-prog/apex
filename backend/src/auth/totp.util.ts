@@ -57,10 +57,20 @@ export function generateTotpCode(secret: string, timeMs: number = Date.now()): s
 
 // Accepts the current 30s window and one step before/after to tolerate clock
 // drift, matching common authenticator-app behavior.
+//
+// `code` is normalized to digits-only before comparison — several real
+// authenticator apps (Google Authenticator included) display the 6-digit
+// code with a formatting space in the middle (e.g. "123 456"), and a user
+// transcribing that by hand may type it with the space still there. Only
+// non-digit characters are ever stripped; the underlying HOTP algorithm,
+// secret handling, and ±1 step tolerance above are completely unchanged —
+// this purely normalizes user input, it does not widen what code values are
+// accepted (a 6-digit code and its digit-only equivalent are the same code).
 export function verifyTotpCode(secret: string, code: string, timeMs: number = Date.now()): boolean {
+  const normalized = code.replace(/\D/g, '')
   const counter = Math.floor(timeMs / 1000 / 30)
   for (const delta of [-1, 0, 1]) {
-    if (hotp(secret, counter + delta) === code) return true
+    if (hotp(secret, counter + delta) === normalized) return true
   }
   return false
 }

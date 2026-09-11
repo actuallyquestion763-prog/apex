@@ -45,11 +45,11 @@ export function LiveChat() {
       {/* bottom-24 clears BottomNav.tsx's ~69.5px-tall bar (visible below lg)
           with room to spare; lg:bottom-5 restores the original position once
           the bottom nav is hidden (lg:hidden) and there's nothing to clear. */}
-      <button onClick={() => setOpen((o) => !o)} className="fixed bottom-24 right-5 z-[150] flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-b from-gold-400 to-gold-500 text-ink-950 shadow-xl shadow-gold-500/30 transition hover:scale-105 animate-pulse-glow lg:bottom-5" aria-label="Open live chat">
+      <button onClick={() => setOpen((o) => !o)} className="fixed bottom-24 right-5 z-[9999] flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-b from-gold-400 to-gold-500 text-ink-950 shadow-xl shadow-gold-500/30 transition hover:scale-105 animate-pulse-glow lg:bottom-5" aria-label="Open live chat">
         {open ? <X className="h-6 w-6" /> : <MessageSquare className="h-6 w-6" />}
       </button>
       {open && (
-        <div className="fixed bottom-[10.5rem] right-5 z-[150] flex h-[460px] w-[340px] max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-2xl border border-ink-600 bg-ink-850 shadow-2xl animate-slide-up lg:bottom-24">
+        <div className="fixed bottom-[10.5rem] right-5 z-[9999] flex h-[460px] w-[340px] max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-2xl border border-ink-600 bg-ink-850 shadow-2xl animate-slide-up lg:bottom-24">
           <div className="flex items-center gap-3 border-b border-ink-700 bg-ink-800 px-4 py-3">
             <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gold-500/20 text-gold-400"><Bot className="h-5 w-5" /></div>
             <div>

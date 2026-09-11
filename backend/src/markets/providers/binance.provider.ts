@@ -21,7 +21,19 @@ import type { KlineInterval, KlineRequest, MarketCandle, MarketDataProviderWithH
 // the same tick coalesce onto the SAME in-flight refresh via `inFlight`,
 // so a batch of Promise.all(getQuote) calls (see MarketDataService.getQuotes)
 // still only ever issues 2 HTTP requests total, not 2-per-symbol.
-const BASE = 'https://api.binance.com/api/v3'
+//
+// api.binance.us, not api.binance.com (found live in production): the
+// backend's server (Render, US-region) got a hard 451 "Unavailable For
+// Legal Reasons" from api.binance.com on every request — that's Binance.com's
+// own regulatory geo-block on US-originating server traffic, unrelated to
+// this code. Binance.US is the separate, US-compliant exchange/API Binance
+// itself operates for exactly this case — confirmed live: identical public
+// endpoint paths, identical response schema (bookTicker/24hr/klines all
+// byte-for-byte the same shape), and every symbol this app uses (including
+// PAXGUSDT, the gold proxy) is listed there with status TRADING. No API key,
+// no other code change, no architecture change — just the correct base URL
+// for where this server is actually allowed to ask.
+const BASE = 'https://api.binance.us/api/v3'
 
 @Injectable()
 export class BinanceProvider implements MarketDataProviderWithHistory {

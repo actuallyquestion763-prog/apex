@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto'
-import { Test } from '@nestjs/testing'
+import { Test, TestingModuleBuilder } from '@nestjs/testing'
 import { INestApplication, ValidationPipe } from '@nestjs/common'
 import type { Request, Response, NextFunction } from 'express'
 import cookieParser from 'cookie-parser'
@@ -17,8 +17,16 @@ import type { Role } from '@prisma/client'
 // same as production main.ts) wired to whatever DATABASE_URL is in the
 // environment — see test/setup-env.ts, which points it at the real
 // PostgreSQL instance started by scripts/test-db.js.
-export async function createTestApp(): Promise<{ app: INestApplication; prisma: PrismaService }> {
-  const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile()
+// `configure` lets a spec file override a provider (e.g. EmailService with
+// an in-memory fake that records what would have been sent) before the
+// module compiles — used by forgot-password.e2e-spec.ts so it can assert
+// on the generated reset link without ever needing real SMTP or logging
+// the raw token anywhere (see backend/src/email/email.service.ts's own
+// comment on why it never logs one).
+export async function createTestApp(configure?: (builder: TestingModuleBuilder) => TestingModuleBuilder): Promise<{ app: INestApplication; prisma: PrismaService }> {
+  let builder = Test.createTestingModule({ imports: [AppModule] })
+  if (configure) builder = configure(builder)
+  const moduleRef = await builder.compile()
   const app = moduleRef.createNestApplication()
   app.use(cookieParser())
   // Mirrors main.ts's request-id + structured logging wiring (Checkpoint
