@@ -27,7 +27,14 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          # Matches package.json's "engines": { "node": "22.x" }. Also fixes
+          # a real npm ci failure under Node 20's older bundled npm: it
+          # hard-fails with EBADPLATFORM on a platform-mismatched *optional*
+          # dependency (e.g. @esbuild/netbsd-arm64 on a linux/x64 runner)
+          # instead of silently skipping it, as optionalDependencies are
+          # supposed to be treated. Node 22's newer bundled npm doesn't have
+          # this bug (confirmed locally with npm 11.17.0).
+          node-version: '22'
           cache: 'npm'
 
       - run: npm ci
