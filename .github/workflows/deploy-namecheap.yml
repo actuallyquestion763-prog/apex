@@ -47,15 +47,12 @@ jobs:
           username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
           local-dir: ./dist/
-          # CONFIRM THIS BEFORE FIRST RUN: must resolve, from the FTP
-          # account's own root, to the same folder that already contains
-          # .htaccess/.user.ini/api-proxy.php/cgi-bin/.well-known (i.e. the
-          # real public_html for edgecryptotrade.site). If the githubdeploy
-          # FTP account's root IS public_html itself, use "./"; if its root
-          # is a subfolder inside public_html, adjust accordingly. Check in
-          # cPanel → FTP Accounts what this account's own directory actually
-          # is before relying on this value.
-          server-dir: ./public_html/
+          # githubdeploy's FTP account directory was recreated in cPanel
+          # scoped directly to public_html (confirmed: /home/edgesfyb/public_html),
+          # so the FTP account's own root already IS public_html — "./" is
+          # correct here, not "./public_html/" (that would land one level
+          # too deep, at public_html/public_html).
+          server-dir: ./
           # Never wipe files this workflow doesn't manage (.htaccess,
           # .user.ini, api-proxy.php, .well-known, cgi-bin all stay put) —
           # this only ever adds/updates files that come from local-dir, and
