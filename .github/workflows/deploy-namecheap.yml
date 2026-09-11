@@ -53,6 +53,10 @@ jobs:
           server: ${{ secrets.FTP_HOST }}
           username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
+          # cPanel's FTP Accounts page labels this account's port as
+          # "FTP/explicit FTPS port: 21" — plain unencrypted FTP timed out
+          # against it (the server expects a TLS handshake first).
+          protocol: ftps
           local-dir: ./dist/
           # githubdeploy's FTP account directory was recreated in cPanel
           # scoped directly to public_html (confirmed: /home/edgesfyb/public_html),
