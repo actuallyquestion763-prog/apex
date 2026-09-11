@@ -3,10 +3,15 @@ export function Logo({ size = 'md' }: { size?: 'sm' | 'md' | 'lg' }) {
   const text = size === 'sm' ? 'text-lg' : size === 'lg' ? 'text-3xl' : 'text-xl'
   return (
     <div className="flex items-center gap-2.5">
-      <div className={`${dims} rounded-xl bg-ink-800 ring-1 ring-ocean-500/30 flex items-center justify-center shadow-glow-sm transition`}>
+      <div className={`${dims} rounded-xl bg-ink-950 border-2 border-ocean-400 flex items-center justify-center shadow-glow-sm transition`}>
         <svg viewBox="0 0 64 64" className="h-2/3 w-2/3">
-          <path d="M16 44V20l10 12 10-12v24" stroke="#06b6d4" strokeWidth="4" fill="none" strokeLinejoin="round" strokeLinecap="round" />
-          <circle cx="48" cy="20" r="4" fill="#f59e0b" />
+          {/* Bold "E" letterform */}
+          <rect x="13" y="13" width="9" height="38" fill="#fff" />
+          <rect x="13" y="13" width="27" height="9" fill="#fff" />
+          <rect x="13" y="28" width="21" height="9" fill="#fff" />
+          <rect x="13" y="42" width="27" height="9" fill="#fff" />
+          {/* Upward trend-arrow accent */}
+          <path d="M38 27 L54 11 M42 11 H54 V23" stroke="#f59e0b" strokeWidth="5" fill="none" strokeLinejoin="round" strokeLinecap="round" />
         </svg>
       </div>
       <span className={`${text} font-extrabold tracking-tight text-white`}>
