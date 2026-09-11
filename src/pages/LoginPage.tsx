@@ -26,8 +26,8 @@ export function LoginPage() {
     <div className="flex min-h-screen items-center justify-center px-4 py-10">
       <div className="w-full max-w-md">
         <div className="mb-8 text-center"><Link to="/"><Logo size="lg" /></Link></div>
-        <div className="card p-8">
-          <h1 className="text-3xl font-extrabold text-white text-center">TRUST</h1>
+        <div className="card p-8 shadow-glow-sm">
+          <h1 className="text-3xl font-extrabold text-white text-center">EDGETRADE</h1>
           <form onSubmit={submit} className="mt-6 space-y-4">
             <div><label className="label">Email address</label>
               <div className="relative"><Mail className="absolute left-3 top-3 h-4 w-4 text-slate-500" /><input type="email" className="input pl-10" placeholder="you@example.com" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} required /></div>

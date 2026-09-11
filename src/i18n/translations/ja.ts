@@ -52,7 +52,7 @@ const ja: Partial<Record<TranslationKey, string>> = {
   'setNewPassword.error.generic': 'パスワードを変更できませんでした。',
 
   'languages.title': '言語',
-  'languages.subtitle': 'TRUST の表示言語を選択してください。',
+  'languages.subtitle': 'EDGETRADE の表示言語を選択してください。',
   'languages.footnote': '選択した言語は現在、ナビゲーションとアカウントページに適用されます。アプリ全体の翻訳は順次拡大予定です。まだ翻訳されていない部分は英語で表示されます。',
 }
 

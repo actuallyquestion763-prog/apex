@@ -50,7 +50,7 @@ export function CmsPageView() {
       </main>
 
       <footer className="border-t border-ink-700/60 py-8 text-center text-xs text-slate-600">
-        TRUST is a fictional demonstration platform. No real funds are involved.
+        EDGETRADE is a fictional demonstration platform. No real funds are involved.
       </footer>
     </div>
   )

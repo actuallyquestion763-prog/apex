@@ -52,7 +52,7 @@ const ru: Partial<Record<TranslationKey, string>> = {
   'setNewPassword.error.generic': 'Не удалось изменить пароль.',
 
   'languages.title': 'Язык',
-  'languages.subtitle': 'Выберите язык отображения TRUST.',
+  'languages.subtitle': 'Выберите язык отображения EDGETRADE.',
   'languages.footnote': 'Выбранный язык теперь применяется к навигации и страницам аккаунта; полный перевод приложения постепенно распространяется на другие страницы. То, что ещё не переведено, отображается на английском.',
 }
 

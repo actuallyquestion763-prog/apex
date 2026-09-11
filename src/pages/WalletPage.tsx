@@ -60,10 +60,10 @@ export function WalletPage() {
 
   return (
     <div className="space-y-6">
-      <div className="card p-6">
+      <div className="rounded-2xl border border-ocean-500/20 bg-gradient-to-br from-ocean-600/20 via-ink-850 to-ink-850 p-6 shadow-glow-sm">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="text-sm text-slate-400">USD Balance</p>
+            <p className="text-sm text-ocean-300">USD Balance</p>
             <p className="mt-1 font-mono text-4xl font-bold text-white">{summaryLoading ? '—' : `$${cash.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD`}</p>
           </div>
           <div className="flex gap-3">

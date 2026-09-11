@@ -32,7 +32,7 @@ export function OptionsCountdown({ expiryAt, size = 128 }: { expiryAt: string; s
           cy={size / 2}
           r={radius}
           fill="none"
-          stroke={remainingMs > 0 ? '#38bdf8' : '#64748b'}
+          stroke={remainingMs > 0 ? '#22d3ee' : '#64748b'}
           strokeWidth={8}
           strokeDasharray={circumference}
           strokeDashoffset={remainingMs <= 0 ? 0 : circumference}

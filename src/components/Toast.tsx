@@ -21,7 +21,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       {children}
       <div className="fixed bottom-4 right-4 z-[200] flex flex-col gap-2">
         {toasts.map((t) => (
-          <div key={t.id} className="animate-slide-up flex items-start gap-3 rounded-xl border border-ink-600 bg-ink-800 px-4 py-3 shadow-xl min-w-[280px] max-w-sm">
+          <div key={t.id} className="animate-slide-up flex items-start gap-3 rounded-xl border border-ink-600 bg-ink-800/90 backdrop-blur-md px-4 py-3 shadow-xl min-w-[280px] max-w-sm">
             {t.kind === 'success' && <CheckCircle2 className="mt-0.5 h-5 w-5 text-bull shrink-0" />}
             {t.kind === 'error' && <AlertTriangle className="mt-0.5 h-5 w-5 text-bear shrink-0" />}
             {t.kind === 'info' && <Info className="mt-0.5 h-5 w-5 text-ocean-400 shrink-0" />}

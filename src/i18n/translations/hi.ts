@@ -52,7 +52,7 @@ const hi: Partial<Record<TranslationKey, string>> = {
   'setNewPassword.error.generic': 'पासवर्ड नहीं बदला जा सका।',
 
   'languages.title': 'भाषा',
-  'languages.subtitle': 'वह भाषा चुनें जिसमें TRUST प्रदर्शित हो।',
+  'languages.subtitle': 'वह भाषा चुनें जिसमें EDGETRADE प्रदर्शित हो।',
   'languages.footnote': 'चुनी गई भाषा अभी नेविगेशन और खाता पेजों पर लागू होती है; ऐप का पूर्ण अनुवाद धीरे-धीरे अधिक पेजों पर लाया जा रहा है। जो अभी तक अनुवादित नहीं है वह अंग्रेज़ी में दिखेगा।',
 }
 

@@ -19,7 +19,7 @@ export default function AssetsPage() {
       <PageHeader title="Assets" subtitle="Portfolio overview" />
 
       {/* Spot Balance hero — the primary crypto/spot funding currency. */}
-      <div className="rounded-2xl border border-ocean-500/20 bg-gradient-to-br from-ocean-600/20 via-ink-850 to-ink-850 p-6">
+      <div className="rounded-2xl border border-ocean-500/20 bg-gradient-to-br from-ocean-600/20 via-ink-850 to-ink-850 p-6 shadow-glow-sm">
         <p className="text-xs font-medium uppercase tracking-wide text-ocean-300">Spot Balance</p>
         <p className="mt-2 font-mono text-3xl font-bold text-white">{usdtLoading ? '—' : `${usdtCash.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT`}</p>
         <p className="mt-1 text-xs text-slate-500">The funding currency for BTC/USDT, ETH/USDT, and other crypto/spot trades.</p>

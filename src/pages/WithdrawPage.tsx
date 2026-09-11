@@ -130,7 +130,7 @@ export function WithdrawPage() {
       {/* Warning */}
       <div className="flex items-start gap-3 rounded-xl border border-bear/20 bg-bear/5 p-4 text-sm text-slate-400">
         <AlertTriangle className="h-5 w-5 shrink-0 text-bear" />
-        <p>TRUST is a fictional demonstration platform. No real funds are involved. Withdrawal requests are simulated and processed by the admin panel for demonstration purposes.</p>
+        <p>EDGETRADE is a fictional demonstration platform. No real funds are involved. Withdrawal requests are simulated and processed by the admin panel for demonstration purposes.</p>
       </div>
     </div>
   )

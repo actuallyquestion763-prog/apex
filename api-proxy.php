@@ -16,16 +16,21 @@
 
 $backend = 'https://vaultex-backend.onrender.com';
 
-$path = isset($_GET['path']) ? $_GET['path'] : '';
-
-$queryString = '';
-if (($qpos = strpos($_SERVER['REQUEST_URI'], '?')) !== false) {
-    parse_str(substr($_SERVER['REQUEST_URI'], $qpos + 1), $qsParams);
-    unset($qsParams['path']);
-    if (count($qsParams) > 0) {
-        $queryString = '?' . http_build_query($qsParams);
-    }
-}
+// Read the path from the RAW request URI, not from $_GET['path']. The
+// .htaccess RewriteRule captures the path into ?path=$1, but Apache's
+// rewrite engine decodes percent-encoded slashes (%2F -> /) before that
+// capture happens — so a request for /api/markets/XAU%2FUSD/quote (where
+// %2F must stay encoded, since the backend's route is :symbol/quote with
+// the whole "XAU/USD" as ONE path segment) arrived at this script as
+// markets/XAU/USD/quote, four segments instead of three, and the backend's
+// router 404'd. $_SERVER['REQUEST_URI'] reflects the client's original
+// request line, untouched by that internal rewrite decoding, so slicing
+// the path out of it here preserves %2F exactly as the client sent it.
+$requestUri = $_SERVER['REQUEST_URI'];
+$qpos = strpos($requestUri, '?');
+$rawPath = $qpos !== false ? substr($requestUri, 0, $qpos) : $requestUri;
+$queryString = $qpos !== false ? substr($requestUri, $qpos) : '';
+$path = preg_replace('#^/api/#', '', $rawPath, 1);
 
 $url = $backend . '/' . ltrim($path, '/') . $queryString;
 

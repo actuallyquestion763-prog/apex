@@ -52,7 +52,7 @@ const zh: Partial<Record<TranslationKey, string>> = {
   'setNewPassword.error.generic': '无法修改密码。',
 
   'languages.title': '语言',
-  'languages.subtitle': '选择 TRUST 的显示语言。',
+  'languages.subtitle': '选择 EDGETRADE 的显示语言。',
   'languages.footnote': '所选语言目前适用于导航栏和账户相关页面；应用的完整翻译正逐步推广到更多页面。尚未翻译的内容将显示为英文。',
 }
 

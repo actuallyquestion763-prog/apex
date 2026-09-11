@@ -37,8 +37,16 @@ export default {
         },
       },
       fontFamily: {
-        sans: ['Inter', 'system-ui', 'sans-serif'],
+        sans: ['Rubik', 'Poppins', 'system-ui', 'sans-serif'],
         mono: ['JetBrains Mono', 'ui-monospace', 'monospace'],
+      },
+      // Cyan "glow" shadows matching the reference site's signature
+      // hover/accent effect — soft outer glow rather than a hard shadow.
+      boxShadow: {
+        'glow-sm': '0 0 10px rgba(6,182,212,0.35)',
+        glow: '0 0 20px rgba(6,182,212,0.35)',
+        'glow-lg': '0 0 30px rgba(6,182,212,0.45)',
+        'glow-gold': '0 0 20px rgba(245,158,11,0.35)',
       },
       animation: {
         'fade-in': 'fadeIn 0.5s ease-out',

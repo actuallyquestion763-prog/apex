@@ -21,7 +21,7 @@ export function SignupPage() {
     const res = await signUp(form)
     setLoading(false)
     if (!res.ok) return setError(res.error || 'Sign up failed.')
-    push('success', 'Account created! Welcome to TRUST.')
+    push('success', 'Account created! Welcome to EDGETRADE.')
     navigate('/dashboard')
   }
 
@@ -29,7 +29,7 @@ export function SignupPage() {
     <div className="flex min-h-screen items-center justify-center px-4 py-10">
       <div className="w-full max-w-md">
         <div className="mb-8 text-center"><Link to="/"><Logo size="lg" /></Link></div>
-        <div className="card p-8">
+        <div className="card p-8 shadow-glow-sm">
           <h1 className="text-2xl font-bold text-white">Create your account</h1>
           <p className="mt-1 text-sm text-slate-400">Create your account, then deposit to fund it.</p>
           <form onSubmit={submit} className="mt-6 space-y-4">

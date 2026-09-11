@@ -54,7 +54,7 @@ const ar: Partial<Record<TranslationKey, string>> = {
   'setNewPassword.error.generic': 'تعذر تغيير كلمة المرور.',
 
   'languages.title': 'اللغة',
-  'languages.subtitle': 'اختر اللغة التي تُعرض بها TRUST.',
+  'languages.subtitle': 'اختر اللغة التي تُعرض بها EDGETRADE.',
   'languages.footnote': 'تُطبَّق اللغة المختارة الآن على التنقل وصفحات الحساب؛ ويجري تدريجيًا طرح الترجمة الكاملة للتطبيق على المزيد من الصفحات. ما لم تتم ترجمته بعد يظهر بالإنجليزية.',
 }
 

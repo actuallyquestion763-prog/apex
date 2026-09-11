@@ -23,7 +23,7 @@ export function VerifyEmailPage() {
       setError(res.error || 'Verification failed.')
       return
     }
-    push('success', 'Email verified! Welcome to TRUST.')
+    push('success', 'Email verified! Welcome to EDGETRADE.')
     navigate('/dashboard')
   }
 
@@ -33,7 +33,7 @@ export function VerifyEmailPage() {
         <div className="mb-8 text-center">
           <Link to="/"><Logo size="lg" /></Link>
         </div>
-        <div className="card p-8 text-center">
+        <div className="card p-8 text-center shadow-glow-sm">
           <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-ocean-500/15 text-ocean-400">
             <Mail className="h-8 w-8" />
           </div>

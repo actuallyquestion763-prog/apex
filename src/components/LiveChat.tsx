@@ -7,12 +7,12 @@ const SCRIPTED: { keys: string[]; reply: string }[] = [
   { keys: ['deposit', 'fund', 'add money', 'top up'], reply: "You can deposit USDT from the Deposit page — pick a network, send USDT to the address shown, and upload proof of payment. Deposits are credited after admin verification." },
   { keys: ['withdraw', 'cash out', 'payout'], reply: "To withdraw, head to the Withdraw page and enter your destination address. Withdrawals are reviewed by our team and typically process within 24 hours." },
   { keys: ['kyc', 'verify', 'identity', 'document'], reply: "KYC verification keeps your account secure. Upload a clear photo of the front and back of your government-issued ID on the Verification page." },
-  { keys: ['bonus', 'promot', '20%'], reply: "There's currently no deposit bonus on TRUST." },
-  { keys: ['leverage', 'margin'], reply: "Leveraged trading isn't available on TRUST right now — trades use your available balance directly, with no leverage multiplier." },
+  { keys: ['bonus', 'promot', '20%'], reply: "There's currently no deposit bonus on EDGETRADE." },
+  { keys: ['leverage', 'margin'], reply: "Leveraged trading isn't available on EDGETRADE right now — trades use your available balance directly, with no leverage multiplier." },
   { keys: ['2fa', 'two factor', 'authenticator'], reply: "Enable 2FA from your account security page by scanning the QR code with Google Authenticator or a similar app. It adds a strong layer of protection to withdrawals and account changes." },
   { keys: ['referral', 'affiliate', 'commission'], reply: "You have a personal referral link on your Dashboard that you're welcome to share. There's currently no commission or reward program tied to it." },
   { keys: ['support', 'help', 'human', 'agent'], reply: "Our support team responds through the Support page — open a ticket there with your question and we'll get back to you." },
-  { keys: ['secure', 'safe', 'regulated', 'license'], reply: "TRUST is a fictional demonstration platform built to showcase trading UX. It isn't a regulated financial service and doesn't hold real customer funds." },
+  { keys: ['secure', 'safe', 'regulated', 'license'], reply: "EDGETRADE is a fictional demonstration platform built to showcase trading UX. It isn't a regulated financial service and doesn't hold real customer funds." },
   { keys: ['demo', 'practice', 'test'], reply: "New accounts start at $0 — deposit funds to explore the platform. This account isn't connected to a real broker or exchange, so no real money is involved." },
 ]
 
@@ -24,7 +24,7 @@ function reply(input: string): string {
 
 export function LiveChat() {
   const [open, setOpen] = useState(false)
-  const [msgs, setMsgs] = useState<Msg[]>([{ from: 'bot', text: "Hi! I'm Trustie, your TRUST assistant. Ask me anything about deposits, withdrawals, KYC, or trading." }])
+  const [msgs, setMsgs] = useState<Msg[]>([{ from: 'bot', text: "Hi! I'm Eddie, your EDGETRADE assistant. Ask me anything about deposits, withdrawals, KYC, or trading." }])
   const [input, setInput] = useState('')
   const [typing, setTyping] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)

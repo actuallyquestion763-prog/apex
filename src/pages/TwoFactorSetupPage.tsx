@@ -51,7 +51,7 @@ export function TwoFactorSetupPage() {
         <div className="mb-8 text-center">
           <Link to="/"><Logo size="lg" /></Link>
         </div>
-        <div className="card p-8">
+        <div className="card p-8 shadow-glow-sm">
           <div className="flex items-center gap-3">
             <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gold-500/15 text-gold-400">
               <ShieldCheck className="h-6 w-6" />

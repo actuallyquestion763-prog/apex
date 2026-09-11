@@ -57,7 +57,7 @@ const en = {
   'setNewPassword.error.generic': 'Could not change password.',
 
   'languages.title': 'Language',
-  'languages.subtitle': 'Choose the language TRUST is displayed in.',
+  'languages.subtitle': 'Choose the language EDGETRADE is displayed in.',
   'languages.footnote': "Selected language applies to navigation and account pages now; full app-wide translation is rolling out to more pages over time. Anything not yet translated shows in English.",
 } as const
 

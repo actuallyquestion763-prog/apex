@@ -53,7 +53,7 @@ export function DashboardLayout() {
             </NavLink>
             <nav className="hidden lg:flex items-center gap-1">
               {navItems.map((n) => (
-                <NavLink key={n.to} to={n.to} className={({ isActive }) => `flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition ${isActive ? 'bg-ocean-500/15 text-ocean-300 ring-1 ring-ocean-400/20' : 'text-slate-400 hover:text-white hover:bg-ink-800'}`}>
+                <NavLink key={n.to} to={n.to} className={({ isActive }) => `flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition ${isActive ? 'bg-ocean-500/15 text-ocean-300 ring-1 ring-ocean-400/20 shadow-glow-sm' : 'text-slate-400 hover:text-white hover:bg-ink-800'}`}>
                   <n.icon className="h-4 w-4" />{n.label}
                 </NavLink>
               ))}

@@ -10,7 +10,7 @@ interface Section {
 const SECTIONS: Section[] = [
   {
     heading: 'Agreement to Terms',
-    body: 'TRUST and its affiliates provide blockchain technology services through websites and mobile applications. By accessing or using our Services you acknowledge that you have read, understood and accepted these Terms. If you do not agree with these Terms, please discontinue using our Services. We do not provide financial advice, investment advice or trading advice. Every cryptocurrency transaction is completely your own responsibility.',
+    body: 'EDGETRADE and its affiliates provide blockchain technology services through websites and mobile applications. By accessing or using our Services you acknowledge that you have read, understood and accepted these Terms. If you do not agree with these Terms, please discontinue using our Services. We do not provide financial advice, investment advice or trading advice. Every cryptocurrency transaction is completely your own responsibility.',
   },
   {
     heading: 'Privacy Policy',
@@ -28,7 +28,7 @@ const SECTIONS: Section[] = [
   },
   {
     heading: 'Digital Assets',
-    body: 'Cryptocurrency and digital assets are highly volatile. Prices may rise or fall dramatically within a short period of time. Blockchain transactions are generally irreversible once confirmed. Always verify wallet addresses, blockchain networks and transaction amounts before sending assets. TRUST is not responsible for losses caused by incorrect wallet addresses, wrong networks or user mistakes.',
+    body: 'Cryptocurrency and digital assets are highly volatile. Prices may rise or fall dramatically within a short period of time. Blockchain transactions are generally irreversible once confirmed. Always verify wallet addresses, blockchain networks and transaction amounts before sending assets. EDGETRADE is not responsible for losses caused by incorrect wallet addresses, wrong networks or user mistakes.',
   },
   {
     heading: 'Risk Warning',
@@ -36,7 +36,7 @@ const SECTIONS: Section[] = [
   },
   {
     heading: 'Disclaimer',
-    body: 'TRUST provides technology services only. We do not guarantee profits, investment returns or future market performance. We are not responsible for losses resulting from user mistakes, forgotten passwords, private key loss, phishing attacks, blockchain failures or network congestion. Every transaction is initiated entirely by the user.',
+    body: 'EDGETRADE provides technology services only. We do not guarantee profits, investment returns or future market performance. We are not responsible for losses resulting from user mistakes, forgotten passwords, private key loss, phishing attacks, blockchain failures or network congestion. Every transaction is initiated entirely by the user.',
   },
   {
     heading: 'Compliance',
@@ -70,7 +70,7 @@ export function AboutPage() {
         ))}
 
         <div className="border-t border-ink-700/60 pt-4 text-center text-xs text-slate-500">
-          <p className="text-ocean-300">© {new Date().getFullYear()} TRUST</p>
+          <p className="text-ocean-300">© {new Date().getFullYear()} EDGETRADE</p>
           <p>All Rights Reserved</p>
         </div>
       </div>

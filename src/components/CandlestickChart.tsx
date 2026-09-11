@@ -75,7 +75,7 @@ export function CandlestickChart({ symbol, height = 320, quoteAsset }: { symbol:
     const volumeSeries = chart.addSeries(HistogramSeries, {
       priceFormat: { type: 'volume' },
       priceScaleId: 'volume',
-      color: '#38bdf866',
+      color: '#22d3ee66',
     })
     volumeSeries.priceScale().applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } })
     candleSeries.priceScale().applyOptions({ scaleMargins: { top: 0.05, bottom: 0.22 } })

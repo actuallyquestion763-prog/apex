@@ -86,7 +86,7 @@ export function ContactsPage() {
         <div className="mt-3 space-y-3">
           <div className="grid gap-3 sm:grid-cols-2">
             <div><label className="admin-label">Contact Name</label><input className="admin-input" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="Telegram Support" /></div>
-            <div><label className="admin-label">Contact URL</label><input className="admin-input" value={form.url} onChange={(e) => setForm((f) => ({ ...f, url: e.target.value }))} placeholder="https://t.me/trustsupport" /></div>
+            <div><label className="admin-label">Contact URL</label><input className="admin-input" value={form.url} onChange={(e) => setForm((f) => ({ ...f, url: e.target.value }))} placeholder="https://t.me/edgetradesupport" /></div>
           </div>
           <div className="flex flex-wrap items-end gap-4">
             <div className="w-32"><label className="admin-label">Display Order</label><input className="admin-input" type="number" value={form.sortOrder} onChange={(e) => setForm((f) => ({ ...f, sortOrder: e.target.value }))} /></div>

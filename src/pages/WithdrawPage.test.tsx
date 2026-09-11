@@ -99,6 +99,6 @@ describe('WithdrawPage — USDT-only withdrawal flow (P1-4)', () => {
 
   it('keeps the honest fictional-platform disclosure', () => {
     renderPage()
-    expect(screen.getByText(/TRUST is a fictional demonstration platform/)).toBeInTheDocument()
+    expect(screen.getByText(/EDGETRADE is a fictional demonstration platform/)).toBeInTheDocument()
   })
 })

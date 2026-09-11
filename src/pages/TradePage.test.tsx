@@ -56,7 +56,11 @@ vi.mock('../store/useOptions', () => ({
 }))
 
 function renderTrade() {
-  return render(<MemoryRouter><ToastProvider><TradePage /></ToastProvider></MemoryRouter>)
+  // Explicit symbol, independent of whatever TradePage's own default is —
+  // this suite specifically exercises the BTC/USDT flow (mockMarkets/
+  // mockOptionMarkets below only define BTC/USDT), not "whatever the
+  // default happens to be".
+  return render(<MemoryRouter initialEntries={['/trade?symbol=BTC%2FUSDT']}><ToastProvider><TradePage /></ToastProvider></MemoryRouter>)
 }
 
 describe('TradePage — unchanged sections (chart, Spot Holdings, Open Positions, Order History)', () => {

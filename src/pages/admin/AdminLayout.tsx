@@ -25,7 +25,7 @@ export function AdminLayout() {
           <Link to="/admin" className="flex items-center gap-2.5">
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-admin-gold/15 text-admin-gold"><ShieldAlert className="h-4.5 w-4.5" /></div>
             <div>
-              <p className="text-sm font-bold leading-tight text-admin-text">Trust Admin</p>
+              <p className="text-sm font-bold leading-tight text-admin-text">EdgeTrade Admin</p>
               <p className="text-[11px] leading-tight text-admin-mutedDim">Exchange Management System</p>
             </div>
           </Link>

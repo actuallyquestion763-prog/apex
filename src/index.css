@@ -14,9 +14,20 @@
 html, body, #root { height: 100%; overflow-x: hidden; }
 body {
   @apply bg-ink-950 text-slate-200 font-sans antialiased;
+  /* Multi-point cyan ambient glow field — the reference site's actual
+     background technique (extracted from its compiled CSS), applied here
+     at the body level so every page (landing, auth, dashboard, trade,
+     wallet, profile) inherits it automatically without each page needing
+     its own background rule. One gold point kept (bottom-left, unchanged
+     position from before) so TRUST's existing dual-accent identity isn't
+     lost — the reference itself is cyan-only, but this app's gold accent
+     is used throughout (buttons, badges) and dropping it here would make
+     the background inconsistent with everything else on the page. */
   background-image:
-    radial-gradient(900px 500px at 80% -10%, rgba(14,165,233,0.08), transparent 60%),
-    radial-gradient(700px 400px at 0% 100%, rgba(245,158,11,0.06), transparent 60%);
+    radial-gradient(circle at 20% 50%, rgba(0,212,255,0.08), transparent 50%),
+    radial-gradient(circle at 80% 80%, rgba(51,221,255,0.08), transparent 50%),
+    radial-gradient(circle at 40% 20%, rgba(0,212,255,0.05), transparent 50%),
+    radial-gradient(700px 400px at 0% 100%, rgba(245,158,11,0.05), transparent 60%);
   background-attachment: fixed;
 }
 ::-webkit-scrollbar { width: 10px; height: 10px; }
@@ -25,12 +36,15 @@ body {
 ::-webkit-scrollbar-thumb:hover { background: #36415c; }
 
 @layer components {
-  .card { @apply rounded-2xl border border-ink-700/70 bg-ink-850/80 backdrop-blur-sm; }
-  .btn-gold { @apply inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-b from-gold-400 to-gold-500 px-5 py-2.5 text-sm font-semibold text-ink-950 shadow-lg shadow-gold-500/20 transition hover:from-gold-300 hover:to-gold-400 active:scale-[0.98] disabled:opacity-50; }
+  .card { @apply rounded-2xl border border-ink-700/70 bg-ink-850/80 backdrop-blur-md; }
+  .btn-gold { @apply inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-b from-gold-400 to-gold-500 px-5 py-2.5 text-sm font-semibold text-ink-950 shadow-lg shadow-gold-500/20 transition hover:from-gold-300 hover:to-gold-400 hover:shadow-glow-gold active:scale-[0.98] disabled:opacity-50; }
   .btn-ghost { @apply inline-flex items-center justify-center gap-2 rounded-xl border border-ink-600 bg-ink-800/60 px-4 py-2.5 text-sm font-medium text-slate-300 transition hover:border-ink-500 hover:text-white; }
   .btn-danger { @apply inline-flex items-center justify-center gap-2 rounded-xl border border-bear/40 bg-bear/10 px-4 py-2.5 text-sm font-semibold text-bear transition hover:bg-bear/20 active:scale-[0.98] disabled:opacity-50; }
   .btn-success { @apply inline-flex items-center justify-center gap-2 rounded-xl border border-bull/40 bg-bull/10 px-4 py-2.5 text-sm font-semibold text-bull transition hover:bg-bull/20 active:scale-[0.98] disabled:opacity-50; }
-  .btn-ocean { @apply inline-flex items-center justify-center gap-2 rounded-xl border border-ocean-500/40 bg-ocean-500/10 px-4 py-2.5 text-sm font-semibold text-ocean-400 transition hover:bg-ocean-500/20 active:scale-[0.98] disabled:opacity-50; }
+  .btn-ocean { @apply inline-flex items-center justify-center gap-2 rounded-xl border border-ocean-500/40 bg-ocean-500/10 px-4 py-2.5 text-sm font-semibold text-ocean-400 transition hover:bg-ocean-500/20 hover:shadow-glow-sm active:scale-[0.98] disabled:opacity-50; }
+  /* Gradient headline text — the reference site's signature hero treatment.
+     Used on a span wrapping part of existing copy, never to replace it. */
+  .text-gradient { @apply bg-gradient-to-r from-white via-ocean-400 to-ocean-600 bg-clip-text text-transparent; }
   .input { @apply w-full rounded-xl border border-ink-600 bg-ink-900/70 px-4 py-2.5 text-sm text-white placeholder-slate-500 outline-none transition focus:border-ocean-500 focus:ring-2 focus:ring-ocean-500/20; }
   .label { @apply mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-400; }
   .chip { @apply inline-flex items-center gap-1.5 rounded-full border border-ink-600 bg-ink-800/60 px-3 py-1 text-xs font-medium text-slate-300; }

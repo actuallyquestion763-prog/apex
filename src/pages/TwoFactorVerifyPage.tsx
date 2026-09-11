@@ -30,7 +30,7 @@ export function TwoFactorVerifyPage() {
         <div className="mb-8 text-center">
           <Link to="/"><Logo size="lg" /></Link>
         </div>
-        <div className="card p-8 text-center">
+        <div className="card p-8 text-center shadow-glow-sm">
           <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-gold-500/15 text-gold-400">
             <KeyRound className="h-8 w-8" />
           </div>

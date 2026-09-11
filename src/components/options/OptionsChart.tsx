@@ -124,7 +124,7 @@ export function OptionsChart({ symbol, height = 420 }: { symbol: string; height?
     const volumeSeries = chart.addSeries(HistogramSeries, {
       priceFormat: { type: 'volume' },
       priceScaleId: 'volume',
-      color: '#38bdf866',
+      color: '#22d3ee66',
     })
     volumeSeries.priceScale().applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } })
     candleSeries.priceScale().applyOptions({ scaleMargins: { top: 0.05, bottom: 0.22 } })

@@ -52,7 +52,7 @@ const pt: Partial<Record<TranslationKey, string>> = {
   'setNewPassword.error.generic': 'Não foi possível alterar a senha.',
 
   'languages.title': 'Idioma',
-  'languages.subtitle': 'Escolha o idioma de exibição do TRUST.',
+  'languages.subtitle': 'Escolha o idioma de exibição do EDGETRADE.',
   'languages.footnote': 'O idioma selecionado agora se aplica à navegação e às páginas da conta; a tradução completa do aplicativo está sendo implementada gradualmente em mais páginas. O que ainda não foi traduzido é exibido em inglês.',
 }
 

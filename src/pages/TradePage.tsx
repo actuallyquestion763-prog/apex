@@ -24,7 +24,7 @@ function useQuery() { return new URLSearchParams(useLocation().search) }
 
 export default function TradePage() {
   const q = useQuery()
-  const defaultSymbol = q.get('symbol') ?? 'BTC/USDT'
+  const defaultSymbol = q.get('symbol') ?? 'XAU/USD'
   const [symbol, setSymbol] = useState(defaultSymbol)
   const [activePositionId, setActivePositionId] = useState<string | null>(null)
   const [, setTick] = useState(0)
