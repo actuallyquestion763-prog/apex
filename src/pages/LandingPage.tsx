@@ -102,7 +102,7 @@ export function LandingPage() {
       {/* Hero */}
       <section className="relative overflow-hidden">
         <div className="absolute inset-0 -z-10">
-          <div className="absolute left-1/2 top-0 h-[600px] w-[900px] -translate-x-1/2 rounded-full bg-ocean-500/10 blur-[120px]" />
+          <div className="absolute left-1/2 top-0 h-[600px] w-[900px] -translate-x-1/2 rounded-full bg-ocean-500/25 blur-[120px]" />
           <div className="absolute right-0 top-40 h-[400px] w-[400px] rounded-full bg-gold-500/10 blur-[100px]" />
         </div>
         <div className="mx-auto max-w-7xl px-4 py-20 lg:py-28">

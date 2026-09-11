@@ -11,6 +11,10 @@ build.log
 *.log
 *.tsbuildinfo
 
+# Manual-deploy packaging scratch (superseded by
+# .github/workflows/deploy-namecheap.yml, which builds and uploads directly)
+site-upload.zip
+
 # IDE / OS
 .vscode/
 .idea/

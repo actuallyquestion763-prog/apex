@@ -5,14 +5,14 @@ export default {
     extend: {
       colors: {
         ink: {
-          950: '#070a12', 900: '#0b0f1a', 850: '#0e1320', 800: '#121829',
-          700: '#1a2236', 600: '#242d44', 500: '#36415c',
+          950: '#090f15', 900: '#0f172a', 850: '#141b2e', 800: '#1e293b',
+          700: '#334155', 600: '#475569', 500: '#64748b',
         },
         gold: {
           50: '#fffbeb', 100: '#fef3c7', 200: '#fde68a', 300: '#fcd34d',
           400: '#fbbf24', 500: '#f59e0b', 600: '#d97706', 700: '#b45309',
         },
-        ocean: { 400: '#38bdf8', 500: '#0ea5e9', 600: '#0284c7', 700: '#0369a1' },
+        ocean: { 400: '#22d3ee', 500: '#06b6d4', 600: '#0891b2', 700: '#0e7490' },
         bull: '#22c55e', bear: '#ef4444',
         // Admin-only design tokens (TRUST Admin final UI polish pass) — a
         // deliberately separate namespace from ink/gold/ocean above so this

@@ -1,0 +1,63 @@
+name: Deploy frontend to Namecheap
+
+# Separate from ci.yml on purpose (Phase 5, Part 27's CI workflow is
+# verification-only and must never gain deploy/production credentials) —
+# this is the only workflow with access to the FTP_* secrets, and it does
+# nothing but build the frontend and upload the built files.
+#
+# Deploys ONLY the static frontend (this repo's root Vite/React app). The
+# backend (backend/) is a separate NestJS service deployed to Render via its
+# own GitHub-connected auto-deploy — this workflow never touches it.
+
+on:
+  push:
+    branches: [main]
+
+# Prevents two deploys racing each other if commits land close together;
+# lets a newer push supersede an in-flight older one rather than queuing.
+concurrency:
+  group: deploy-namecheap
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - run: npm ci
+
+      # Deliberately NOT setting VITE_API_BASE_URL: src/lib/api.ts defaults
+      # to relative /api paths when it's unset, which is what api-proxy.php
+      # (already live on the server, untouched by this workflow) expects.
+      # Setting it here would silently switch the frontend back to calling
+      # the backend cross-origin directly, breaking the same-origin proxy
+      # this deployment depends on for cookies to work in every browser.
+      - run: npm run build
+
+      - name: Upload dist/ to Namecheap via FTP
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_HOST }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          local-dir: ./dist/
+          # CONFIRM THIS BEFORE FIRST RUN: must resolve, from the FTP
+          # account's own root, to the same folder that already contains
+          # .htaccess/.user.ini/api-proxy.php/cgi-bin/.well-known (i.e. the
+          # real public_html for edgecryptotrade.site). If the githubdeploy
+          # FTP account's root IS public_html itself, use "./"; if its root
+          # is a subfolder inside public_html, adjust accordingly. Check in
+          # cPanel → FTP Accounts what this account's own directory actually
+          # is before relying on this value.
+          server-dir: ./public_html/
+          # Never wipe files this workflow doesn't manage (.htaccess,
+          # .user.ini, api-proxy.php, .well-known, cgi-bin all stay put) —
+          # this only ever adds/updates files that come from local-dir, and
+          # tracks its own state between runs rather than doing a full sync.
+          dangerous-clean-slate: false
