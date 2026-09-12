@@ -140,9 +140,9 @@ export function AdminManagementPage() {
         <StepUpModal
           title={`${pending.grant ? 'Grant' : 'Revoke'} ${pending.permission}`}
           description={`${pending.grant ? 'Granting' : 'Revoking'} a permission for ${pending.admin.email} requires SUPER_ADMIN + step-up re-authentication.`}
-          onConfirm={async ({ reason, confirmPassword, totpCode }) => {
+          onConfirm={async ({ reason, confirmPassword }) => {
             const action = pending.grant ? 'grant' : 'revoke'
-            const res = await tryAction(() => api.patch(`/admin/admins/${pending.admin.id}/permissions/${pending.permission}/${action}`, { reason, confirmPassword, totpCode }))
+            const res = await tryAction(() => api.patch(`/admin/admins/${pending.admin.id}/permissions/${pending.permission}/${action}`, { reason, confirmPassword }))
             if (res.ok) { push('success', `Permission ${action}ed.`); setPending(null); refetch() }
             else throw new ApiError(0, res.error, null)
           }}
@@ -180,9 +180,9 @@ function AddAdminModal({ onClose, onCreated }: { onClose: () => void; onCreated:
     <StepUpModal
       title="Add a new administrator"
       description="Creates a new ADMIN account (never SUPER_ADMIN) with the password set below. Requires SUPER_ADMIN + step-up re-authentication."
-      onConfirm={async ({ reason, confirmPassword, totpCode }) => {
+      onConfirm={async ({ reason, confirmPassword }) => {
         if (!email.trim() || password.length < 12) throw new ApiError(0, 'Enter a valid email and a password of at least 12 characters.', null)
-        const res = await tryAction(() => api.post('/admin/admins', { email: email.trim(), fullName: fullName.trim() || undefined, password, reason, confirmPassword, totpCode }))
+        const res = await tryAction(() => api.post('/admin/admins', { email: email.trim(), fullName: fullName.trim() || undefined, password, reason, confirmPassword }))
         if (res.ok) { push('success', 'Administrator created.'); onCreated() }
         else throw new ApiError(0, res.error, null)
       }}
@@ -203,9 +203,9 @@ function ResetPasswordModal({ admin, onClose, onDone }: { admin: AdminRow; onClo
     <StepUpModal
       title={`Change password — ${admin.email}`}
       description="This immediately revokes every active session for this account. Requires SUPER_ADMIN + step-up re-authentication."
-      onConfirm={async ({ reason, confirmPassword, totpCode }) => {
+      onConfirm={async ({ reason, confirmPassword }) => {
         if (newPassword.length < 12) throw new ApiError(0, 'New password must be at least 12 characters.', null)
-        const res = await tryAction(() => api.patch(`/admin/admins/${admin.id}/reset-password`, { newPassword, reason, confirmPassword, totpCode }))
+        const res = await tryAction(() => api.patch(`/admin/admins/${admin.id}/reset-password`, { newPassword, reason, confirmPassword }))
         if (res.ok) { push('success', 'Password changed — all sessions revoked.'); onDone() }
         else throw new ApiError(0, res.error, null)
       }}

@@ -68,7 +68,7 @@ export class CryptoDepositsAdminController {
     @UploadedFile() qr: UploadedFileLike | undefined,
     @CurrentUser() admin: AuthenticatedUser,
   ) {
-    await this.stepUp.assertStepUpAuthorized(admin.id, dto.confirmPassword, dto.totpCode)
+    await this.stepUp.assertStepUpAuthorized(admin.id, dto.confirmPassword)
     return this.cryptoDeposits.upsertNetworkAddress(admin.id, decodeURIComponent(symbol), dto, qr)
   }
 
@@ -83,7 +83,7 @@ export class CryptoDepositsAdminController {
     @Body() dto: DeleteNetworkDto,
     @CurrentUser() admin: AuthenticatedUser,
   ) {
-    await this.stepUp.assertStepUpAuthorized(admin.id, dto.confirmPassword, dto.totpCode)
+    await this.stepUp.assertStepUpAuthorized(admin.id, dto.confirmPassword)
     return this.cryptoDeposits.deleteNetworkAddress(admin.id, decodeURIComponent(symbol), decodeURIComponent(networkCode), dto.reason)
   }
 }

@@ -105,8 +105,8 @@ export function UsersPage() {
         <StepUpModal
           title={`Change role to ${stepUp.role}`}
           description={`This changes ${stepUp.user.email}'s role. Role changes require SUPER_ADMIN + step-up re-authentication.`}
-          onConfirm={async ({ reason, confirmPassword, totpCode }) => {
-            const res = await tryAction(() => api.patch(`/admin/users/${stepUp.user.id}/role`, { role: stepUp.role, reason, confirmPassword, totpCode }))
+          onConfirm={async ({ reason, confirmPassword }) => {
+            const res = await tryAction(() => api.patch(`/admin/users/${stepUp.user.id}/role`, { role: stepUp.role, reason, confirmPassword }))
             if (res.ok) { push('success', 'Role updated.'); setStepUp(null); refetch() }
             else throw new ApiError(0, res.error, null)
           }}

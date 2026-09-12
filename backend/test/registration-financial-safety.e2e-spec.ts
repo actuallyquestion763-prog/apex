@@ -106,7 +106,7 @@ describe('Registration financial safety (real PostgreSQL)', () => {
     await request(server)
       .post('/admin/financial-adjustment')
       .set('Cookie', superCookie)
-      .send({ userId, amount: '42', direction: 'CREDIT', reason: 'explicit test adjustment, not registration', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+      .send({ userId, amount: '42', direction: 'CREDIT', reason: 'explicit test adjustment, not registration', confirmPassword: superPassword })
       .expect(201)
 
     account = await prisma.account.findFirstOrThrow({ where: { userId } })

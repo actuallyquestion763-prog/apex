@@ -212,9 +212,9 @@ describe('Concurrency & idempotency hardening (real PostgreSQL)', () => {
 
     const [r1, r2] = await Promise.all([
       request(server).post('/admin/financial-adjustment').set('Cookie', superAdmin.cookie)
-        .send({ userId, amount: '50', direction: 'CREDIT', reason: 'race credit A', confirmPassword: superAdmin.password, totpCode: currentTotpCode(superAdmin.secret) }),
+        .send({ userId, amount: '50', direction: 'CREDIT', reason: 'race credit A', confirmPassword: superAdmin.password }),
       request(server).post('/admin/financial-adjustment').set('Cookie', superAdmin.cookie)
-        .send({ userId, amount: '30', direction: 'CREDIT', reason: 'race credit B', confirmPassword: superAdmin.password, totpCode: currentTotpCode(superAdmin.secret) }),
+        .send({ userId, amount: '30', direction: 'CREDIT', reason: 'race credit B', confirmPassword: superAdmin.password }),
     ])
     expect(r1.status).toBe(201)
     expect(r2.status).toBe(201)
@@ -231,9 +231,9 @@ describe('Concurrency & idempotency hardening (real PostgreSQL)', () => {
 
     const [r1, r2] = await Promise.all([
       request(server).post('/admin/financial-adjustment').set('Cookie', superAdmin.cookie)
-        .send({ userId, amount: '75', direction: 'CREDIT', reason: 'idempotency test', confirmPassword: superAdmin.password, totpCode: currentTotpCode(superAdmin.secret), idempotencyKey }),
+        .send({ userId, amount: '75', direction: 'CREDIT', reason: 'idempotency test', confirmPassword: superAdmin.password, idempotencyKey }),
       request(server).post('/admin/financial-adjustment').set('Cookie', superAdmin.cookie)
-        .send({ userId, amount: '75', direction: 'CREDIT', reason: 'idempotency test retry', confirmPassword: superAdmin.password, totpCode: currentTotpCode(superAdmin.secret), idempotencyKey }),
+        .send({ userId, amount: '75', direction: 'CREDIT', reason: 'idempotency test retry', confirmPassword: superAdmin.password, idempotencyKey }),
     ])
     expect(r1.status).toBe(201)
     expect(r2.status).toBe(201)

@@ -9,7 +9,4 @@ export class DeleteNetworkDto {
 
   @IsString()
   confirmPassword!: string
-
-  @IsString()
-  totpCode!: string
 }

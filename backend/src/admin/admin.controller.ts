@@ -37,9 +37,6 @@ class RevokePermissionDto {
 
   @IsString()
   confirmPassword!: string
-
-  @IsString()
-  totpCode!: string
 }
 
 /**
@@ -188,12 +185,12 @@ export class AdminController {
   }
 
   // Withdrawal approval is one of the explicitly listed step-up-required
-  // actions — password + fresh TOTP, not just the withdrawals.review
-  // permission.
+  // actions — the acting admin's current password, not just the
+  // withdrawals.review permission.
   @Post('withdrawals/:id/approve')
   @RequirePermissions('withdrawals.review')
   approveWithdrawal(@Param('id') id: string, @Body() dto: ApproveWithdrawalDto, @CurrentUser() admin: AuthenticatedUser) {
-    return this.adminService.approveWithdrawalWithStepUp(id, dto.confirmPassword, dto.totpCode, admin.id, dto.reason)
+    return this.adminService.approveWithdrawalWithStepUp(id, dto.confirmPassword, admin.id, dto.reason)
   }
 
   @Post('withdrawals/:id/reject')

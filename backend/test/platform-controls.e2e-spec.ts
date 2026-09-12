@@ -31,7 +31,7 @@ describe('Platform and market kill switches — server-enforced (real PostgreSQL
     await request(server)
       .patch('/admin/platform-settings')
       .set('Cookie', superCookie)
-      .send({ tradingEnabled: true, depositsEnabled: true, withdrawalsEnabled: true, registrationsEnabled: true, reason: 'restore after tests', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+      .send({ tradingEnabled: true, depositsEnabled: true, withdrawalsEnabled: true, registrationsEnabled: true, reason: 'restore after tests', confirmPassword: superPassword })
     await app.close()
   })
 
@@ -54,7 +54,7 @@ describe('Platform and market kill switches — server-enforced (real PostgreSQL
     await request(server)
       .patch('/admin/platform-settings')
       .set('Cookie', superCookie)
-      .send({ tradingEnabled: false, reason: 'test pause', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+      .send({ tradingEnabled: false, reason: 'test pause', confirmPassword: superPassword })
       .expect(200)
 
     const res = await request(server).post('/orders').set('Cookie', cookie).send({ symbol: 'KILLSWITCH/TEST', side: 'BUY', quantity: '10' })
@@ -63,7 +63,7 @@ describe('Platform and market kill switches — server-enforced (real PostgreSQL
     await request(server)
       .patch('/admin/platform-settings')
       .set('Cookie', superCookie)
-      .send({ tradingEnabled: true, reason: 'test resume', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+      .send({ tradingEnabled: true, reason: 'test resume', confirmPassword: superPassword })
       .expect(200)
 
     const res2 = await request(server).post('/orders').set('Cookie', cookie).send({ symbol: 'KILLSWITCH/TEST', side: 'BUY', quantity: '10' })
@@ -75,7 +75,7 @@ describe('Platform and market kill switches — server-enforced (real PostgreSQL
     await request(server)
       .patch('/admin/platform-settings')
       .set('Cookie', superCookie)
-      .send({ depositsEnabled: false, reason: 'test', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+      .send({ depositsEnabled: false, reason: 'test', confirmPassword: superPassword })
       .expect(200)
 
     await request(server).post('/deposits').set('Cookie', cookie).send({ amount: '100', method: 'test' }).expect(503)
@@ -83,7 +83,7 @@ describe('Platform and market kill switches — server-enforced (real PostgreSQL
     await request(server)
       .patch('/admin/platform-settings')
       .set('Cookie', superCookie)
-      .send({ depositsEnabled: true, reason: 'test', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+      .send({ depositsEnabled: true, reason: 'test', confirmPassword: superPassword })
       .expect(200)
   })
 
@@ -92,7 +92,7 @@ describe('Platform and market kill switches — server-enforced (real PostgreSQL
     await request(server)
       .patch('/admin/platform-settings')
       .set('Cookie', superCookie)
-      .send({ withdrawalsEnabled: false, reason: 'test', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+      .send({ withdrawalsEnabled: false, reason: 'test', confirmPassword: superPassword })
       .expect(200)
 
     await request(server).post('/withdrawals').set('Cookie', cookie).send({ amount: '10', destination: 'x' }).expect(503)
@@ -100,7 +100,7 @@ describe('Platform and market kill switches — server-enforced (real PostgreSQL
     await request(server)
       .patch('/admin/platform-settings')
       .set('Cookie', superCookie)
-      .send({ withdrawalsEnabled: true, reason: 'test', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+      .send({ withdrawalsEnabled: true, reason: 'test', confirmPassword: superPassword })
       .expect(200)
   })
 
@@ -108,7 +108,7 @@ describe('Platform and market kill switches — server-enforced (real PostgreSQL
     await request(server)
       .patch('/admin/platform-settings')
       .set('Cookie', superCookie)
-      .send({ registrationsEnabled: false, reason: 'test', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+      .send({ registrationsEnabled: false, reason: 'test', confirmPassword: superPassword })
       .expect(200)
 
     await request(server).post('/auth/register').send({ email: uniqueEmail('blocked'), password: 'correct-horse-battery', fullName: 'Blocked' }).expect(503)
@@ -116,7 +116,7 @@ describe('Platform and market kill switches — server-enforced (real PostgreSQL
     await request(server)
       .patch('/admin/platform-settings')
       .set('Cookie', superCookie)
-      .send({ registrationsEnabled: true, reason: 'test', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+      .send({ registrationsEnabled: true, reason: 'test', confirmPassword: superPassword })
       .expect(200)
   })
 

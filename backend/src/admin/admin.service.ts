@@ -46,7 +46,7 @@ export class AdminService {
   // ReconciliationService.run()) sets the precedent that a PURE READ report
   // — nothing here ever repairs a discrepancy — sits at the same trust tier
   // as viewing ledger/order data, not the money-moving tier that requires
-  // password+TOTP (withdrawal approval, platform kill switches, permission
+  // step-up (withdrawal approval, platform kill switches, permission
   // grants — see admin.controller.ts's step-up-gated routes). The run
   // itself is still audited (who, when, summary counts) even though it has
   // no financial effect.
@@ -317,12 +317,12 @@ export class AdminService {
 
   // Role changes are the most sensitive user-management action available —
   // restricted to SUPER_ADMIN at the controller level (@Roles(SUPER_ADMIN))
-  // in addition to step-up (password + fresh TOTP) here. This is also how
+  // in addition to step-up (password re-authentication) here. This is also how
   // "creating"/"deleting" an administrator works in this design — promoting
   // a USER to ADMIN, or demoting an ADMIN back to USER — there is no
   // separate endpoint, so both are covered by this same guard.
   async updateUserRole(targetUserId: string, dto: UpdateUserRoleDto, adminId: string) {
-    await this.stepUp.assertStepUpAuthorized(adminId, dto.confirmPassword, dto.totpCode)
+    await this.stepUp.assertStepUpAuthorized(adminId, dto.confirmPassword)
     const target = await this.prisma.user.findUniqueOrThrow({ where: { id: targetUserId } })
     const updated = await this.prisma.user.update({ where: { id: targetUserId }, data: { role: dto.role } })
 
@@ -334,7 +334,7 @@ export class AdminService {
   // ---- Financial adjustment ---------------------------------------------------
 
   async financialAdjustment(dto: FinancialAdjustmentDto, adminId: string) {
-    await this.stepUp.assertStepUpAuthorized(adminId, dto.confirmPassword, dto.totpCode)
+    await this.stepUp.assertStepUpAuthorized(adminId, dto.confirmPassword)
 
     const amount = new Decimal(dto.amount)
     if (amount.lte(0)) throw new BadRequestException('Adjustment amount must be positive; use direction to credit or debit.')
@@ -391,9 +391,9 @@ export class AdminService {
   // ---- Platform-wide controls -------------------------------------------------
 
   async updatePlatformSettings(dto: UpdatePlatformSettingsDto, adminId: string) {
-    await this.stepUp.assertStepUpAuthorized(adminId, dto.confirmPassword, dto.totpCode)
+    await this.stepUp.assertStepUpAuthorized(adminId, dto.confirmPassword)
     const before = await this.platformSettings.get()
-    const { reason, confirmPassword: _cp, totpCode: _totp, ...patch } = dto
+    const { reason, confirmPassword: _cp, ...patch } = dto
     const updated = await this.platformSettings.update(patch, adminId)
 
     for (const [key, event] of [
@@ -484,7 +484,7 @@ export class AdminService {
   // itself SUPER_ADMIN + step-up gated). SUPER_ADMIN-only + step-up at the
   // controller/here, same tier as grantPermission/updateUserRole.
   async createAdmin(dto: CreateAdminDto, adminId: string) {
-    await this.stepUp.assertStepUpAuthorized(adminId, dto.confirmPassword, dto.totpCode)
+    await this.stepUp.assertStepUpAuthorized(adminId, dto.confirmPassword)
 
     const email = dto.email.toLowerCase()
     const existing = await this.prisma.user.findUnique({ where: { email } })
@@ -516,7 +516,7 @@ export class AdminService {
   // the target account so a reset password can't coexist with an
   // already-open session using the OLD one.
   async resetAdminPassword(targetAdminId: string, dto: ResetAdminPasswordDto, adminId: string) {
-    await this.stepUp.assertStepUpAuthorized(adminId, dto.confirmPassword, dto.totpCode)
+    await this.stepUp.assertStepUpAuthorized(adminId, dto.confirmPassword)
 
     const target = await this.prisma.user.findUniqueOrThrow({ where: { id: targetAdminId } })
     if (target.role !== 'ADMIN' && target.role !== 'SUPER_ADMIN') {
@@ -538,7 +538,7 @@ export class AdminService {
   // grant permissions, including to themselves, matching "SUPER_ADMIN
   // should remain the highest authority."
   async grantPermission(targetAdminId: string, permissionKey: PermissionKey, dto: GrantPermissionDto, superAdminId: string) {
-    await this.stepUp.assertStepUpAuthorized(superAdminId, dto.confirmPassword, dto.totpCode)
+    await this.stepUp.assertStepUpAuthorized(superAdminId, dto.confirmPassword)
     const permission = await this.prisma.permission.findUniqueOrThrow({ where: { key: permissionKey } })
 
     await this.prisma.userPermission.upsert({
@@ -551,8 +551,8 @@ export class AdminService {
     return this.listAdmins()
   }
 
-  async revokePermission(targetAdminId: string, permissionKey: PermissionKey, superAdminId: string, dto: { reason: string; confirmPassword: string; totpCode: string }) {
-    await this.stepUp.assertStepUpAuthorized(superAdminId, dto.confirmPassword, dto.totpCode)
+  async revokePermission(targetAdminId: string, permissionKey: PermissionKey, superAdminId: string, dto: { reason: string; confirmPassword: string }) {
+    await this.stepUp.assertStepUpAuthorized(superAdminId, dto.confirmPassword)
     const permission = await this.prisma.permission.findUniqueOrThrow({ where: { key: permissionKey } })
 
     await this.prisma.userPermission.deleteMany({ where: { userId: targetAdminId, permissionId: permission.id } })
@@ -565,8 +565,8 @@ export class AdminService {
   // sensitive) — kept here (rather than in WithdrawalsService, which has no
   // reason to know about password/TOTP re-authentication) so all
   // step-up-gated actions are visible in one place.
-  async approveWithdrawalWithStepUp(withdrawalId: string, confirmPassword: string, totpCode: string, adminId: string, reason?: string) {
-    await this.stepUp.assertStepUpAuthorized(adminId, confirmPassword, totpCode)
+  async approveWithdrawalWithStepUp(withdrawalId: string, confirmPassword: string, adminId: string, reason?: string) {
+    await this.stepUp.assertStepUpAuthorized(adminId, confirmPassword)
     return this.withdrawals.approve(withdrawalId, adminId, reason)
   }
 

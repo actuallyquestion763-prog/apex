@@ -121,7 +121,7 @@ describe('Financial invariants (real PostgreSQL, including real concurrency)', (
     expect(txCount).toBe(1)
   })
 
-  it('unauthorized financial adjustment is rejected: wrong password, wrong TOTP, and missing permission', async () => {
+  it('unauthorized financial adjustment is rejected: wrong password and missing permission', async () => {
     const superEmail = uniqueEmail('adjustsuper')
     const superPassword = 'correct-horse-battery'
     const { user: superUser } = await createUserDirect(prisma, { email: superEmail, password: superPassword, role: 'SUPER_ADMIN' })
@@ -132,18 +132,13 @@ describe('Financial invariants (real PostgreSQL, including real concurrency)', (
 
     const { userId: targetId } = await registerAndLogin('adjusttarget')
 
-    // Wrong password
+    // Wrong password — financial-adjustment uses password-only
+    // re-authentication (StepUpService.assertStepUpAuthorized); this is
+    // still verified fresh every time, never trusting the open session alone.
     await request(server)
       .post('/admin/financial-adjustment')
       .set('Cookie', superCookie)
-      .send({ userId: targetId, amount: '100', direction: 'CREDIT', reason: 'test wrong password', confirmPassword: 'totally-wrong', totpCode: currentTotpCode(superSecret) })
-      .expect(401)
-
-    // Wrong TOTP
-    await request(server)
-      .post('/admin/financial-adjustment')
-      .set('Cookie', superCookie)
-      .send({ userId: targetId, amount: '100', direction: 'CREDIT', reason: 'test wrong totp', confirmPassword: superPassword, totpCode: '000000' })
+      .send({ userId: targetId, amount: '100', direction: 'CREDIT', reason: 'test wrong password', confirmPassword: 'totally-wrong' })
       .expect(401)
 
     // A plain ADMIN (no ledger.adjust permission) cannot do it at all
@@ -154,13 +149,43 @@ describe('Financial invariants (real PostgreSQL, including real concurrency)', (
     await request(server)
       .post('/admin/financial-adjustment')
       .set('Cookie', adminCookie)
-      .send({ userId: targetId, amount: '100', direction: 'CREDIT', reason: 'test no permission', confirmPassword: adminPassword, totpCode: '000000' })
+      .send({ userId: targetId, amount: '100', direction: 'CREDIT', reason: 'test no permission', confirmPassword: adminPassword })
       .expect(403)
 
     // Confirm nothing was actually credited by any of the failed attempts
     const account = await prisma.account.findFirstOrThrow({ where: { userId: targetId } })
     const balances = await ledger.getAccountBalances(account.id)
     expect(balances.cash.toString()).toBe('0')
+  })
+
+  // Every admin step-up-gated action platform-wide (financial adjustments,
+  // crypto receiving-address changes, role/permission changes, admin
+  // management, platform controls) uses password-only re-authentication
+  // (StepUpService.assertStepUpAuthorized) at the operator's explicit
+  // request — see crypto-deposits.e2e-spec.ts's "19c" for the same proof on
+  // a different action. This proves the behavior is real, not accidental: a
+  // correct password with NO totpCode at all succeeds here too.
+  it('financial adjustment succeeds with a correct password alone — no TOTP code required or checked', async () => {
+    const superEmail = uniqueEmail('adjustnofa')
+    const superPassword = 'correct-horse-battery'
+    // Deliberately does NOT enable 2FA on this account — proves the
+    // password-only path works even when the acting admin has no TOTP
+    // credential at all.
+    await createUserDirect(prisma, { email: superEmail, password: superPassword, role: 'SUPER_ADMIN' })
+    const superCookie = extractSessionCookie(await request(server).post('/auth/login').send({ email: superEmail, password: superPassword }).expect(200))
+
+    const { userId: targetId } = await registerAndLogin('adjustnofatarget')
+
+    const res = await request(server)
+      .post('/admin/financial-adjustment')
+      .set('Cookie', superCookie)
+      .send({ userId: targetId, amount: '20', direction: 'CREDIT', reason: 'password-only reauth test', confirmPassword: superPassword })
+      .expect(201)
+    expect(res.body.ledgerTransactionId).toBeDefined()
+
+    const account = await prisma.account.findFirstOrThrow({ where: { userId: targetId } })
+    const balances = await ledger.getAccountBalances(account.id)
+    expect(balances.cash.toString()).toBe('20')
   })
 
   it('every successful financial adjustment produces an audit trail referencing the ledger transaction', async () => {
@@ -177,7 +202,7 @@ describe('Financial invariants (real PostgreSQL, including real concurrency)', (
     const res = await request(server)
       .post('/admin/financial-adjustment')
       .set('Cookie', superCookie)
-      .send({ userId: targetId, amount: '55', direction: 'CREDIT', reason: 'audit trail test', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+      .send({ userId: targetId, amount: '55', direction: 'CREDIT', reason: 'audit trail test', confirmPassword: superPassword })
       .expect(201)
 
     const ledgerTransactionId = res.body.ledgerTransactionId

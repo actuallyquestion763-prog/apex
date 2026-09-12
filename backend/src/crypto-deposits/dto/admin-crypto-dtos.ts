@@ -80,7 +80,4 @@ export class UpsertCryptoDepositAddressDto {
 
   @IsString()
   confirmPassword!: string
-
-  @IsString()
-  totpCode!: string
 }

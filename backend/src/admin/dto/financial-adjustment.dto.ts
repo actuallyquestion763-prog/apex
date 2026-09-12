@@ -22,14 +22,11 @@ export class FinancialAdjustmentDto {
   @MinLength(5)
   reason!: string
 
-  // Step-up re-authentication: the acting admin must present their own
-  // current password AND a fresh TOTP code for this specific privileged
-  // action, not just rely on an already-open session. See StepUpService.
+  // Re-authentication: the acting admin must present their own current
+  // password for this specific privileged action, not just rely on an
+  // already-open session — see StepUpService.assertStepUpAuthorized().
   @IsString()
   confirmPassword!: string
-
-  @IsString()
-  totpCode!: string
 
   // Supplied by the admin UI, reused across a single confirm click so a
   // duplicate submit resolves to the same ledger transaction instead of

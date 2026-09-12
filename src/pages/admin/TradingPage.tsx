@@ -148,38 +148,41 @@ export function TradingPage() {
           <div className="admin-card border-bear/30 p-3">
             <div className="flex items-center gap-1.5">
               <FlaskConical className="h-3.5 w-3.5 text-bear" />
-              <h3 className="text-[11px] font-bold uppercase tracking-wide text-bear">All User Control — Test/Simulation Only</h3>
+              <h3 className="text-xs font-bold uppercase tracking-wide text-bear">All User Control — Test/Simulation Only</h3>
             </div>
             <p className="mt-1 text-[10px] text-admin-mutedDim">Platform-wide, this environment only. Never affects real Binance execution or production. Every change is audit logged.</p>
-            <div className="mt-2 flex gap-2">
-              <button
-                onClick={() => setStepUp({ kind: 'settings', patch: { sandboxOutcomeMode: 'RANDOM' } })}
-                className={`flex-1 rounded-lg px-3 py-1.5 text-[11px] font-bold ${settingsRes.data.sandboxOutcomeMode === 'RANDOM' ? 'border border-admin-borderLight bg-admin-surface text-admin-text' : 'border border-admin-border text-admin-mutedDim hover:text-admin-text'}`}
-              >
-                NORMAL
-              </button>
+            <div className="mt-2.5 flex gap-2.5">
               <button
                 onClick={() => setStepUp({ kind: 'settings', patch: { sandboxOutcomeMode: 'FORCE_WIN' } })}
-                className={`flex-1 rounded-lg px-3 py-1.5 text-[11px] font-bold ${settingsRes.data.sandboxOutcomeMode === 'FORCE_WIN' ? 'bg-bull text-white' : 'border border-bull/30 text-bull hover:bg-bull/10'}`}
+                className={`flex-1 rounded-lg px-4 py-2 text-xs font-bold ${settingsRes.data.sandboxOutcomeMode === 'FORCE_WIN' ? 'bg-bull text-white' : 'border border-bull/30 text-bull hover:bg-bull/10'}`}
               >
                 WIN ALL
               </button>
               <button
                 onClick={() => setStepUp({ kind: 'settings', patch: { sandboxOutcomeMode: 'FORCE_LOSS' } })}
-                className={`flex-1 rounded-lg px-3 py-1.5 text-[11px] font-bold ${settingsRes.data.sandboxOutcomeMode === 'FORCE_LOSS' ? 'bg-bear text-white' : 'border border-bear/30 text-bear hover:bg-bear/10'}`}
+                className={`flex-1 rounded-lg px-4 py-2 text-xs font-bold ${settingsRes.data.sandboxOutcomeMode === 'FORCE_LOSS' ? 'bg-bear text-white' : 'border border-bear/30 text-bear hover:bg-bear/10'}`}
               >
                 LOSE ALL
+              </button>
+              <button
+                onClick={() => setStepUp({ kind: 'settings', patch: { sandboxOutcomeMode: 'RANDOM' } })}
+                className={`rounded-lg px-3 py-2 text-xs font-bold ${settingsRes.data.sandboxOutcomeMode === 'RANDOM' ? 'border border-admin-borderLight bg-admin-surface text-admin-text' : 'border border-admin-border text-admin-mutedDim hover:text-admin-text'}`}
+              >
+                NORMAL
               </button>
             </div>
           </div>
         )}
 
         {/* USER CONTROL — a real per-user trade filter (search real users,
-            select one, Current Trading/Trade List narrow to their rows).
-            No outcome-forcing capability exists here or anywhere for a
-            specific user — this only changes which rows are displayed. */}
+            select one, Current Trading/Trade List narrow to their rows),
+            plus per-user WIN/LOSE — but that outcome control is only ever
+            functional for a user with isTestUser=true (enforced server-side
+            in setTestUserOutcomeMode, not just in this disabled state). For
+            every other selected user the buttons render disabled with an
+            explanation — there is no way to force a real customer's trade. */}
         <div className="admin-card p-3">
-          <h3 className="text-[11px] font-bold uppercase tracking-wide text-admin-gold">User Control</h3>
+          <h3 className="text-xs font-bold uppercase tracking-wide text-admin-gold">User Control</h3>
           <div className="mt-2 flex flex-wrap gap-2">
             <div className="relative flex-1 min-w-[160px]">
               <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3 w-3 -translate-y-1/2 text-admin-mutedDim" />
@@ -202,60 +205,66 @@ export function TradingPage() {
             </select>
             {selectedUserId && <button onClick={() => setSelectedUserId('')} className="admin-btn-info px-3 py-1.5 text-xs">Clear</button>}
           </div>
-          {selectedUserId && (
-            <p className="mt-1.5 text-[10px] text-admin-mutedDim">Showing trades for <span className="text-admin-text">{selectedUser?.email}</span> only — filters Current Trading/Trade List; only affects outcomes if this is a designated test user (below).</p>
+
+          {/* USER WIN / USER LOSE — real, backend-persisted per-user outcome
+              control, only ever shown at all in the same dev/test
+              environment ALL USER CONTROL is gated on, and only ever
+              functional for a designated test/sandbox user. */}
+          {settingsRes.data?.sandboxControlsAvailable && (
+            selectedUserId && selectedUser ? (
+              selectedUser.isTestUser ? (
+                <div className="mt-2.5 flex gap-2.5">
+                  <button
+                    onClick={() => setStepUp({ kind: 'testUserOutcome', userId: selectedUser.id, testOutcomeMode: 'FORCE_WIN' })}
+                    className={`flex-1 rounded-lg px-4 py-2 text-xs font-bold ${selectedUser.testOutcomeMode === 'FORCE_WIN' ? 'bg-bull text-white' : 'border border-bull/30 text-bull hover:bg-bull/10'}`}
+                  >
+                    USER WIN
+                  </button>
+                  <button
+                    onClick={() => setStepUp({ kind: 'testUserOutcome', userId: selectedUser.id, testOutcomeMode: 'FORCE_LOSS' })}
+                    className={`flex-1 rounded-lg px-4 py-2 text-xs font-bold ${selectedUser.testOutcomeMode === 'FORCE_LOSS' ? 'bg-bear text-white' : 'border border-bear/30 text-bear hover:bg-bear/10'}`}
+                  >
+                    USER LOSE
+                  </button>
+                  <button
+                    onClick={() => setStepUp({ kind: 'testUserOutcome', userId: selectedUser.id, testOutcomeMode: 'NORMAL' })}
+                    className={`rounded-lg px-3 py-2 text-xs font-bold ${selectedUser.testOutcomeMode === 'NORMAL' ? 'border border-admin-borderLight bg-admin-surface text-admin-text' : 'border border-admin-border text-admin-mutedDim hover:text-admin-text'}`}
+                  >
+                    NORMAL
+                  </button>
+                </div>
+              ) : (
+                <div className="mt-2.5">
+                  <div className="flex gap-2.5 opacity-40" title="Unavailable — this is not a designated test/sandbox user">
+                    <button disabled className="admin-btn-success flex-1 px-4 py-2 text-xs">USER WIN</button>
+                    <button disabled className="admin-btn-danger flex-1 px-4 py-2 text-xs">USER LOSE</button>
+                    <button disabled className="admin-btn-secondary px-3 py-2 text-xs">NORMAL</button>
+                  </div>
+                  <p className="mt-1.5 text-[10px] text-admin-mutedDim">Not a designated test/sandbox user — outcome controls unavailable. A real customer's account can never be converted into one.</p>
+                </div>
+              )
+            ) : (
+              <div className="mt-2.5">
+                <div className="flex gap-2.5 opacity-40" title="Select a user above first">
+                  <button disabled className="admin-btn-success flex-1 px-4 py-2 text-xs">USER WIN</button>
+                  <button disabled className="admin-btn-danger flex-1 px-4 py-2 text-xs">USER LOSE</button>
+                  <button disabled className="admin-btn-secondary px-3 py-2 text-xs">NORMAL</button>
+                </div>
+                <p className="mt-1.5 text-[10px] text-admin-mutedDim">Select a designated test/sandbox user above to enable outcome controls — 🧪 marks test users in the list.</p>
+              </div>
+            )
           )}
 
-          {/* Selected User detail + TEST USER WIN/LOSE/NORMAL — real, backend-
-              persisted controls, but only ever functional for a user with
-              isTestUser=true (enforced server-side in
-              setTestUserOutcomeMode, not just in this disabled state). Only
-              shown at all in the same dev/test environment ALL USER CONTROL
-              is gated on. */}
-          {selectedUserId && selectedUser && settingsRes.data?.sandboxControlsAvailable && (
-            <div className="mt-2 border-t border-admin-border/60 pt-2">
-              <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] sm:grid-cols-4">
-                <div><span className="text-admin-mutedDim">User ID </span><span className="font-mono text-admin-text">{selectedUser.id.slice(0, 8)}</span></div>
-                <div><span className="text-admin-mutedDim">Name </span><span className="text-admin-text">{selectedUser.fullName}</span></div>
-                <div><span className="text-admin-mutedDim">Email </span><span className="text-admin-text">{selectedUser.email}</span></div>
-                <div><span className="text-admin-mutedDim">Balance </span><span className="font-mono text-admin-text">{Number(selectedUser.usdtBalance).toLocaleString()} USDT</span></div>
-              </div>
-
-              {selectedUser.isTestUser ? (
-                <>
-                  <p className="mt-2 text-[10px] font-bold uppercase tracking-wide text-admin-gold">🧪 Designated Test User — Test/Sandbox Outcome Control</p>
-                  <div className="mt-1.5 flex gap-2">
-                    <button
-                      onClick={() => setStepUp({ kind: 'testUserOutcome', userId: selectedUser.id, testOutcomeMode: 'NORMAL' })}
-                      className={`flex-1 rounded-lg px-3 py-1.5 text-[11px] font-bold ${selectedUser.testOutcomeMode === 'NORMAL' ? 'border border-admin-borderLight bg-admin-surface text-admin-text' : 'border border-admin-border text-admin-mutedDim hover:text-admin-text'}`}
-                    >
-                      NORMAL
-                    </button>
-                    <button
-                      onClick={() => setStepUp({ kind: 'testUserOutcome', userId: selectedUser.id, testOutcomeMode: 'FORCE_WIN' })}
-                      className={`flex-1 rounded-lg px-3 py-1.5 text-[11px] font-bold ${selectedUser.testOutcomeMode === 'FORCE_WIN' ? 'bg-bull text-white' : 'border border-bull/30 text-bull hover:bg-bull/10'}`}
-                    >
-                      TEST USER WIN
-                    </button>
-                    <button
-                      onClick={() => setStepUp({ kind: 'testUserOutcome', userId: selectedUser.id, testOutcomeMode: 'FORCE_LOSS' })}
-                      className={`flex-1 rounded-lg px-3 py-1.5 text-[11px] font-bold ${selectedUser.testOutcomeMode === 'FORCE_LOSS' ? 'bg-bear text-white' : 'border border-bear/30 text-bear hover:bg-bear/10'}`}
-                    >
-                      TEST USER LOSE
-                    </button>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="mt-2 flex gap-2 opacity-40" title="Unavailable — this is not a designated test/sandbox user">
-                    <button disabled className="admin-btn-secondary flex-1 px-3 py-1.5 text-[11px]">NORMAL</button>
-                    <button disabled className="admin-btn-success flex-1 px-3 py-1.5 text-[11px]">TEST USER WIN</button>
-                    <button disabled className="admin-btn-danger flex-1 px-3 py-1.5 text-[11px]">TEST USER LOSE</button>
-                  </div>
-                  <p className="mt-1.5 text-[10px] text-admin-mutedDim">Not a designated test/sandbox user — outcome controls unavailable. Create a dedicated test user below to use these controls; a real customer's account can never be converted into one.</p>
-                </>
-              )}
+          {selectedUserId && selectedUser && (
+            <div className="mt-2.5 grid grid-cols-2 gap-x-3 gap-y-1 border-t border-admin-border/60 pt-2 text-[11px] sm:grid-cols-4">
+              <div><span className="text-admin-mutedDim">User ID </span><span className="font-mono text-admin-text">{selectedUser.id.slice(0, 8)}</span></div>
+              <div><span className="text-admin-mutedDim">Name </span><span className="text-admin-text">{selectedUser.fullName}</span></div>
+              <div><span className="text-admin-mutedDim">Email </span><span className="text-admin-text">{selectedUser.email}</span></div>
+              <div><span className="text-admin-mutedDim">Balance </span><span className="font-mono text-admin-text">{Number(selectedUser.usdtBalance).toLocaleString()} USDT</span></div>
             </div>
+          )}
+          {selectedUserId && (
+            <p className="mt-1.5 text-[10px] text-admin-mutedDim">Showing trades for <span className="text-admin-text">{selectedUser?.email}</span> only — filters Current Trading/Trade List.</p>
           )}
 
           {/* Create Test User — the ONLY way isTestUser ever becomes true.
@@ -263,7 +272,7 @@ export function TradingPage() {
               createTestUser); there is no route that sets isTestUser on an
               existing user. */}
           {settingsRes.data?.sandboxControlsAvailable && (
-            <div className="mt-2 border-t border-admin-border/60 pt-2">
+            <div className="mt-2.5 border-t border-admin-border/60 pt-2">
               <p className="text-[10px] font-bold uppercase tracking-wide text-admin-mutedDim">Create Test User</p>
               <div className="mt-1.5 flex flex-wrap gap-2">
                 <input className="admin-input min-w-[160px] flex-1 py-1.5 text-xs" placeholder="Email" type="email" value={newTestUserEmail} onChange={(e) => setNewTestUserEmail(e.target.value)} />
@@ -274,76 +283,6 @@ export function TradingPage() {
             </div>
           )}
         </div>
-
-        {/* Kill switch + risk limits */}
-        <AdminPanel loading={settingsRes.loading} error={settingsRes.error} refetch={settingsRes.refetch}>
-          {settingsRes.data && (
-            <div className="admin-card p-3">
-              <div className="flex items-center justify-between">
-                <h3 className="text-[11px] font-bold uppercase tracking-wide text-admin-gold">Kill Switch</h3>
-                <button
-                  onClick={() => setStepUp({ kind: 'settings', patch: { tradingEnabled: !settingsRes.data!.tradingEnabled } })}
-                  className={`rounded-full px-3 py-1 text-[11px] font-bold ${settingsRes.data.tradingEnabled ? 'bg-bear/15 text-bear' : 'border border-admin-border bg-admin-surface2 text-admin-mutedDim'}`}
-                >
-                  {settingsRes.data.tradingEnabled ? 'ON' : 'OFF'}
-                </button>
-              </div>
-
-              <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                <NumberSetting
-                  label="Max active trades/user"
-                  value={settingsRes.data.maxActiveTradesPerUser}
-                  onSave={(v) => setStepUp({ kind: 'settings', patch: { maxActiveTradesPerUser: v } })}
-                />
-                <NumberSetting
-                  label="Max exposure/user"
-                  value={settingsRes.data.maxExposurePerUser ? Number(settingsRes.data.maxExposurePerUser) : null}
-                  onSave={(v) => setStepUp({ kind: 'settings', patch: { maxExposurePerUser: v != null ? String(v) : undefined } })}
-                />
-              </div>
-              <p className="mt-2 text-[10px] text-admin-mutedDim">No manual outcome controls exist — see the notice on Admin &gt; Trade Management for why. All changes require step-up re-authentication.</p>
-            </div>
-          )}
-        </AdminPanel>
-
-        {/* Stats */}
-        <AdminPanel loading={statsRes.loading} error={statsRes.error} refetch={statsRes.refetch}>
-          {statsRes.data && (
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
-              <AdminStat label="Active" value={statsRes.data.activeTrades} />
-              <AdminStat label="Completed" value={statsRes.data.completedTrades} />
-              <AdminStat label="W/L/D" value={`${statsRes.data.wins}/${statsRes.data.losses}/${statsRes.data.draws}`} />
-              <AdminStat label="Unresolved" value={statsRes.data.unresolvedTrades} />
-              <AdminStat label="Investment" value={`${Number(statsRes.data.totalInvestment).toLocaleString()} USDT`} />
-              <AdminStat label="Payouts" value={`${Number(statsRes.data.totalPayouts).toLocaleString()} USDT`} />
-            </div>
-          )}
-        </AdminPanel>
-
-        {/* Unresolved trades */}
-        {unresolvedRes.data && unresolvedRes.data.count > 0 && (
-          <div className="admin-card overflow-hidden border-admin-gold/30">
-            <div className="flex items-center justify-between border-b border-admin-border px-3 py-2">
-              <h3 className="text-[11px] font-bold uppercase tracking-wide text-admin-gold">Unresolved ({unresolvedRes.data.count})</h3>
-              <button onClick={retrySweep} disabled={sweeping} className="admin-btn-info px-2.5 py-1 text-[11px]"><RefreshCw className="h-3 w-3" /> {sweeping ? 'Retrying…' : 'Retry now'}</button>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead><tr className="bg-admin-surface text-[10px] uppercase tracking-wide text-admin-mutedDim"><th className="px-3 py-1.5 text-left font-medium">Symbol</th><th className="px-3 py-1.5 text-left font-medium">Investment</th><th className="px-3 py-1.5 text-left font-medium">Expired</th><th className="px-3 py-1.5 text-left font-medium">Reason</th></tr></thead>
-                <tbody>
-                  {unresolvedRes.data.trades.map((t: any) => (
-                    <tr key={t.id} className="border-t border-admin-border/60">
-                      <td className="px-3 py-1.5 text-admin-text">{t.symbol}</td>
-                      <td className="px-3 py-1.5 font-mono">{t.investment} {t.currency}</td>
-                      <td className="px-3 py-1.5 text-admin-muted">{new Date(t.expiryAt).toLocaleString()}</td>
-                      <td className="px-3 py-1.5 text-admin-mutedDim">{t.rejectionReason}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
 
         {/* Current Trading — real active trades, all customers */}
         <div>
@@ -409,6 +348,78 @@ export function TradingPage() {
           </AdminPanel>
         </div>
 
+        {/* Kill switch + risk limits */}
+        <AdminPanel loading={settingsRes.loading} error={settingsRes.error} refetch={settingsRes.refetch}>
+          {settingsRes.data && (
+            <div className="admin-card p-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs font-bold uppercase tracking-wide text-admin-gold">Kill Switch</h3>
+                <button
+                  onClick={() => setStepUp({ kind: 'settings', patch: { tradingEnabled: !settingsRes.data!.tradingEnabled } })}
+                  className={`rounded-full px-3 py-1 text-[11px] font-bold ${settingsRes.data.tradingEnabled ? 'bg-bear/15 text-bear' : 'border border-admin-border bg-admin-surface2 text-admin-mutedDim'}`}
+                >
+                  {settingsRes.data.tradingEnabled ? 'ON' : 'OFF'}
+                </button>
+              </div>
+
+              <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                <NumberSetting
+                  label="Max active trades/user"
+                  value={settingsRes.data.maxActiveTradesPerUser}
+                  onSave={(v) => setStepUp({ kind: 'settings', patch: { maxActiveTradesPerUser: v } })}
+                />
+                <NumberSetting
+                  label="Max exposure/user"
+                  value={settingsRes.data.maxExposurePerUser ? Number(settingsRes.data.maxExposurePerUser) : null}
+                  onSave={(v) => setStepUp({ kind: 'settings', patch: { maxExposurePerUser: v != null ? String(v) : undefined } })}
+                />
+              </div>
+              {!settingsRes.data.sandboxControlsAvailable && (
+                <p className="mt-2 text-[10px] text-admin-mutedDim">No manual outcome controls exist — see the notice on Admin &gt; Trade Management for why. All changes require step-up re-authentication.</p>
+              )}
+            </div>
+          )}
+        </AdminPanel>
+
+        {/* Stats */}
+        <AdminPanel loading={statsRes.loading} error={statsRes.error} refetch={statsRes.refetch}>
+          {statsRes.data && (
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+              <AdminStat label="Active" value={statsRes.data.activeTrades} />
+              <AdminStat label="Completed" value={statsRes.data.completedTrades} />
+              <AdminStat label="W/L/D" value={`${statsRes.data.wins}/${statsRes.data.losses}/${statsRes.data.draws}`} />
+              <AdminStat label="Unresolved" value={statsRes.data.unresolvedTrades} />
+              <AdminStat label="Investment" value={`${Number(statsRes.data.totalInvestment).toLocaleString()} USDT`} />
+              <AdminStat label="Payouts" value={`${Number(statsRes.data.totalPayouts).toLocaleString()} USDT`} />
+            </div>
+          )}
+        </AdminPanel>
+
+        {/* Unresolved trades */}
+        {unresolvedRes.data && unresolvedRes.data.count > 0 && (
+          <div className="admin-card overflow-hidden border-admin-gold/30">
+            <div className="flex items-center justify-between border-b border-admin-border px-3 py-2">
+              <h3 className="text-xs font-bold uppercase tracking-wide text-admin-gold">Unresolved ({unresolvedRes.data.count})</h3>
+              <button onClick={retrySweep} disabled={sweeping} className="admin-btn-info px-2.5 py-1 text-[11px]"><RefreshCw className="h-3 w-3" /> {sweeping ? 'Retrying…' : 'Retry now'}</button>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead><tr className="bg-admin-surface text-[10px] uppercase tracking-wide text-admin-mutedDim"><th className="px-3 py-1.5 text-left font-medium">Symbol</th><th className="px-3 py-1.5 text-left font-medium">Investment</th><th className="px-3 py-1.5 text-left font-medium">Expired</th><th className="px-3 py-1.5 text-left font-medium">Reason</th></tr></thead>
+                <tbody>
+                  {unresolvedRes.data.trades.map((t: any) => (
+                    <tr key={t.id} className="border-t border-admin-border/60">
+                      <td className="px-3 py-1.5 text-admin-text">{t.symbol}</td>
+                      <td className="px-3 py-1.5 font-mono">{t.investment} {t.currency}</td>
+                      <td className="px-3 py-1.5 text-admin-muted">{new Date(t.expiryAt).toLocaleString()}</td>
+                      <td className="px-3 py-1.5 text-admin-mutedDim">{t.rejectionReason}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
         {/* Asset / duration / payout configuration */}
         <AdminPanel loading={marketsRes.loading} error={marketsRes.error} refetch={marketsRes.refetch}>
           <div className="admin-card p-3">
@@ -438,14 +449,14 @@ export function TradingPage() {
                 : stepUp.kind === 'createTestUser' ? 'Creates a brand-new, dedicated test/sandbox account — never modifies an existing user.'
                   : 'Only takes effect for this designated test/sandbox user\'s own test trades, in development/test only.'
             }
-            onConfirm={async ({ reason, confirmPassword, totpCode }) => {
+            onConfirm={async ({ reason, confirmPassword }) => {
               if (stepUp.kind === 'settings') {
-                const res = await tryAction(() => api.patch('/admin/options/settings', { ...stepUp.patch, reason, confirmPassword, totpCode }))
+                const res = await tryAction(() => api.patch('/admin/options/settings', { ...stepUp.patch, reason, confirmPassword }))
                 if (res.ok) { push('success', 'Options settings updated.'); setStepUp(null); settingsRes.refetch() }
                 else throw new ApiError(0, res.error, null)
               } else if (stepUp.kind === 'createTestUser') {
                 const res = await tryAction(() => api.post<Omit<AdminUserRow, 'usdtBalance'>>('/admin/options/test-users', {
-                  email: stepUp.email, fullName: stepUp.fullName || undefined, password: stepUp.password, reason, confirmPassword, totpCode,
+                  email: stepUp.email, fullName: stepUp.fullName || undefined, password: stepUp.password, reason, confirmPassword,
                 }))
                 if (res.ok) {
                   push('success', `Test user ${res.data.email} created.`)
@@ -457,7 +468,7 @@ export function TradingPage() {
                 } else throw new ApiError(0, res.error, null)
               } else {
                 const res = await tryAction(() => api.patch(`/admin/options/test-users/${encodeURIComponent(stepUp.userId)}`, {
-                  testOutcomeMode: stepUp.testOutcomeMode, reason, confirmPassword, totpCode,
+                  testOutcomeMode: stepUp.testOutcomeMode, reason, confirmPassword,
                 }))
                 if (res.ok) {
                   push('success', 'Test user outcome mode updated.')

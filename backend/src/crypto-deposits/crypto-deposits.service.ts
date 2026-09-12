@@ -127,7 +127,7 @@ export class CryptoDepositsService {
     return updated
   }
 
-  // Step-up gated at the controller (admin identity + password + TOTP
+  // Step-up gated at the controller (admin identity + password
   // already verified before this runs — see crypto-deposits-admin.controller.ts)
   // — receiving-address changes are the single most fund-safety-sensitive
   // operation in this entire module (Part 25). `file`, when present, is a

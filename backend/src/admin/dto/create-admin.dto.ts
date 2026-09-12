@@ -23,7 +23,4 @@ export class CreateAdminDto {
 
   @IsString()
   confirmPassword!: string
-
-  @IsString()
-  totpCode!: string
 }

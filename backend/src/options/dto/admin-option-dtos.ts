@@ -87,9 +87,6 @@ export class UpdateOptionsSettingsDto {
 
   @IsString()
   confirmPassword!: string
-
-  @IsString()
-  totpCode!: string
 }
 
 // Creates a brand-new, dedicated test/sandbox user (isTestUser: true) —
@@ -114,9 +111,6 @@ export class CreateTestUserDto {
 
   @IsString()
   confirmPassword!: string
-
-  @IsString()
-  totpCode!: string
 }
 
 export class SetTestUserOutcomeDto {
@@ -129,7 +123,4 @@ export class SetTestUserOutcomeDto {
 
   @IsString()
   confirmPassword!: string
-
-  @IsString()
-  totpCode!: string
 }

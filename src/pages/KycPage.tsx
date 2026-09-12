@@ -114,11 +114,6 @@ export function KycPage() {
             <div className="card p-6"><KycDocumentUpload label="Selfie / verification photo" file={selfie} onSelect={setSelfie} /></div>
           </div>
 
-          <div className="flex items-start gap-3 rounded-xl border border-ocean-500/20 bg-ocean-500/5 p-4 text-sm text-slate-400">
-            <AlertCircle className="h-5 w-5 shrink-0 text-ocean-400" />
-            <p>Your documents are stored securely and are only visible to you and authorized reviewers. This platform has no real identity-verification provider connected — every submission is reviewed manually by our team.</p>
-          </div>
-
           <button onClick={submit} disabled={submitting} className="btn-gold py-3 px-8">
             {submitting ? 'Submitting…' : 'Submit for verification'}
           </button>

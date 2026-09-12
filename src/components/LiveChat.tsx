@@ -24,7 +24,7 @@ function reply(input: string): string {
 
 export function LiveChat() {
   const [open, setOpen] = useState(false)
-  const [msgs, setMsgs] = useState<Msg[]>([{ from: 'bot', text: "Hi! I'm Eddie, your EDGETRADE assistant. Ask me anything about deposits, withdrawals, KYC, or trading." }])
+  const [msgs, setMsgs] = useState<Msg[]>([{ from: 'bot', text: 'Hi , I am your EDGETRADE assistant. Ask me anything about deposit,withdrawals,KYC or trading' }])
   const [input, setInput] = useState('')
   const [typing, setTyping] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)

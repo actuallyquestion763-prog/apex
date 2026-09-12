@@ -211,7 +211,7 @@ describe('Crypto Deposit Management (real PostgreSQL)', () => {
     await request(server)
       .patch(`/admin/crypto-deposits/assets/${symbol}/networks`)
       .set('Cookie', superCookie)
-      .send({ networkCode, networkName: networkCode, receivingAddress: TEST_ETH_ADDRESS_B, reason: 'address rotation test', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+      .send({ networkCode, networkName: networkCode, receivingAddress: TEST_ETH_ADDRESS_B, reason: 'address rotation test', confirmPassword: superPassword })
       .expect(200)
 
     // The FIRST deposit's snapshot is untouched — re-read fresh from the DB.
@@ -249,21 +249,21 @@ describe('Crypto Deposit Management (real PostgreSQL)', () => {
     const created = await request(server)
       .patch(`/admin/crypto-deposits/assets/${symbol}/networks`)
       .set('Cookie', superCookie)
-      .send({ networkCode: 'ERC20', networkName: 'Ethereum (ERC20)', receivingAddress: TEST_ETH_ADDRESS_A, reason: 'initial setup', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+      .send({ networkCode: 'ERC20', networkName: 'Ethereum (ERC20)', receivingAddress: TEST_ETH_ADDRESS_A, reason: 'initial setup', confirmPassword: superPassword })
       .expect(200)
     expect(created.body.receivingAddress).toBe(TEST_ETH_ADDRESS_A)
 
     const edited = await request(server)
       .patch(`/admin/crypto-deposits/assets/${symbol}/networks`)
       .set('Cookie', superCookie)
-      .send({ networkCode: 'ERC20', networkName: 'Ethereum (ERC20)', receivingAddress: TEST_ETH_ADDRESS_B, reason: 'edit address', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+      .send({ networkCode: 'ERC20', networkName: 'Ethereum (ERC20)', receivingAddress: TEST_ETH_ADDRESS_B, reason: 'edit address', confirmPassword: superPassword })
       .expect(200)
     expect(edited.body.receivingAddress).toBe(TEST_ETH_ADDRESS_B)
 
     const disabled = await request(server)
       .patch(`/admin/crypto-deposits/assets/${symbol}/networks`)
       .set('Cookie', superCookie)
-      .send({ networkCode: 'ERC20', networkName: 'Ethereum (ERC20)', receivingAddress: TEST_ETH_ADDRESS_B, enabled: false, reason: 'disable', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+      .send({ networkCode: 'ERC20', networkName: 'Ethereum (ERC20)', receivingAddress: TEST_ETH_ADDRESS_B, enabled: false, reason: 'disable', confirmPassword: superPassword })
       .expect(200)
     expect(disabled.body.enabled).toBe(false)
   })
@@ -276,7 +276,7 @@ describe('Crypto Deposit Management (real PostgreSQL)', () => {
     await request(server)
       .patch(`/admin/crypto-deposits/assets/${symbol}/networks`)
       .set('Cookie', cookie)
-      .send({ networkCode, networkName: networkCode, receivingAddress: TEST_ETH_ADDRESS_B, reason: 'unauthorized', confirmPassword: 'x', totpCode: '000000' })
+      .send({ networkCode, networkName: networkCode, receivingAddress: TEST_ETH_ADDRESS_B, reason: 'unauthorized', confirmPassword: 'x' })
       .expect(403)
 
     const email = uniqueEmail('cryptonoauth')
@@ -289,7 +289,7 @@ describe('Crypto Deposit Management (real PostgreSQL)', () => {
     await request(server)
       .patch(`/admin/crypto-deposits/assets/${symbol}/networks`)
       .set('Cookie', adminCookie)
-      .send({ networkCode, networkName: networkCode, receivingAddress: TEST_ETH_ADDRESS_B, reason: 'no permission granted', confirmPassword: password, totpCode: currentTotpCode(secret) })
+      .send({ networkCode, networkName: networkCode, receivingAddress: TEST_ETH_ADDRESS_B, reason: 'no permission granted', confirmPassword: password })
       .expect(403)
   })
 
@@ -298,18 +298,18 @@ describe('Crypto Deposit Management (real PostgreSQL)', () => {
     await request(server)
       .patch(`/admin/crypto-deposits/assets/${symbol}/networks`)
       .set('Cookie', superCookie)
-      .send({ networkCode, networkName: networkCode, receivingAddress: TEST_ETH_ADDRESS_B, reason: 'bad step-up', confirmPassword: 'totally-wrong-password', totpCode: currentTotpCode(superSecret) })
+      .send({ networkCode, networkName: networkCode, receivingAddress: TEST_ETH_ADDRESS_B, reason: 'bad step-up', confirmPassword: 'totally-wrong-password' })
       .expect(401)
   })
 
-  // ---- 19c. A SUPER_ADMIN without 2FA enabled — the exact scenario from the
-  // "modal traps an admin with no way to satisfy it" bug report: this proves
-  // the backend's own refusal is deliberate policy (a clear 400 explaining
-  // 2FA must be enabled first), not a broken/misleading rejection, and that
-  // it can never be bypassed by supplying an arbitrary 6-digit code — the
-  // password is deliberately CORRECT here specifically to prove the block is
-  // about the missing 2FA factor, not a coincidental wrong-password failure.
-  it('19c. a SUPER_ADMIN with 2FA disabled is refused with a clear message (not a misleading "invalid code"), and the address is unchanged', async () => {
+  // ---- 19c. Step-up for crypto receiving-address changes is password-only,
+  // platform-wide policy (StepUpService.assertStepUpAuthorized no longer
+  // checks TOTP/2FA at all, for any admin action) — a SUPER_ADMIN with NO
+  // 2FA credential whatsoever can still change a receiving address with
+  // just their correct current password. Wrong password (19b, above) is
+  // still rejected — this proves the real re-authentication check is still
+  // genuinely enforced, just on one factor, not zero.
+  it('19c. a SUPER_ADMIN with 2FA disabled can still change a receiving address with just the correct password', async () => {
     const { symbol, networkCode } = await setupCryptoAsset({ address: TEST_ETH_ADDRESS_A })
     const email = uniqueEmail('cryptono2fa')
     const password = 'correct-horse-battery'
@@ -321,12 +321,12 @@ describe('Crypto Deposit Management (real PostgreSQL)', () => {
     const res = await request(server)
       .patch(`/admin/crypto-deposits/assets/${symbol}/networks`)
       .set('Cookie', noTwoFaCookie)
-      .send({ networkCode, networkName: networkCode, receivingAddress: TEST_ETH_ADDRESS_B, reason: 'no 2fa enabled', confirmPassword: password, totpCode: '000000' })
-      .expect(400)
-    expect(res.body.message).toMatch(/two-factor authentication must be enabled/i)
+      .send({ networkCode, networkName: networkCode, receivingAddress: TEST_ETH_ADDRESS_B, reason: 'no 2fa enabled, password-only step-up', confirmPassword: password })
+      .expect(200)
+    expect(res.body.receivingAddress).toBe(TEST_ETH_ADDRESS_B)
 
     const asset = await prisma.cryptoAsset.findUniqueOrThrow({ where: { symbol }, include: { networks: true } })
-    expect(asset.networks.find((n) => n.networkCode === networkCode)?.receivingAddress).toBe(TEST_ETH_ADDRESS_A)
+    expect(asset.networks.find((n) => n.networkCode === networkCode)?.receivingAddress).toBe(TEST_ETH_ADDRESS_B)
   })
 
   // ---- 20. Audit event created for address changes ---------------------------------
@@ -336,7 +336,7 @@ describe('Crypto Deposit Management (real PostgreSQL)', () => {
     await request(server)
       .patch(`/admin/crypto-deposits/assets/${symbol}/networks`)
       .set('Cookie', superCookie)
-      .send({ networkCode, networkName: networkCode, receivingAddress: TEST_ETH_ADDRESS_B, reason: 'audit trail test', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+      .send({ networkCode, networkName: networkCode, receivingAddress: TEST_ETH_ADDRESS_B, reason: 'audit trail test', confirmPassword: superPassword })
       .expect(200)
 
     const event = await prisma.auditLog.findFirst({ where: { action: 'CRYPTO_DEPOSIT_ADDRESS_CHANGED' }, orderBy: { createdAt: 'desc' } })
@@ -436,7 +436,7 @@ describe('Crypto Deposit Management (real PostgreSQL)', () => {
     await request(server)
       .patch(`/admin/crypto-deposits/assets/${symbol}/networks`)
       .set('Cookie', superCookie)
-      .send({ networkCode, networkName: networkCode, receivingAddress: TEST_ETH_ADDRESS_B, reason: 'uniqueness test', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+      .send({ networkCode, networkName: networkCode, receivingAddress: TEST_ETH_ADDRESS_B, reason: 'uniqueness test', confirmPassword: superPassword })
       .expect(200)
 
     const count = await prisma.cryptoDepositAddress.count({ where: { cryptoAssetId: asset.id, networkCode } })

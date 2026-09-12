@@ -293,7 +293,7 @@ describe('Pre-trade risk engine (real PostgreSQL, FakeExecutionProvider)', () =>
     await request(server)
       .patch('/admin/platform-settings')
       .set('Cookie', superCookie)
-      .send({ maxOpenOrdersPerUser: 1, reason: 'test', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+      .send({ maxOpenOrdersPerUser: 1, reason: 'test', confirmPassword: superPassword })
       .expect(200)
 
     try {
@@ -314,7 +314,7 @@ describe('Pre-trade risk engine (real PostgreSQL, FakeExecutionProvider)', () =>
       await request(server)
         .patch('/admin/platform-settings')
         .set('Cookie', superCookie)
-        .send({ maxOpenOrdersPerUser: 1000000, reason: 'restore', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+        .send({ maxOpenOrdersPerUser: 1000000, reason: 'restore', confirmPassword: superPassword })
     }
   })
 
@@ -620,7 +620,7 @@ describe('Pre-trade risk engine (real PostgreSQL, FakeExecutionProvider)', () =>
     await request(server).get('/admin/risk/overview').set('Cookie', cookie).expect(403)
     await request(server).patch(`/admin/accounts/${account.id}/status`).set('Cookie', cookie).send({ status: 'SUSPENDED', reason: 'nope' }).expect(403)
     await request(server).patch('/admin/markets/BTC%2FUSDT').set('Cookie', cookie).send({ maxOrderNotional: '1', reason: 'nope' }).expect(403)
-    await request(server).patch('/admin/platform-settings').set('Cookie', cookie).send({ maxOpenOrdersPerUser: 1, reason: 'nope', confirmPassword: 'x', totpCode: '000000' }).expect(403)
+    await request(server).patch('/admin/platform-settings').set('Cookie', cookie).send({ maxOpenOrdersPerUser: 1, reason: 'nope', confirmPassword: 'x' }).expect(403)
   })
 
   it('39b. a permitted SUPER_ADMIN can read the risk overview and it reflects real state', async () => {
@@ -635,23 +635,23 @@ describe('Pre-trade risk engine (real PostgreSQL, FakeExecutionProvider)', () =>
   // ==========================================================================
 
   it('40. platform-wide maxOpenOrdersPerUser requires step-up (existing policy for platform-settings); per-market risk limits do not (existing policy for market-config)', async () => {
-    // Platform-wide: missing confirmPassword/totpCode is rejected.
+    // Platform-wide: missing confirmPassword is rejected.
     await request(server)
       .patch('/admin/platform-settings')
       .set('Cookie', superCookie)
       .send({ maxOpenOrdersPerUser: 5, reason: 'no step-up provided' })
-      .expect(400) // DTO requires confirmPassword/totpCode fields to be present at all
+      .expect(400) // DTO requires the confirmPassword field to be present at all
 
     const ok = await request(server)
       .patch('/admin/platform-settings')
       .set('Cookie', superCookie)
-      .send({ maxOpenOrdersPerUser: 5, reason: 'with step-up', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+      .send({ maxOpenOrdersPerUser: 5, reason: 'with step-up', confirmPassword: superPassword })
       .expect(200)
     expect(ok.body.maxOpenOrdersPerUser).toBe(5)
     await request(server)
       .patch('/admin/platform-settings')
       .set('Cookie', superCookie)
-      .send({ maxOpenOrdersPerUser: 1000000, reason: 'restore', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+      .send({ maxOpenOrdersPerUser: 1000000, reason: 'restore', confirmPassword: superPassword })
 
     // Per-market: no step-up fields needed at all, matching existing tradingEnabled/maintenanceMode precedent.
     const providerSymbol = 'ZILUSDT'

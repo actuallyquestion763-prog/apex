@@ -62,8 +62,8 @@ function PlatformKillSwitches() {
         <StepUpModal
           title={`${pending.next ? 'Enable' : 'Pause'} ${pending.key.replace('Enabled', '')}`}
           description="Platform-wide controls require step-up re-authentication."
-          onConfirm={async ({ reason, confirmPassword, totpCode }) => {
-            const res = await tryAction(() => api.patch('/admin/platform-settings', { [pending.key]: pending.next, reason, confirmPassword, totpCode }))
+          onConfirm={async ({ reason, confirmPassword }) => {
+            const res = await tryAction(() => api.patch('/admin/platform-settings', { [pending.key]: pending.next, reason, confirmPassword }))
             if (res.ok) { push('success', 'Platform settings updated.'); setPending(null); refetch() }
             else throw new ApiError(0, res.error, null)
           }}

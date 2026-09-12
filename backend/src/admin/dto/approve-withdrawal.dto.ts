@@ -8,7 +8,4 @@ export class ApproveWithdrawalDto {
   @IsString()
   @MinLength(1)
   confirmPassword!: string
-
-  @IsString()
-  totpCode!: string
 }

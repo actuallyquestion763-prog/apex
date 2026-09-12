@@ -5,7 +5,7 @@ import { useCryptoAssets } from '../store/useCryptoDeposits'
 import { useToast } from '../components/Toast'
 import { AssetIcon } from '../components/AssetIcon'
 import { CryptoNetworkSelector } from '../components/deposits/CryptoNetworkSelector'
-import { ArrowRight, AlertTriangle, Clock, CheckCircle2, XCircle } from 'lucide-react'
+import { ArrowRight, Clock, CheckCircle2, XCircle } from 'lucide-react'
 
 // USDT-only, matching the Deposit page's direction (Deposit page comment,
 // same reasoning): this platform's crypto funding flow is USDT-only, not a
@@ -97,10 +97,6 @@ export function WithdrawPage() {
               <span className="font-mono font-bold text-white">{balance ? `${cash.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT` : '—'}</span>
             </div>
             <button onClick={() => setAmount(String(cash))} className="text-xs text-ocean-400 hover:text-ocean-300">Withdraw max</button>
-            <div className="rounded-xl border border-gold-500/20 bg-gold-500/5 p-4 text-xs text-slate-400">
-              <p className="flex items-center gap-1.5 font-medium text-gold-300"><Clock className="h-3.5 w-3.5" /> Processing time</p>
-              <p className="mt-1">Withdrawals are reviewed by our team and typically processed within 24 hours. You will receive a notification when your withdrawal is approved or rejected.</p>
-            </div>
             <button onClick={submit} disabled={submitting} className="btn-gold w-full py-3">{submitting ? 'Submitting…' : 'Submit withdrawal request'} <ArrowRight className="h-4 w-4" /></button>
           </div>
         </div>
@@ -125,12 +121,6 @@ export function WithdrawPage() {
             )}
           </div>
         </div>
-      </div>
-
-      {/* Warning */}
-      <div className="flex items-start gap-3 rounded-xl border border-bear/20 bg-bear/5 p-4 text-sm text-slate-400">
-        <AlertTriangle className="h-5 w-5 shrink-0 text-bear" />
-        <p>EDGETRADE is a fictional demonstration platform. No real funds are involved. Withdrawal requests are simulated and processed by the admin panel for demonstration purposes.</p>
       </div>
     </div>
   )

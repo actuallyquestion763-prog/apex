@@ -11,7 +11,4 @@ export class GrantPermissionDto {
 
   @IsString()
   confirmPassword!: string
-
-  @IsString()
-  totpCode!: string
 }

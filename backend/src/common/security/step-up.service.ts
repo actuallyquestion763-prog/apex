@@ -1,40 +1,32 @@
-import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common'
+import { Injectable, UnauthorizedException } from '@nestjs/common'
 import * as argon2 from 'argon2'
 import { PrismaService } from '../../prisma/prisma.service'
-import { verifyTotpCode } from '../../auth/totp.util'
 
 /**
  * Step-up re-authentication for the platform's most sensitive operations:
- * financial adjustments, withdrawal approval, admin permission changes,
- * role changes, and platform-wide control changes.
+ * financial adjustments, withdrawal approval, crypto receiving-address
+ * changes, admin permission/role changes, admin management, and
+ * platform-wide control changes.
  *
- * Two independent factors, both checked against the ACTING admin's own
- * credentials (never trusted from the request body beyond the values being
- * verified) — the existing open session alone is never sufficient for these:
- *   1. Current password (argon2.verify)
- *   2. A fresh TOTP code (RFC 6238, ±30s window)
- *
- * If the admin hasn't enabled 2FA yet, these operations are blocked
- * entirely with a clear message rather than silently skipping the second
- * factor — "do not rely only on the frontend" extends to "do not silently
- * degrade a two-factor requirement to one factor."
+ * Password-only, by explicit product decision: the acting admin's own
+ * current password is verified fresh (argon2.verify) for every one of
+ * these actions — the existing open session alone is never sufficient.
+ * This intentionally does NOT check TOTP/2FA at all, for any admin
+ * action — a prior design required a fresh TOTP code here too, but that
+ * requirement has been removed platform-wide at the operator's explicit
+ * request. Ordinary account 2FA (setup/confirm/login-verify — see
+ * src/auth/auth.service.ts and src/auth/totp.util.ts) is completely
+ * unrelated and untouched: an admin who has 2FA enabled still needs it to
+ * log in, this only concerns re-authenticating for a sensitive action once
+ * already logged in.
  */
 @Injectable()
 export class StepUpService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async assertStepUpAuthorized(adminId: string, confirmPassword: string, totpCode: string) {
+  async assertStepUpAuthorized(adminId: string, confirmPassword: string) {
     const admin = await this.prisma.user.findUniqueOrThrow({ where: { id: adminId } })
-
     const passwordValid = await argon2.verify(admin.passwordHash, confirmPassword)
     if (!passwordValid) throw new UnauthorizedException('Re-authentication failed: incorrect password.')
-
-    const credential = await this.prisma.twoFactorCredential.findUnique({ where: { userId: adminId } })
-    if (!credential || !credential.enabled || !admin.twoFactorEnabled) {
-      throw new BadRequestException('Two-factor authentication must be enabled on this admin account before performing this action.')
-    }
-    if (!verifyTotpCode(credential.secret, totpCode)) {
-      throw new UnauthorizedException('Re-authentication failed: invalid authentication code.')
-    }
   }
 }

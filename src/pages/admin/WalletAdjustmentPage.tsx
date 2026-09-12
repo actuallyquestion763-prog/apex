@@ -129,10 +129,10 @@ export function WalletAdjustmentPage() {
       {confirming && selected && (
         <StepUpModal
           title={`${direction === 'CREDIT' ? 'Credit' : 'Debit'} ${amount} ${currency} — ${selected.email}`}
-          description="Financial adjustments post a real, auditable ledger transaction and require step-up re-authentication. This is not a client-side balance editor."
-          onConfirm={async ({ reason, confirmPassword, totpCode }) => {
+          description="Financial adjustments post a real, auditable ledger transaction and require re-authentication. This is not a client-side balance editor."
+          onConfirm={async ({ reason, confirmPassword }) => {
             const res = await tryAction(() => api.post('/admin/financial-adjustment', {
-              userId: selected.id, amount, direction, currency, reason, confirmPassword, totpCode, idempotencyKey,
+              userId: selected.id, amount, direction, currency, reason, confirmPassword, idempotencyKey,
             }))
             if (res.ok) {
               push('success', 'Ledger adjustment posted.')

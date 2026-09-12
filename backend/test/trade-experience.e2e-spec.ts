@@ -51,7 +51,7 @@ describe('Trade Experience — currency-aware balance, execution status, sandbox
     await request(server)
       .patch('/admin/options/settings')
       .set('Cookie', superCookie)
-      .send({ tradingEnabled: true, reason: 'enable for trade-experience e2e suite', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+      .send({ tradingEnabled: true, reason: 'enable for trade-experience e2e suite', confirmPassword: superPassword })
       .expect(200)
   })
 
@@ -61,7 +61,7 @@ describe('Trade Experience — currency-aware balance, execution status, sandbox
     await request(server)
       .patch('/admin/options/settings')
       .set('Cookie', superCookie)
-      .send({ tradingEnabled: false, sandboxOutcomeMode: 'RANDOM', reason: 'restore after trade-experience e2e suite', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+      .send({ tradingEnabled: false, sandboxOutcomeMode: 'RANDOM', reason: 'restore after trade-experience e2e suite', confirmPassword: superPassword })
     await app.close()
   })
 
@@ -238,7 +238,7 @@ describe('Trade Experience — currency-aware balance, execution status, sandbox
       const res = await request(server)
         .patch('/admin/options/settings')
         .set('Cookie', cookie)
-        .send({ sandboxOutcomeMode: 'FORCE_WIN', reason: 'unauthorized attempt', confirmPassword: 'whatever', totpCode: '000000' })
+        .send({ sandboxOutcomeMode: 'FORCE_WIN', reason: 'unauthorized attempt', confirmPassword: 'whatever' })
       expect(res.status).toBe(403)
     }
   })
@@ -248,7 +248,7 @@ describe('Trade Experience — currency-aware balance, execution status, sandbox
     const res = await request(server)
       .patch('/admin/options/settings')
       .set('Cookie', admin.cookie)
-      .send({ sandboxOutcomeMode: 'FORCE_WIN', reason: 'no step-up', confirmPassword: 'wrong-password', totpCode: '000000' })
+      .send({ sandboxOutcomeMode: 'FORCE_WIN', reason: 'no step-up', confirmPassword: 'wrong-password' })
     // Step-up re-authentication failure is 401 (re-auth failed), distinct
     // from the 403 the permission/environment gates return.
     expect(res.status).toBe(401)
@@ -262,7 +262,7 @@ describe('Trade Experience — currency-aware balance, execution status, sandbox
     await request(server)
       .patch('/admin/options/settings')
       .set('Cookie', superCookie)
-      .send({ sandboxOutcomeMode: 'FORCE_WIN', reason: 'e2e forced win', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+      .send({ sandboxOutcomeMode: 'FORCE_WIN', reason: 'e2e forced win', confirmPassword: superPassword })
       .expect(200)
 
     const winRes = await request(server).post('/options/trades').set('Cookie', cookie).send({ symbol, direction: 'BUY', investment: '10', durationSeconds: 30 }).expect(201)
@@ -273,7 +273,7 @@ describe('Trade Experience — currency-aware balance, execution status, sandbox
     await request(server)
       .patch('/admin/options/settings')
       .set('Cookie', superCookie)
-      .send({ sandboxOutcomeMode: 'FORCE_LOSS', reason: 'e2e forced loss', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+      .send({ sandboxOutcomeMode: 'FORCE_LOSS', reason: 'e2e forced loss', confirmPassword: superPassword })
       .expect(200)
 
     const lossRes = await request(server).post('/options/trades').set('Cookie', cookie).send({ symbol, direction: 'BUY', investment: '10', durationSeconds: 30 }).expect(201)
@@ -289,7 +289,7 @@ describe('Trade Experience — currency-aware balance, execution status, sandbox
     await request(server)
       .patch('/admin/options/settings')
       .set('Cookie', superCookie)
-      .send({ sandboxOutcomeMode: 'FORCE_WIN', reason: 'e2e precedence check', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+      .send({ sandboxOutcomeMode: 'FORCE_WIN', reason: 'e2e precedence check', confirmPassword: superPassword })
       .expect(200)
 
     // The customer explicitly requests FORCE_LOSS for their own trade, but
@@ -305,7 +305,7 @@ describe('Trade Experience — currency-aware balance, execution status, sandbox
     await request(server)
       .patch('/admin/options/settings')
       .set('Cookie', superCookie)
-      .send({ sandboxOutcomeMode: 'RANDOM', reason: 'e2e cleanup', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+      .send({ sandboxOutcomeMode: 'RANDOM', reason: 'e2e cleanup', confirmPassword: superPassword })
       .expect(200)
   })
 
@@ -316,13 +316,13 @@ describe('Trade Experience — currency-aware balance, execution status, sandbox
       const res = await request(server)
         .patch('/admin/options/settings')
         .set('Cookie', superCookie)
-        .send({ sandboxOutcomeMode: 'FORCE_WIN', reason: 'attempted prod override', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+        .send({ sandboxOutcomeMode: 'FORCE_WIN', reason: 'attempted prod override', confirmPassword: superPassword })
       expect(res.status).toBe(403)
 
       const stillRandom = await request(server)
         .patch('/admin/options/settings')
         .set('Cookie', superCookie)
-        .send({ sandboxOutcomeMode: 'RANDOM', reason: 'explicit RANDOM always allowed', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+        .send({ sandboxOutcomeMode: 'RANDOM', reason: 'explicit RANDOM always allowed', confirmPassword: superPassword })
       expect(stillRandom.status).toBe(200)
     } finally {
       process.env.NODE_ENV = original
@@ -333,7 +333,7 @@ describe('Trade Experience — currency-aware balance, execution status, sandbox
     await request(server)
       .patch('/admin/options/settings')
       .set('Cookie', superCookie)
-      .send({ sandboxOutcomeMode: 'FORCE_LOSS', reason: 'e2e audit check', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+      .send({ sandboxOutcomeMode: 'FORCE_LOSS', reason: 'e2e audit check', confirmPassword: superPassword })
       .expect(200)
 
     const events = await prisma.auditLog.findMany({ where: { action: 'SANDBOX_OUTCOME_MODE_CHANGED' }, orderBy: { createdAt: 'desc' }, take: 1 })
@@ -343,7 +343,7 @@ describe('Trade Experience — currency-aware balance, execution status, sandbox
     await request(server)
       .patch('/admin/options/settings')
       .set('Cookie', superCookie)
-      .send({ sandboxOutcomeMode: 'RANDOM', reason: 'e2e cleanup', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+      .send({ sandboxOutcomeMode: 'RANDOM', reason: 'e2e cleanup', confirmPassword: superPassword })
       .expect(200)
   })
 
@@ -354,7 +354,7 @@ describe('Trade Experience — currency-aware balance, execution status, sandbox
     const res = await request(server)
       .post('/admin/options/test-users')
       .set('Cookie', superCookie)
-      .send({ email, fullName: 'E2E Test User', password: 'correct-horse-battery-12', reason: 'e2e fixture test user', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+      .send({ email, fullName: 'E2E Test User', password: 'correct-horse-battery-12', reason: 'e2e fixture test user', confirmPassword: superPassword })
       .expect(201)
     return res.body as { id: string; email: string; isTestUser: boolean; testOutcomeMode: string }
   }
@@ -385,7 +385,7 @@ describe('Trade Experience — currency-aware balance, execution status, sandbox
       const res = await request(server)
         .post('/admin/options/test-users')
         .set('Cookie', cookie)
-        .send({ email: uniqueEmail('shouldnotcreate'), password: 'correct-horse-battery-12', reason: 'unauthorized attempt', confirmPassword: 'whatever', totpCode: '000000' })
+        .send({ email: uniqueEmail('shouldnotcreate'), password: 'correct-horse-battery-12', reason: 'unauthorized attempt', confirmPassword: 'whatever' })
       expect(res.status).toBe(403)
     }
   })
@@ -397,7 +397,7 @@ describe('Trade Experience — currency-aware balance, execution status, sandbox
       const res = await request(server)
         .post('/admin/options/test-users')
         .set('Cookie', superCookie)
-        .send({ email: uniqueEmail('prodtestuser'), password: 'correct-horse-battery-12', reason: 'attempted prod test-user creation', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+        .send({ email: uniqueEmail('prodtestuser'), password: 'correct-horse-battery-12', reason: 'attempted prod test-user creation', confirmPassword: superPassword })
       expect(res.status).toBe(403)
     } finally {
       process.env.NODE_ENV = original
@@ -409,7 +409,7 @@ describe('Trade Experience — currency-aware balance, execution status, sandbox
     const res = await request(server)
       .patch(`/admin/options/test-users/${userId}`)
       .set('Cookie', superCookie)
-      .send({ testOutcomeMode: 'FORCE_WIN', reason: 'attempted override on a real customer', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+      .send({ testOutcomeMode: 'FORCE_WIN', reason: 'attempted override on a real customer', confirmPassword: superPassword })
     expect(res.status).toBe(403)
 
     // Confirm nothing was written — the real customer's row is untouched.
@@ -424,7 +424,7 @@ describe('Trade Experience — currency-aware balance, execution status, sandbox
     const res = await request(server)
       .patch(`/admin/options/test-users/${testUser.id}`)
       .set('Cookie', superCookie)
-      .send({ testOutcomeMode: 'FORCE_WIN', reason: 'e2e set test user outcome', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+      .send({ testOutcomeMode: 'FORCE_WIN', reason: 'e2e set test user outcome', confirmPassword: superPassword })
       .expect(200)
     expect(res.body.testOutcomeMode).toBe('FORCE_WIN')
 
@@ -451,12 +451,12 @@ describe('Trade Experience — currency-aware balance, execution status, sandbox
     await request(server)
       .patch('/admin/options/settings')
       .set('Cookie', superCookie)
-      .send({ sandboxOutcomeMode: 'FORCE_LOSS', reason: 'e2e per-user priority check', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+      .send({ sandboxOutcomeMode: 'FORCE_LOSS', reason: 'e2e per-user priority check', confirmPassword: superPassword })
       .expect(200)
     await request(server)
       .patch(`/admin/options/test-users/${testUser.id}`)
       .set('Cookie', superCookie)
-      .send({ testOutcomeMode: 'FORCE_WIN', reason: 'e2e per-user priority check', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+      .send({ testOutcomeMode: 'FORCE_WIN', reason: 'e2e per-user priority check', confirmPassword: superPassword })
       .expect(200)
 
     const res = await request(server).post('/options/trades').set('Cookie', testUserCookie).send({ symbol, direction: 'BUY', investment: '10', durationSeconds: 30 }).expect(201)
@@ -466,7 +466,7 @@ describe('Trade Experience — currency-aware balance, execution status, sandbox
     await request(server)
       .patch('/admin/options/settings')
       .set('Cookie', superCookie)
-      .send({ sandboxOutcomeMode: 'RANDOM', reason: 'e2e cleanup', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+      .send({ sandboxOutcomeMode: 'RANDOM', reason: 'e2e cleanup', confirmPassword: superPassword })
       .expect(200)
   })
 
@@ -478,7 +478,7 @@ describe('Trade Experience — currency-aware balance, execution status, sandbox
     await request(server)
       .patch(`/admin/options/test-users/${testUser.id}`)
       .set('Cookie', superCookie)
-      .send({ testOutcomeMode: 'FORCE_WIN', reason: 'e2e isolation check', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+      .send({ testOutcomeMode: 'FORCE_WIN', reason: 'e2e isolation check', confirmPassword: superPassword })
       .expect(200)
 
     const { userId: otherUserId, cookie: otherCookie } = await registerAndLogin('sandboxotheruser', 'SUPER_ADMIN')
@@ -487,7 +487,7 @@ describe('Trade Experience — currency-aware balance, execution status, sandbox
     await request(server)
       .patch('/admin/options/settings')
       .set('Cookie', superCookie)
-      .send({ sandboxOutcomeMode: 'FORCE_LOSS', reason: 'e2e isolation check', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+      .send({ sandboxOutcomeMode: 'FORCE_LOSS', reason: 'e2e isolation check', confirmPassword: superPassword })
       .expect(200)
 
     const res = await request(server).post('/options/trades').set('Cookie', otherCookie).send({ symbol, direction: 'BUY', investment: '10', durationSeconds: 30 }).expect(201)
@@ -500,7 +500,7 @@ describe('Trade Experience — currency-aware balance, execution status, sandbox
     await request(server)
       .patch('/admin/options/settings')
       .set('Cookie', superCookie)
-      .send({ sandboxOutcomeMode: 'RANDOM', reason: 'e2e cleanup', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+      .send({ sandboxOutcomeMode: 'RANDOM', reason: 'e2e cleanup', confirmPassword: superPassword })
       .expect(200)
   })
 
@@ -515,17 +515,17 @@ describe('Trade Experience — currency-aware balance, execution status, sandbox
     await request(server)
       .patch(`/admin/options/test-users/${testUser.id}`)
       .set('Cookie', superCookie)
-      .send({ testOutcomeMode: 'FORCE_WIN', reason: 'e2e normal-restores check', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+      .send({ testOutcomeMode: 'FORCE_WIN', reason: 'e2e normal-restores check', confirmPassword: superPassword })
       .expect(200)
     await request(server)
       .patch(`/admin/options/test-users/${testUser.id}`)
       .set('Cookie', superCookie)
-      .send({ testOutcomeMode: 'NORMAL', reason: 'e2e normal-restores check', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+      .send({ testOutcomeMode: 'NORMAL', reason: 'e2e normal-restores check', confirmPassword: superPassword })
       .expect(200)
     await request(server)
       .patch('/admin/options/settings')
       .set('Cookie', superCookie)
-      .send({ sandboxOutcomeMode: 'FORCE_LOSS', reason: 'e2e normal-restores check', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+      .send({ sandboxOutcomeMode: 'FORCE_LOSS', reason: 'e2e normal-restores check', confirmPassword: superPassword })
       .expect(200)
 
     const res = await request(server).post('/options/trades').set('Cookie', testUserCookie).send({ symbol, direction: 'BUY', investment: '10', durationSeconds: 30 }).expect(201)
@@ -535,7 +535,7 @@ describe('Trade Experience — currency-aware balance, execution status, sandbox
     await request(server)
       .patch('/admin/options/settings')
       .set('Cookie', superCookie)
-      .send({ sandboxOutcomeMode: 'RANDOM', reason: 'e2e cleanup', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+      .send({ sandboxOutcomeMode: 'RANDOM', reason: 'e2e cleanup', confirmPassword: superPassword })
       .expect(200)
   })
 
@@ -550,7 +550,7 @@ describe('Trade Experience — currency-aware balance, execution status, sandbox
     await request(server)
       .patch(`/admin/options/test-users/${testUser.id}`)
       .set('Cookie', superCookie)
-      .send({ testOutcomeMode: 'FORCE_WIN', reason: 'e2e production-safety check', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+      .send({ testOutcomeMode: 'FORCE_WIN', reason: 'e2e production-safety check', confirmPassword: superPassword })
       .expect(200)
 
     const res = await request(server).post('/options/trades').set('Cookie', testUserCookie).send({ symbol, direction: 'BUY', investment: '10', durationSeconds: 30 }).expect(201)

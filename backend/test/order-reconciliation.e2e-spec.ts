@@ -475,7 +475,7 @@ describe('Order reconciliation, audit exactly-once, and admin access (real Postg
   })
 
   it('19. reconciliation does NOT require step-up — matching the existing precedent for the internal-ledger-only reconciliation endpoint (both are pure reads, never a financial mutation)', async () => {
-    // No confirmPassword/totpCode in the request body at all — if step-up
+    // No confirmPassword in the request body at all — if step-up
     // were required, this would fail; it succeeds, confirming the endpoint
     // deliberately sits at the "ledger.read"-equivalent trust tier, not the
     // step-up tier reserved for actual money movement.

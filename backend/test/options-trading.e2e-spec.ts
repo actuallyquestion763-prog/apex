@@ -52,7 +52,7 @@ describe('Fixed-Time Options Trading (real PostgreSQL, SimulatedProvider)', () =
     await request(server)
       .patch('/admin/options/settings')
       .set('Cookie', superCookie)
-      .send({ tradingEnabled: true, reason: 'enable for options e2e suite', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+      .send({ tradingEnabled: true, reason: 'enable for options e2e suite', confirmPassword: superPassword })
       .expect(200)
   })
 
@@ -60,7 +60,7 @@ describe('Fixed-Time Options Trading (real PostgreSQL, SimulatedProvider)', () =
     await request(server)
       .patch('/admin/options/settings')
       .set('Cookie', superCookie)
-      .send({ tradingEnabled: false, reason: 'restore after options e2e suite', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+      .send({ tradingEnabled: false, reason: 'restore after options e2e suite', confirmPassword: superPassword })
     await app.close()
   })
 
@@ -618,7 +618,7 @@ describe('Fixed-Time Options Trading (real PostgreSQL, SimulatedProvider)', () =
     await request(server)
       .patch('/admin/options/settings')
       .set('Cookie', superCookie)
-      .send({ tradingEnabled: false, reason: 'kill switch test', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+      .send({ tradingEnabled: false, reason: 'kill switch test', confirmPassword: superPassword })
       .expect(200)
 
     const res = await createTrade(cookie, { symbol, direction: 'BUY', investment: '50', durationSeconds: 30 })
@@ -632,7 +632,7 @@ describe('Fixed-Time Options Trading (real PostgreSQL, SimulatedProvider)', () =
     await request(server)
       .patch('/admin/options/settings')
       .set('Cookie', superCookie)
-      .send({ tradingEnabled: true, reason: 'restore', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+      .send({ tradingEnabled: true, reason: 'restore', confirmPassword: superPassword })
       .expect(200)
   })
 
@@ -704,7 +704,7 @@ describe('Fixed-Time Options Trading (real PostgreSQL, SimulatedProvider)', () =
     await request(server)
       .patch('/admin/options/settings')
       .set('Cookie', superCookie)
-      .send({ tradingEnabled: true, reason: 'bad step-up test', confirmPassword: 'totally-wrong-password', totpCode: currentTotpCode(superSecret) })
+      .send({ tradingEnabled: true, reason: 'bad step-up test', confirmPassword: 'totally-wrong-password' })
       .expect(401)
   })
 
@@ -849,7 +849,7 @@ describe('Fixed-Time Options Trading (real PostgreSQL, SimulatedProvider)', () =
     await request(server)
       .patch('/admin/options/settings')
       .set('Cookie', superCookie)
-      .send({ maxActiveTradesPerUser: 2, reason: 'test max active', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+      .send({ maxActiveTradesPerUser: 2, reason: 'test max active', confirmPassword: superPassword })
       .expect(200)
 
     try {
@@ -863,7 +863,7 @@ describe('Fixed-Time Options Trading (real PostgreSQL, SimulatedProvider)', () =
       await request(server)
         .patch('/admin/options/settings')
         .set('Cookie', superCookie)
-        .send({ maxActiveTradesPerUser: 999999, reason: 'restore', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+        .send({ maxActiveTradesPerUser: 999999, reason: 'restore', confirmPassword: superPassword })
         .expect(200)
     }
   })

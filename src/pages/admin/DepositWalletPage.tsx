@@ -111,7 +111,7 @@ export function DepositWalletPage() {
 
       <div className="space-y-6">
         <div className="rounded-lg border border-admin-gold/30 bg-admin-gold/10 px-4 py-3 text-xs text-admin-gold">
-          Receiving-address changes require step-up re-authentication (password + authenticator code) — this is the address real customer deposits get sent to.
+          Receiving-address changes require step-up re-authentication (your current password) — this is the address real customer deposits get sent to.
         </div>
 
         <AdminPanel loading={loading} error={error} refetch={refetch}>
@@ -257,7 +257,7 @@ export function DepositWalletPage() {
           <StepUpModal
             title={`Update ${stepUp.symbol} receiving address`}
             description="Changing a crypto receiving address is a fund-safety-critical operation and requires step-up re-authentication. New deposits will use this address immediately; existing deposits keep their own historical snapshot."
-            onConfirm={async ({ reason, confirmPassword, totpCode }) => {
+            onConfirm={async ({ reason, confirmPassword }) => {
               // multipart/form-data — the backend accepts an optional QR image
               // ("qr") alongside these fields on this same endpoint.
               const form2 = new FormData()
@@ -267,7 +267,6 @@ export function DepositWalletPage() {
               }
               form2.append('reason', reason)
               form2.append('confirmPassword', confirmPassword)
-              form2.append('totpCode', totpCode)
               if (stepUp.qrFile) form2.append('qr', stepUp.qrFile)
               const res = await tryAction(() => api.patchForm(`/admin/crypto-deposits/assets/${encodeURIComponent(stepUp.symbol)}/networks`, form2))
               if (res.ok) { push('success', 'Receiving address updated.'); setStepUp(null); setForm(BLANK_FORM); setEditingCode(null); refetch() }
@@ -281,9 +280,9 @@ export function DepositWalletPage() {
           <StepUpModal
             title={`Delete ${deleteTarget.networkCode} network`}
             description={`This removes the ${deleteTarget.networkCode} receiving-address configuration for ${deleteTarget.symbol}. Existing deposit records keep their own historical snapshot and are unaffected — only future deposits lose this option.`}
-            onConfirm={async ({ reason, confirmPassword, totpCode }) => {
+            onConfirm={async ({ reason, confirmPassword }) => {
               const res = await tryAction(() =>
-                api.del(`/admin/crypto-deposits/assets/${encodeURIComponent(deleteTarget.symbol)}/networks/${encodeURIComponent(deleteTarget.networkCode)}`, { reason, confirmPassword, totpCode }),
+                api.del(`/admin/crypto-deposits/assets/${encodeURIComponent(deleteTarget.symbol)}/networks/${encodeURIComponent(deleteTarget.networkCode)}`, { reason, confirmPassword }),
               )
               if (res.ok) { push('success', 'Network removed.'); setDeleteTarget(null); refetch() }
               else throw new ApiError(0, res.error, null)

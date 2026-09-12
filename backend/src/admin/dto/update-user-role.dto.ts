@@ -11,7 +11,4 @@ export class UpdateUserRoleDto {
 
   @IsString()
   confirmPassword!: string
-
-  @IsString()
-  totpCode!: string
 }

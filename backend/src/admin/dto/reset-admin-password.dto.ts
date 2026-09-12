@@ -11,7 +11,4 @@ export class ResetAdminPasswordDto {
 
   @IsString()
   confirmPassword!: string
-
-  @IsString()
-  totpCode!: string
 }

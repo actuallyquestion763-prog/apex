@@ -51,7 +51,7 @@ export class OptionsAdminController {
   @Patch('settings')
   @RequirePermissions('options.control')
   async updateSettings(@Body() dto: UpdateOptionsSettingsDto, @CurrentUser() admin: AuthenticatedUser) {
-    await this.stepUp.assertStepUpAuthorized(admin.id, dto.confirmPassword, dto.totpCode)
+    await this.stepUp.assertStepUpAuthorized(admin.id, dto.confirmPassword)
 
     // Part 8 — "if NODE_ENV=production, the control must not exist and the
     // backend must reject any attempt to use it." Setting it explicitly TO
@@ -62,7 +62,7 @@ export class OptionsAdminController {
     }
 
     const before = await this.optionsSettings.get()
-    const { reason, confirmPassword: _cp, totpCode: _totp, ...patch } = dto
+    const { reason, confirmPassword: _cp, ...patch } = dto
     const updated = await this.optionsSettings.update(patch, admin.id)
 
     if (patch.tradingEnabled !== undefined && patch.tradingEnabled !== before.tradingEnabled) {
@@ -154,7 +154,7 @@ export class OptionsAdminController {
   @Post('test-users')
   @RequirePermissions('options.control')
   async createTestUser(@Body() dto: CreateTestUserDto, @CurrentUser() admin: AuthenticatedUser) {
-    await this.stepUp.assertStepUpAuthorized(admin.id, dto.confirmPassword, dto.totpCode)
+    await this.stepUp.assertStepUpAuthorized(admin.id, dto.confirmPassword)
     if (!isDemoResultModeAllowed()) {
       throw new ForbiddenException('Test/sandbox users can only be created in this environment.')
     }
@@ -164,7 +164,7 @@ export class OptionsAdminController {
   @Patch('test-users/:userId')
   @RequirePermissions('options.control')
   async setTestUserOutcomeMode(@Param('userId') userId: string, @Body() dto: SetTestUserOutcomeDto, @CurrentUser() admin: AuthenticatedUser) {
-    await this.stepUp.assertStepUpAuthorized(admin.id, dto.confirmPassword, dto.totpCode)
+    await this.stepUp.assertStepUpAuthorized(admin.id, dto.confirmPassword)
     if (!isDemoResultModeAllowed()) {
       throw new ForbiddenException('Per-user test outcome overrides are not available in this environment.')
     }

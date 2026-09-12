@@ -92,8 +92,8 @@ export function WithdrawalsPage() {
         <StepUpModal
           title={`Approve withdrawal — ${approving.currency === 'USD' ? `$${Number(approving.amount).toFixed(2)}` : `${Number(approving.amount).toFixed(2)} ${approving.currency}`}`}
           description={`Withdrawal approval for ${approving.user.email} requires step-up re-authentication.`}
-          onConfirm={async ({ reason, confirmPassword, totpCode }) => {
-            const res = await tryAction(() => api.post(`/admin/withdrawals/${approving.id}/approve`, { reason, confirmPassword, totpCode }))
+          onConfirm={async ({ reason, confirmPassword }) => {
+            const res = await tryAction(() => api.post(`/admin/withdrawals/${approving.id}/approve`, { reason, confirmPassword }))
             if (res.ok) { push('success', 'Withdrawal approved.'); setApproving(null); refetch() }
             else throw new ApiError(0, res.error, null)
           }}

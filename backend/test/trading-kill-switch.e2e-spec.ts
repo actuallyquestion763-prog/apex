@@ -50,7 +50,7 @@ describe('Trading kill switch — authorization, audit, and reconciliation invar
     await request(server)
       .patch('/admin/platform-settings')
       .set('Cookie', superCookie)
-      .send({ tradingEnabled: true, reason: 'restore after kill-switch tests', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+      .send({ tradingEnabled: true, reason: 'restore after kill-switch tests', confirmPassword: superPassword })
     await app.close()
   })
 
@@ -67,7 +67,7 @@ describe('Trading kill switch — authorization, audit, and reconciliation invar
     await request(server)
       .patch('/admin/platform-settings')
       .set('Cookie', cookie)
-      .send({ tradingEnabled: false, reason: 'unauthorized attempt', confirmPassword: 'whatever', totpCode: '000000' })
+      .send({ tradingEnabled: false, reason: 'unauthorized attempt', confirmPassword: 'whatever' })
       .expect(403)
   })
 
@@ -83,7 +83,7 @@ describe('Trading kill switch — authorization, audit, and reconciliation invar
     await request(server)
       .patch('/admin/platform-settings')
       .set('Cookie', cookie)
-      .send({ tradingEnabled: false, reason: 'no permission granted yet', confirmPassword: password, totpCode: currentTotpCode(secret) })
+      .send({ tradingEnabled: false, reason: 'no permission granted yet', confirmPassword: password })
       .expect(403)
   })
 
@@ -93,12 +93,12 @@ describe('Trading kill switch — authorization, audit, and reconciliation invar
     await request(server)
       .patch('/admin/platform-settings')
       .set('Cookie', superCookie)
-      .send({ tradingEnabled: false, reason: 'audit trail test — pause', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+      .send({ tradingEnabled: false, reason: 'audit trail test — pause', confirmPassword: superPassword })
       .expect(200)
     await request(server)
       .patch('/admin/platform-settings')
       .set('Cookie', superCookie)
-      .send({ tradingEnabled: true, reason: 'audit trail test — resume', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+      .send({ tradingEnabled: true, reason: 'audit trail test — resume', confirmPassword: superPassword })
       .expect(200)
 
     const after = await prisma.auditLog.count({ where: { action: { in: ['TRADING_PAUSED', 'TRADING_RESUMED'] } } })
@@ -123,7 +123,7 @@ describe('Trading kill switch — authorization, audit, and reconciliation invar
     await request(server)
       .patch('/admin/platform-settings')
       .set('Cookie', superCookie)
-      .send({ tradingEnabled: false, reason: 'zero-side-effect test', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+      .send({ tradingEnabled: false, reason: 'zero-side-effect test', confirmPassword: superPassword })
       .expect(200)
 
     const res = await request(server).post('/orders').set('Cookie', cookie).send({ symbol: 'KILLSWITCH-ZERO/TEST', side: 'BUY', quantity: '10' })
@@ -137,7 +137,7 @@ describe('Trading kill switch — authorization, audit, and reconciliation invar
     await request(server)
       .patch('/admin/platform-settings')
       .set('Cookie', superCookie)
-      .send({ tradingEnabled: true, reason: 'restore', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+      .send({ tradingEnabled: true, reason: 'restore', confirmPassword: superPassword })
       .expect(200)
   })
 
@@ -145,7 +145,7 @@ describe('Trading kill switch — authorization, audit, and reconciliation invar
     await request(server)
       .patch('/admin/platform-settings')
       .set('Cookie', superCookie)
-      .send({ tradingEnabled: false, reason: 'persistence test', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+      .send({ tradingEnabled: false, reason: 'persistence test', confirmPassword: superPassword })
       .expect(200)
 
     // Simulate a backend restart: close this Nest application entirely and
@@ -171,7 +171,7 @@ describe('Trading kill switch — authorization, audit, and reconciliation invar
     await request(server)
       .patch('/admin/platform-settings')
       .set('Cookie', superCookie)
-      .send({ tradingEnabled: true, reason: 'restore after persistence test', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+      .send({ tradingEnabled: true, reason: 'restore after persistence test', confirmPassword: superPassword })
       .expect(200)
   })
 
@@ -219,7 +219,7 @@ describe('Trading kill switch — authorization, audit, and reconciliation invar
     await request(server)
       .patch('/admin/platform-settings')
       .set('Cookie', superCookie)
-      .send({ tradingEnabled: false, reason: 'reconciliation-still-works test', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+      .send({ tradingEnabled: false, reason: 'reconciliation-still-works test', confirmPassword: superPassword })
       .expect(200)
 
     // Neither sync nor cancel goes through the risk engine (they operate on
@@ -232,7 +232,7 @@ describe('Trading kill switch — authorization, audit, and reconciliation invar
     await request(server)
       .patch('/admin/platform-settings')
       .set('Cookie', superCookie)
-      .send({ tradingEnabled: true, reason: 'restore', confirmPassword: superPassword, totpCode: currentTotpCode(superSecret) })
+      .send({ tradingEnabled: true, reason: 'restore', confirmPassword: superPassword })
       .expect(200)
   })
 })

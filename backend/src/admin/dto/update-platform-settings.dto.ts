@@ -19,9 +19,9 @@ export class UpdatePlatformSettingsDto {
 
   // Phase 6F Checkpoint F, Part 6/9/15 — global open-orders-per-user cap.
   // Platform-wide financial-risk config, so this rides the SAME
-  // step-up-gated endpoint as tradingEnabled etc. (confirmPassword/
-  // totpCode below), matching existing precedent rather than adding a new
-  // permission tier for one more field.
+  // step-up-gated endpoint as tradingEnabled etc. (confirmPassword below),
+  // matching existing precedent rather than adding a new permission tier
+  // for one more field.
   @IsOptional()
   @IsInt()
   @Min(1)
@@ -33,7 +33,4 @@ export class UpdatePlatformSettingsDto {
 
   @IsString()
   confirmPassword!: string
-
-  @IsString()
-  totpCode!: string
 }
