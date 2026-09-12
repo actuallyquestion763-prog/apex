@@ -27,6 +27,21 @@ export class ApiError extends Error {
   }
 }
 
+// NestJS's default ValidationPipe returns `message` as an ARRAY of strings
+// when multiple class-validator rules fail (e.g. ["reason must be longer
+// than or equal to 5 characters"]) — only a single manually-thrown
+// exception (e.g. UnauthorizedException) returns a plain string. Extracting
+// only the string case silently discarded every validation error's actual
+// detail, surfacing a useless generic "Request failed (400)" instead.
+function extractMessage(data: unknown, status: number): string {
+  if (data && typeof data === 'object' && 'message' in data) {
+    const msg = (data as { message: unknown }).message
+    if (typeof msg === 'string') return msg
+    if (Array.isArray(msg) && msg.every((m) => typeof m === 'string')) return msg.join(' ')
+  }
+  return `Request failed (${status}).`
+}
+
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   let res: Response
   try {
@@ -47,10 +62,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   const data = isJson ? await res.json().catch(() => null) : null
 
   if (!res.ok) {
-    const message = (data && typeof data === 'object' && 'message' in data && typeof (data as any).message === 'string')
-      ? (data as any).message
-      : `Request failed (${res.status}).`
-    throw new ApiError(res.status, message, data)
+    throw new ApiError(res.status, extractMessage(data, res.status), data)
   }
   return data as T
 }
@@ -68,10 +80,7 @@ async function requestForm<T>(method: string, path: string, form: FormData): Pro
   const isJson = res.headers.get('content-type')?.includes('application/json')
   const data = isJson ? await res.json().catch(() => null) : null
   if (!res.ok) {
-    const message = (data && typeof data === 'object' && 'message' in data && typeof (data as any).message === 'string')
-      ? (data as any).message
-      : `Request failed (${res.status}).`
-    throw new ApiError(res.status, message, data)
+    throw new ApiError(res.status, extractMessage(data, res.status), data)
   }
   return data as T
 }
