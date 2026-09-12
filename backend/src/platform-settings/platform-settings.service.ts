@@ -29,6 +29,9 @@ export class PlatformSettingsService {
       // "not enforced" (RiskEngineService), same convention as every other
       // optional risk limit in this checkpoint.
       maxOpenOrdersPerUser: number | null
+      supportAutoGreetingEnabled: boolean
+      supportAutoGreetingMessage: string | null
+      supportAutoGreetingSenderId: string | null
     }>,
     updatedByAdminId: string,
   ) {

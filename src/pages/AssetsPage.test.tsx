@@ -29,15 +29,16 @@ describe('AssetsPage — ledger-derived holdings (Spot Holdings Visibility check
     mockUsdtBalance = { currency: 'USDT', cash: '5900.71', reserved: '0' }
     renderAssets()
     expect(screen.getByText('Spot Balance')).toBeInTheDocument()
-    expect(screen.getByText('5,900.71 USDT')).toBeInTheDocument()
+    expect(screen.getByText('5,900.71')).toBeInTheDocument()
+    expect(screen.getByText('USDT')).toBeInTheDocument()
   })
 
   it('shows 0.00 USDT when the user has USD but no USDT — never fabricates a USDT balance from USD', () => {
     mockSummary = { cash: '6000' } // plenty of USD
     mockUsdtBalance = { currency: 'USDT', cash: '0', reserved: '0' } // zero USDT
     renderAssets()
-    expect(screen.getByText('0.00 USDT')).toBeInTheDocument()
-    expect(screen.queryByText('6,000.00 USDT')).not.toBeInTheDocument()
+    expect(screen.getByText('0.00')).toBeInTheDocument()
+    expect(screen.queryByText('6,000.00')).not.toBeInTheDocument()
   })
 
   it('shows the real USD balance as a separate, secondary figure, never a fabricated combined total', () => {

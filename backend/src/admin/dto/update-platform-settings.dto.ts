@@ -1,4 +1,6 @@
-import { IsBoolean, IsInt, IsOptional, IsString, Min, MinLength } from 'class-validator'
+import { IsBoolean, IsInt, IsOptional, IsString, MaxLength, Min, MinLength } from 'class-validator'
+
+const MAX_GREETING_LENGTH = 2000
 
 export class UpdatePlatformSettingsDto {
   @IsOptional()
@@ -26,6 +28,25 @@ export class UpdatePlatformSettingsDto {
   @IsInt()
   @Min(1)
   maxOpenOrdersPerUser?: number
+
+  // Support ticket auto-greeting (Customer Support redesign) — a real
+  // message posted by an actual staff account the moment a customer opens
+  // a new ticket, never a fabricated/bot sender. supportAutoGreetingSenderId
+  // is validated against real ADMIN/SUPER_ADMIN accounts in
+  // AdminService.updatePlatformSettings(), not here (this DTO only checks
+  // shape, not whether the ID exists).
+  @IsOptional()
+  @IsBoolean()
+  supportAutoGreetingEnabled?: boolean
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(MAX_GREETING_LENGTH)
+  supportAutoGreetingMessage?: string
+
+  @IsOptional()
+  @IsString()
+  supportAutoGreetingSenderId?: string
 
   @IsString()
   @MinLength(3)

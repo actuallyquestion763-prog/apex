@@ -3,7 +3,6 @@ import { useAuth } from '../store/auth'
 import { useCashBalance } from '../store/useStore'
 import { Logo } from './Logo'
 import { NotificationBell } from './NotificationBell'
-import { LiveChat } from './LiveChat'
 import { PriceTicker } from './PriceTicker'
 import { AnnouncementBanner } from './AnnouncementBanner'
 import { LayoutDashboard, TrendingUp, LogOut, Settings, BarChart2, PieChart, CircleUserRound, Headset } from 'lucide-react'
@@ -27,7 +26,8 @@ export function DashboardLayout() {
   // Mirrors BottomNav's 5-tab set exactly (Part: desktop/mobile nav
   // parity) — Wallet, Verification (KYC), and Support aren't separate
   // top-level items on either surface; they're reachable from the Mine
-  // (profile) menu / the LiveChat bubble, same as mobile has always done.
+  // (profile) menu / the header's Support icon, same as mobile has always
+  // done.
   const navItems = [
     { to: '/home', label: t('nav.home'), icon: LayoutDashboard },
     { to: '/markets', label: t('nav.markets'), icon: BarChart2 },
@@ -78,7 +78,6 @@ export function DashboardLayout() {
       <AnnouncementBanner />
       <main className="mx-auto max-w-7xl px-4 py-6 pb-[76px] lg:pb-6"><Outlet /></main>
       <BottomNav />
-      <LiveChat />
     </div>
   )
 }

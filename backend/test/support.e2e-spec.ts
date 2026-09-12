@@ -354,4 +354,109 @@ describe('Customer Support (real PostgreSQL)', () => {
     const res = await request(server).get('/admin/support/agents').set('Cookie', agent.cookie).expect(200)
     expect(res.body.some((a: any) => a.id === agent.userId)).toBe(true)
   })
+
+  // ---- Support ticket auto-greeting (Customer Support redesign) ----
+
+  async function makeSuperAdmin(prefix: string) {
+    const email = uniqueEmail(prefix)
+    const password = 'correct-horse-battery'
+    const { user } = await createUserDirect(prisma, { email, password, role: 'SUPER_ADMIN' })
+    const cookie = await loginAs(email, password)
+    return { userId: user.id, cookie }
+  }
+
+  afterEach(async () => {
+    // Every auto-greeting test leaves the singleton row disabled again, so
+    // tests in this file (and later files, since PlatformSettings is a
+    // shared singleton) never see a stray real ticket message they didn't
+    // create.
+    await prisma.platformSettings.updateMany({
+      data: { supportAutoGreetingEnabled: false, supportAutoGreetingMessage: null, supportAutoGreetingSenderId: null },
+    })
+  })
+
+  it('auto-greeting disabled (the default): a new ticket has exactly the customer\'s own opening message', async () => {
+    const { cookie } = await makeCustomer('nogreet')
+    const res = await request(server).post('/support/tickets').set('Cookie', cookie)
+      .send({ categoryId, subject: 'Question', message: 'Hi there' }).expect(201)
+
+    const ticket = await prisma.supportTicket.findUniqueOrThrow({ where: { id: res.body.id }, include: { messages: true } })
+    expect(ticket.messages).toHaveLength(1)
+    expect(ticket.messages[0].body).toBe('Hi there')
+  })
+
+  it('auto-greeting enabled: a new ticket also gets a real, persisted reply authored by the configured staff account', async () => {
+    const admin = await makeSuperAdmin('greetsender')
+    const { cookie: customerCookie } = await makeCustomer('greetcust')
+
+    await request(server)
+      .patch('/admin/platform-settings')
+      .set('Cookie', admin.cookie)
+      .send({
+        supportAutoGreetingEnabled: true,
+        supportAutoGreetingMessage: 'Hi! Thanks for reaching out.',
+        supportAutoGreetingSenderId: admin.userId,
+        reason: 'enable auto-greeting for test',
+        confirmPassword: 'correct-horse-battery',
+      })
+      .expect(200)
+
+    const res = await request(server).post('/support/tickets').set('Cookie', customerCookie)
+      .send({ categoryId, subject: 'Question', message: 'Hi there' }).expect(201)
+
+    const ticket = await prisma.supportTicket.findUniqueOrThrow({
+      where: { id: res.body.id },
+      include: { messages: { orderBy: { createdAt: 'asc' } } },
+    })
+    expect(ticket.messages).toHaveLength(2)
+    expect(ticket.messages[0].body).toBe('Hi there')
+    expect(ticket.messages[1].body).toBe('Hi! Thanks for reaching out.')
+    expect(ticket.messages[1].authorId).toBe(admin.userId)
+    expect(ticket.messages[1].visibility).toBe('PUBLIC')
+  })
+
+  it('configuring an auto-greeting sender that is not a real admin account is rejected', async () => {
+    const admin = await makeSuperAdmin('greetbadsender')
+    const { userId: notAnAdminId } = await makeCustomer('notadmin')
+
+    await request(server)
+      .patch('/admin/platform-settings')
+      .set('Cookie', admin.cookie)
+      .send({
+        supportAutoGreetingEnabled: true,
+        supportAutoGreetingMessage: 'Hi!',
+        supportAutoGreetingSenderId: notAnAdminId,
+        reason: 'should be rejected',
+        confirmPassword: 'correct-horse-battery',
+      })
+      .expect(400)
+  })
+
+  it('if the configured sender is demoted after being set, the greeting is silently skipped rather than blocking ticket creation', async () => {
+    const admin = await makeSuperAdmin('greetdemoted')
+    const { cookie: customerCookie } = await makeCustomer('greetdemotedcust')
+
+    await request(server)
+      .patch('/admin/platform-settings')
+      .set('Cookie', admin.cookie)
+      .send({
+        supportAutoGreetingEnabled: true,
+        supportAutoGreetingMessage: 'Hi!',
+        supportAutoGreetingSenderId: admin.userId,
+        reason: 'enable',
+        confirmPassword: 'correct-horse-battery',
+      })
+      .expect(200)
+
+    // Demote the configured sender directly (bypassing the API, simulating
+    // "the account was since demoted or deleted" independent of this flow).
+    await prisma.user.update({ where: { id: admin.userId }, data: { role: 'USER' } })
+
+    const res = await request(server).post('/support/tickets').set('Cookie', customerCookie)
+      .send({ categoryId, subject: 'Question', message: 'Hi there' }).expect(201)
+
+    const ticket = await prisma.supportTicket.findUniqueOrThrow({ where: { id: res.body.id }, include: { messages: true } })
+    expect(ticket.messages).toHaveLength(1)
+    expect(ticket.messages[0].body).toBe('Hi there')
+  })
 })

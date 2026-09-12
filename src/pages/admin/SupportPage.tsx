@@ -4,16 +4,49 @@
 // same /admin/support/tickets(+/:id) endpoints, same filters (client-side,
 // same reasoning as before — simpler than a filter-param API at this
 // platform's scale), same reply/attach/status/assign actions.
+//
+// Visual design is intentionally scoped to THIS page only, via arbitrary
+// Tailwind color values rather than the shared admin-* theme tokens — a
+// deep-navy/bright-blue palette matching an explicit reference the operator
+// asked to match "completely." Every other admin page keeps the standard
+// dark/gold admin theme; nothing here changes any shared token, class, or
+// component, so this page's look-and-feel does not leak anywhere else.
 import { useEffect, useState } from 'react'
-import { ArrowLeft, Headset, Paperclip, Search, Send } from 'lucide-react'
-import { Link } from 'react-router-dom'
+import { Headset, MoreVertical, Paperclip, Search, SlidersHorizontal, Send, User } from 'lucide-react'
 import type { SupportTicket } from '../../types'
 import { api, attachmentUrl } from '../../lib/api'
 import { useToast } from '../../components/Toast'
-import { AdminPageHeader, AdminPanel, AdminStatusBadge, statusTone, useAdmin, tryAction, AdminEmptyState } from '../../components/admin'
+import { AdminPageHeader, AdminPanel, statusTone, useAdmin, tryAction, AdminEmptyState } from '../../components/admin'
 
 const TICKET_STATUSES = ['OPEN', 'IN_PROGRESS', 'WAITING_FOR_CUSTOMER', 'WAITING_INTERNAL', 'RESOLVED', 'CLOSED'] as const
 const TICKET_PRIORITIES = ['LOW', 'NORMAL', 'HIGH', 'URGENT'] as const
+
+// Page-scoped navy palette (see file header comment) — one place to tweak
+// the reference-matched colors without hunting through every className.
+const NAVY = {
+  panel: 'bg-[#0d1940]',
+  border: 'border-[#1e2f66]',
+  headerBg: 'bg-[#142a68]',
+  hoverRow: 'hover:bg-[#12224f]',
+  selectedRow: 'bg-[#1a2f6e]',
+  muted: 'text-[#8291c4]',
+  input: 'bg-[#0b1636] text-white placeholder-[#8291c4]',
+  avatar: 'bg-[#3576f0]',
+  accent: 'bg-[#3576f0]',
+}
+
+// Colored last-message-preview pill per conversation-list row — tone comes
+// from the SAME statusTone(ticket.status) used elsewhere (never a
+// fabricated color); the reference's mustard-yellow pill is the "default"
+// shade here, with the same success/danger tones layered on for a real
+// resolved/rejected ticket so status is never lost, just restyled.
+const PREVIEW_PILL_CLASS: Record<ReturnType<typeof statusTone>, string> = {
+  success: 'bg-[#3ecf8e] text-[#062a1c]',
+  danger: 'bg-[#f0645a] text-[#2a0a08]',
+  warning: 'bg-[#f0c23a] text-[#1a1a2e]',
+  info: 'bg-[#f0c23a] text-[#1a1a2e]',
+  neutral: 'bg-[#25376e] text-[#8291c4]',
+}
 
 export function SupportPage() {
   const { error, loading, data, refetch } = useAdmin<SupportTicket[]>('/admin/support/tickets')
@@ -23,6 +56,12 @@ export function SupportPage() {
   const [category, setCategory] = useState('')
   const [agent, setAgent] = useState('')
   const [q, setQ] = useState('')
+  // Filters collapsed by default (Customer Support redesign) — the sidebar
+  // now leads with just the search bar, matching the reference layout; the
+  // 4 dropdowns are still the exact same real client-side filters, just
+  // tucked behind this toggle instead of always taking up space.
+  const [showFilters, setShowFilters] = useState(false)
+  const activeFilterCount = [status, priority, category, agent].filter(Boolean).length
 
   const categories = Array.from(new Set((data ?? []).map((t) => t.category?.name).filter(Boolean))) as string[]
   const agents = Array.from(new Map((data ?? []).filter((t) => t.assignedAgent).map((t) => [t.assignedAgent!.id, t.assignedAgent!])).values())
@@ -42,37 +81,53 @@ export function SupportPage() {
     <div>
       <AdminPageHeader icon={Headset} title="Customer Support" description="Support tickets and live conversation threads." back={{ to: '/admin' }} />
       <AdminPanel loading={loading} error={error} refetch={refetch}>
-        <div className="admin-card flex overflow-hidden" style={{ height: 'min(680px, calc(100vh - 220px))' }}>
+        <div className={`flex overflow-hidden rounded-2xl border ${NAVY.border} ${NAVY.panel}`} style={{ height: 'calc(100vh - 160px)' }}>
           {/* Left sidebar — search + conversation list */}
-          <div className={`w-full shrink-0 flex-col border-r border-admin-border md:flex md:w-80 ${selected ? 'hidden md:flex' : 'flex'}`}>
-            <div className="border-b border-admin-border p-3">
-              <div className="mb-2 flex items-center justify-between">
-                <p className="text-sm font-bold text-admin-text">Customer Support</p>
-                <Link to="/admin" className="admin-btn-secondary px-2 py-1 text-[11px]"><ArrowLeft className="h-3 w-3" /> Back</Link>
+          <div className={`w-full shrink-0 flex-col border-r ${NAVY.border} md:flex md:w-80 ${selected ? 'hidden md:flex' : 'flex'}`}>
+            <div className={`border-b ${NAVY.border} ${NAVY.headerBg} p-3`}>
+              <div className="flex items-center gap-1.5">
+                <div className="relative flex-1">
+                  <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#8291c4]" />
+                  <input
+                    className={`w-full rounded-full border-none py-2 pl-8 pr-3 text-xs outline-none ${NAVY.input}`}
+                    value={q}
+                    onChange={(e) => setQ(e.target.value)}
+                    placeholder="Search customer or subject"
+                  />
+                </div>
+                <button
+                  onClick={() => setShowFilters((v) => !v)}
+                  className={`relative shrink-0 rounded-full border p-2 transition ${showFilters || activeFilterCount > 0 ? 'border-[#3576f0] bg-[#3576f0]/20 text-[#6ea1ff]' : `${NAVY.border} text-[#8291c4] hover:text-white`}`}
+                  title="Filters"
+                  aria-label="Toggle filters"
+                >
+                  <SlidersHorizontal className="h-3.5 w-3.5" />
+                  {activeFilterCount > 0 && (
+                    <span className="absolute -right-1 -top-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-[#f0c23a] text-[9px] font-bold text-[#1a1a2e]">{activeFilterCount}</span>
+                  )}
+                </button>
               </div>
-              <div className="relative">
-                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-admin-mutedDim" />
-                <input className="admin-input pl-8 text-xs" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search customer or subject" />
-              </div>
-              <div className="mt-2 grid grid-cols-2 gap-1.5">
-                <select className="admin-input py-1.5 text-[11px]" value={status} onChange={(e) => setStatus(e.target.value)}>
-                  <option value="">All statuses</option>
-                  {TICKET_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-                </select>
-                <select className="admin-input py-1.5 text-[11px]" value={priority} onChange={(e) => setPriority(e.target.value)}>
-                  <option value="">All priorities</option>
-                  {TICKET_PRIORITIES.map((p) => <option key={p} value={p}>{p}</option>)}
-                </select>
-                <select className="admin-input py-1.5 text-[11px]" value={category} onChange={(e) => setCategory(e.target.value)}>
-                  <option value="">All categories</option>
-                  {categories.map((c) => <option key={c} value={c}>{c}</option>)}
-                </select>
-                <select className="admin-input py-1.5 text-[11px]" value={agent} onChange={(e) => setAgent(e.target.value)}>
-                  <option value="">All agents</option>
-                  <option value="__unassigned__">Unassigned</option>
-                  {agents.map((a) => <option key={a.id} value={a.id}>{a.fullName}</option>)}
-                </select>
-              </div>
+              {showFilters && (
+                <div className="mt-2 grid grid-cols-2 gap-1.5">
+                  <select className={`rounded-lg border-none py-1.5 text-[11px] ${NAVY.input}`} value={status} onChange={(e) => setStatus(e.target.value)}>
+                    <option value="">All statuses</option>
+                    {TICKET_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                  <select className={`rounded-lg border-none py-1.5 text-[11px] ${NAVY.input}`} value={priority} onChange={(e) => setPriority(e.target.value)}>
+                    <option value="">All priorities</option>
+                    {TICKET_PRIORITIES.map((p) => <option key={p} value={p}>{p}</option>)}
+                  </select>
+                  <select className={`rounded-lg border-none py-1.5 text-[11px] ${NAVY.input}`} value={category} onChange={(e) => setCategory(e.target.value)}>
+                    <option value="">All categories</option>
+                    {categories.map((c) => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                  <select className={`rounded-lg border-none py-1.5 text-[11px] ${NAVY.input}`} value={agent} onChange={(e) => setAgent(e.target.value)}>
+                    <option value="">All agents</option>
+                    <option value="__unassigned__">Unassigned</option>
+                    {agents.map((a) => <option key={a.id} value={a.id}>{a.fullName}</option>)}
+                  </select>
+                </div>
+              )}
             </div>
             <div className="flex-1 overflow-y-auto">
               {filtered.length === 0 ? (
@@ -82,19 +137,24 @@ export function SupportPage() {
                   <button
                     key={t.id}
                     onClick={() => setSelected(t.id)}
-                    className={`flex w-full items-start gap-2.5 border-b border-admin-border/60 px-3 py-3 text-left transition ${selected === t.id ? 'bg-ocean-500/15' : 'hover:bg-admin-surface'}`}
+                    className={`flex w-full items-start gap-2.5 border-b ${NAVY.border} border-l-2 px-3 py-3 text-left transition ${selected === t.id ? `border-l-[#f0c23a] ${NAVY.selectedRow}` : `border-l-transparent ${NAVY.hoverRow}`}`}
                   >
-                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-admin-gold/15 text-xs font-bold text-admin-gold">
-                      {(t.user?.fullName ?? t.user?.email ?? '?').slice(0, 1).toUpperCase()}
+                    <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${NAVY.avatar} text-white`}>
+                      <User className="h-4 w-4" />
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center justify-between gap-1">
-                        <p className="truncate text-sm font-semibold text-admin-text">{t.user?.fullName ?? t.user?.email ?? 'Unknown customer'}</p>
-                        <span className="shrink-0 text-[10px] text-admin-mutedDim">{new Date(t.updatedAt).toLocaleDateString()}</span>
+                        <p className="truncate text-sm font-semibold text-white">{t.user?.fullName ?? t.user?.email ?? 'Unknown customer'}</p>
+                        <span className="shrink-0 text-[10px] text-[#8291c4]">{new Date(t.updatedAt).toLocaleDateString()}</span>
                       </div>
-                      <p className="truncate text-[11px] text-admin-mutedDim">ID: {t.userId.slice(0, 8)}</p>
-                      <p className="mt-0.5 truncate text-xs text-admin-muted">{t.subject}</p>
-                      <div className="mt-1"><AdminStatusBadge tone={statusTone(t.status)}>{t.status}</AdminStatusBadge></div>
+                      <p className="truncate text-[11px] text-[#8291c4]">ID: {t.userId.slice(0, 8)}</p>
+                      {t.messages?.[0] ? (
+                        <p className={`mt-1 inline-block max-w-full truncate rounded px-1.5 py-0.5 text-[11px] font-medium ${PREVIEW_PILL_CLASS[statusTone(t.status)]}`}>
+                          {t.messages[0].body}
+                        </p>
+                      ) : (
+                        <p className="mt-1 inline-block truncate rounded bg-[#25376e] px-1.5 py-0.5 text-[11px] font-medium text-[#8291c4]">No messages yet</p>
+                      )}
                     </div>
                   </button>
                 ))
@@ -107,7 +167,7 @@ export function SupportPage() {
             {selectedTicket ? (
               <SupportTicketDetail ticket={selectedTicket} onBack={() => setSelected(null)} onChanged={refetch} />
             ) : (
-              <div className="flex flex-1 items-center justify-center text-sm text-admin-mutedDim">Select a conversation to view messages</div>
+              <div className="flex flex-1 items-center justify-center text-sm text-[#8291c4]">Select a conversation to view messages</div>
             )}
           </div>
         </div>
@@ -124,6 +184,10 @@ function SupportTicketDetail({ ticket, onBack, onChanged }: { ticket: SupportTic
   const [file, setFile] = useState<File | null>(null)
   const [sending, setSending] = useState(false)
   const [agents, setAgents] = useState<{ id: string; fullName: string; email: string }[] | null>(null)
+  // Status/assign controls collapsed by default (Customer Support redesign)
+  // — the thread gets the full vertical space by default, matching the
+  // reference layout; same real actions, just tucked behind this toggle.
+  const [showActions, setShowActions] = useState(false)
 
   useEffect(() => {
     // Not every viewer has support.tickets.assign — a 403 here just means
@@ -167,61 +231,70 @@ function SupportTicketDetail({ ticket, onBack, onChanged }: { ticket: SupportTic
   return (
     <div className="flex h-full flex-col">
       {/* Header */}
-      <div className="flex items-center gap-2.5 border-b border-admin-border px-4 py-3">
-        <button onClick={onBack} className="admin-btn-secondary px-2 py-1.5 text-[11px] md:hidden">←</button>
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-admin-gold/15 text-sm font-bold text-admin-gold">
-          {customerName.slice(0, 1).toUpperCase()}
+      <div className={`flex items-center gap-2.5 border-b ${NAVY.border} ${NAVY.headerBg} px-4 py-3`}>
+        <button onClick={onBack} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#1c2f6b] text-white md:hidden">←</button>
+        <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${NAVY.avatar} text-white`}>
+          <User className="h-4 w-4" />
         </div>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-bold text-admin-text">{customerName}</p>
-          <p className="truncate text-[11px] text-admin-mutedDim">ID: {ticket.userId} · {ticket.subject}</p>
+          <p className="truncate text-sm font-bold text-white">{customerName}</p>
+          <p className="truncate text-[11px] text-[#8291c4]">ID: {ticket.userId} · {ticket.subject}</p>
         </div>
-        {data && <AdminStatusBadge tone={statusTone(data.status)}>{data.status}</AdminStatusBadge>}
+        <button
+          onClick={() => setShowActions((v) => !v)}
+          className={`shrink-0 rounded-full p-2 transition ${showActions ? 'bg-[#3576f0] text-white' : 'bg-[#1c2f6b] text-[#8291c4] hover:text-white'}`}
+          title="Status & assignment"
+          aria-label="Toggle status and assignment controls"
+        >
+          <MoreVertical className="h-3.5 w-3.5" />
+        </button>
       </div>
 
       {loading ? (
-        <div className="flex flex-1 items-center justify-center text-xs text-admin-mutedDim">Loading…</div>
+        <div className="flex flex-1 items-center justify-center text-xs text-[#8291c4]">Loading…</div>
       ) : error || !data ? (
-        <div className="flex flex-1 items-center justify-center text-xs text-bear">{error?.message ?? 'Could not load ticket.'}</div>
+        <div className="flex flex-1 items-center justify-center text-xs text-[#f0645a]">{error?.message ?? 'Could not load ticket.'}</div>
       ) : (
         <>
-          {/* Status / assign controls */}
-          <div className="flex flex-wrap items-center gap-1.5 border-b border-admin-border px-4 py-2">
-            {(['IN_PROGRESS', 'WAITING_FOR_CUSTOMER', 'RESOLVED', 'CLOSED'] as const).map((s) => (
-              <button key={s} onClick={() => setStatus(s)} className="admin-btn-secondary px-2 py-1 text-[10px]">{s}</button>
-            ))}
-            {agents && (
-              <select className="admin-input ml-auto w-auto py-1 text-[11px]" value={data.assignedAgentId ?? ''} onChange={(e) => assign(e.target.value)}>
-                <option value="">Unassigned — assign to…</option>
-                {agents.map((a) => <option key={a.id} value={a.id}>{a.fullName}</option>)}
-              </select>
-            )}
-          </div>
+          {/* Status / assign controls — collapsed by default */}
+          {showActions && (
+            <div className={`flex flex-wrap items-center gap-1.5 border-b ${NAVY.border} px-4 py-2`}>
+              {(['IN_PROGRESS', 'WAITING_FOR_CUSTOMER', 'RESOLVED', 'CLOSED'] as const).map((s) => (
+                <button key={s} onClick={() => setStatus(s)} className="rounded-full bg-[#1c2f6b] px-2.5 py-1 text-[10px] font-medium text-white hover:bg-[#25376e]">{s}</button>
+              ))}
+              {agents && (
+                <select className={`ml-auto w-auto rounded-lg border-none py-1 text-[11px] ${NAVY.input}`} value={data.assignedAgentId ?? ''} onChange={(e) => assign(e.target.value)}>
+                  <option value="">Unassigned — assign to…</option>
+                  {agents.map((a) => <option key={a.id} value={a.id}>{a.fullName}</option>)}
+                </select>
+              )}
+            </div>
+          )}
 
           {/* Message thread */}
-          <div className="flex-1 space-y-3 overflow-y-auto bg-admin-bg2 px-4 py-4">
+          <div className={`flex-1 space-y-3 overflow-y-auto ${NAVY.panel} px-4 py-4`}>
             {(data.messages ?? []).map((m) => {
               const isCustomer = m.author?.role === 'USER' || (!m.author?.role && m.authorId === data.userId)
               return (
                 <div key={m.id} className={`flex ${isCustomer ? 'justify-start' : 'justify-end'}`}>
-                  <div className={`max-w-[75%] rounded-lg px-3 py-2 text-xs ${
+                  <div className={`max-w-[75%] rounded-xl px-3 py-2 text-xs ${
                     m.visibility === 'INTERNAL'
-                      ? 'border border-admin-gold/30 bg-admin-gold/10 text-admin-gold'
+                      ? 'border border-[#f0c23a]/40 bg-[#4a3a12] text-[#f0c23a]'
                       : isCustomer
-                        ? 'border border-admin-border bg-admin-surface text-admin-text'
-                        : 'bg-ocean-600/20 border border-ocean-500/30 text-admin-text'
+                        ? 'bg-[#16224f] text-white'
+                        : 'bg-[#3576f0] text-white'
                   }`}>
                     <div className="mb-0.5 flex items-center gap-1.5">
-                      <span className="font-semibold text-admin-text">{m.author?.fullName ?? (isCustomer ? customerName : 'Support')}</span>
-                      {m.visibility === 'INTERNAL' && <span className="text-admin-gold">(internal)</span>}
+                      <span className="font-semibold">{m.author?.fullName ?? (isCustomer ? customerName : 'Support')}</span>
+                      {m.visibility === 'INTERNAL' && <span className="text-[#f0c23a]">(internal)</span>}
                     </div>
                     <p className="whitespace-pre-wrap break-words">{m.body}</p>
                     {(m.attachments ?? []).map((a) => (
-                      <a key={a.id} href={attachmentUrl(a.id)} className="mt-1 flex items-center gap-1.5 text-ocean-400 hover:text-ocean-300" download>
+                      <a key={a.id} href={attachmentUrl(a.id)} className="mt-1 flex items-center gap-1.5 text-[#cddcff] hover:text-white" download>
                         <Paperclip className="h-3 w-3" /> {a.filename}
                       </a>
                     ))}
-                    <p className="mt-1 text-right text-[10px] text-admin-mutedDim">{new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                    <p className="mt-1 text-right text-[10px] text-[#cddcff]/70">{new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
                   </div>
                 </div>
               )
@@ -229,12 +302,26 @@ function SupportTicketDetail({ ticket, onBack, onChanged }: { ticket: SupportTic
           </div>
 
           {/* Reply box */}
-          <div className="border-t border-admin-border p-3">
+          <div className={`border-t ${NAVY.border} ${NAVY.panel} p-3`}>
             <div className="flex items-center gap-2">
-              <input className="admin-input flex-1 text-sm" value={reply} onChange={(e) => setReply(e.target.value)} placeholder="Type a reply…" onKeyDown={(e) => e.key === 'Enter' && sendReply()} />
-              <button onClick={sendReply} disabled={sending} className="admin-btn-primary px-4"><Send className="h-3.5 w-3.5" /> {sending ? 'Sending…' : 'Send'}</button>
+              <input
+                className="flex-1 rounded-full border-none bg-white px-4 py-2.5 text-sm text-[#1a1a2e] placeholder-[#8291c4] outline-none"
+                value={reply}
+                onChange={(e) => setReply(e.target.value)}
+                placeholder="Type a reply…"
+                onKeyDown={(e) => e.key === 'Enter' && sendReply()}
+              />
+              <button
+                onClick={sendReply}
+                disabled={sending}
+                title="Send"
+                aria-label="Send"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#3576f0] text-white transition hover:bg-[#4a86ff] disabled:opacity-50"
+              >
+                <Send className="h-4 w-4" />
+              </button>
             </div>
-            <div className="mt-2 flex items-center gap-3 text-[11px] text-admin-mutedDim">
+            <div className="mt-2 flex items-center gap-3 text-[11px] text-[#8291c4]">
               <label className="flex items-center gap-1.5"><input type="checkbox" checked={internal} onChange={(e) => setInternal(e.target.checked)} /> Internal note</label>
               <label className="flex items-center gap-1.5">
                 <Paperclip className="h-3.5 w-3.5" />

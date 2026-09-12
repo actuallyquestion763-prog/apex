@@ -5,6 +5,7 @@ import { AuditEvent } from '../audit/audit-events'
 import type { PermissionKey } from '../common/permissions'
 import { sanitizeText } from '../cms/cms.validation'
 import { MediaStorageService } from '../cms/media-storage.service'
+import { PlatformSettingsService } from '../platform-settings/platform-settings.service'
 import type { CreateTicketDto, CreateMessageDto } from './dto/ticket.dto'
 import type { CreateCategoryDto, UpdateCategoryDto } from './dto/category.dto'
 
@@ -35,6 +36,7 @@ export class SupportService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly media: MediaStorageService,
+    private readonly platformSettings: PlatformSettingsService,
   ) {}
 
   // ---- Categories -----------------------------------------------------------------
@@ -100,6 +102,24 @@ export class SupportService {
       await tx.supportMessage.create({
         data: { ticketId: ticket.id, authorId: userId, body: sanitizeText(dto.message), visibility: 'PUBLIC' },
       })
+
+      // Auto-greeting (Part: Customer Support redesign) — a real, persisted
+      // reply from an actual staff account, never a fabricated/bot sender.
+      // Re-validates the configured sender is still a real ADMIN/SUPER_ADMIN
+      // at send time (not just when the setting was saved) — if the account
+      // was since demoted or deleted, the greeting is silently skipped
+      // rather than blocking ticket creation or falling back to some other
+      // sender.
+      const settings = await this.platformSettings.get()
+      if (settings.supportAutoGreetingEnabled && settings.supportAutoGreetingMessage && settings.supportAutoGreetingSenderId) {
+        const sender = await tx.user.findUnique({ where: { id: settings.supportAutoGreetingSenderId }, select: { id: true, role: true } })
+        if (sender && (sender.role === 'ADMIN' || sender.role === 'SUPER_ADMIN')) {
+          await tx.supportMessage.create({
+            data: { ticketId: ticket.id, authorId: sender.id, body: settings.supportAutoGreetingMessage, visibility: 'PUBLIC' },
+          })
+        }
+      }
+
       return ticket
     })
   }
@@ -158,7 +178,16 @@ export class SupportService {
     return this.prisma.supportTicket.findMany({
       where: status ? { status: status as any } : undefined,
       orderBy: { updatedAt: 'desc' },
-      include: { category: true, user: { select: { id: true, email: true, fullName: true } }, assignedAgent: { select: { id: true, email: true, fullName: true } } },
+      include: {
+        category: true,
+        user: { select: { id: true, email: true, fullName: true } },
+        assignedAgent: { select: { id: true, email: true, fullName: true } },
+        // Last-message preview for the ticket list (Customer Support
+        // redesign) — PUBLIC only, so a staff member with support.tickets.read
+        // but not the separate support.tickets.internal_note permission never
+        // sees internal-note content leak into a list preview.
+        messages: { where: { visibility: 'PUBLIC' }, orderBy: { createdAt: 'desc' }, take: 1 },
+      },
     })
   }
 

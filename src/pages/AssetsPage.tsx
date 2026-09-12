@@ -1,7 +1,9 @@
 import { Link } from 'react-router-dom'
+import { Coins } from 'lucide-react'
 import { useAccountSummary, useAssetBalances, useExecutionStatus, useCashBalance } from '../store/useStore'
 import PageHeader from '../components/PageHeader'
 import { SpotHoldings } from '../components/SpotHoldings'
+import { AssetIcon } from '../components/AssetIcon'
 
 export default function AssetsPage() {
   const { summary, loading } = useAccountSummary()
@@ -19,10 +21,19 @@ export default function AssetsPage() {
       <PageHeader title="Assets" subtitle="Portfolio overview" />
 
       {/* Spot Balance hero — the primary crypto/spot funding currency. */}
-      <div className="rounded-2xl border border-ocean-500/20 bg-gradient-to-br from-ocean-600/20 via-ink-850 to-ink-850 p-6 shadow-glow-sm">
-        <p className="text-xs font-medium uppercase tracking-wide text-ocean-300">Spot Balance</p>
-        <p className="mt-2 font-mono text-3xl font-bold text-white">{usdtLoading ? '—' : `${usdtCash.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT`}</p>
-        <p className="mt-1 text-xs text-slate-500">The funding currency for BTC/USDT, ETH/USDT, and other crypto/spot trades.</p>
+      <div className="rounded-2xl border border-ocean-500/30 bg-gradient-to-br from-ocean-600/40 via-ocean-700/20 to-ink-850 p-6 shadow-glow-sm">
+        <div className="flex items-center gap-1.5">
+          <p className="text-sm font-semibold uppercase tracking-wide text-ocean-200">Spot Balance</p>
+          <Coins className="h-4 w-4 text-gold-400" />
+        </div>
+        <div className="mt-3 flex items-center gap-3">
+          <AssetIcon symbol="USDT/USDT" size={40} />
+          <div>
+            <p className="font-mono text-4xl font-extrabold leading-none text-white">{usdtLoading ? '—' : usdtCash.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+            <p className="mt-1.5 text-sm font-bold text-gold-400">USDT</p>
+          </div>
+        </div>
+        <p className="mt-3 text-xs text-ocean-200/70">The funding currency for BTC/USDT, ETH/USDT, and other crypto/spot trades.</p>
       </div>
 
       {/* USD balance — a separate, secondary balance; the only figure with a

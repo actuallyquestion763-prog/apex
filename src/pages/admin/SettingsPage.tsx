@@ -4,7 +4,7 @@
 // configuration concerns. CMS and Audit Logs remain real, working pages —
 // linked here rather than dropped from the dashboard grid, so neither is
 // hidden behind an obscure/undiscoverable path.
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { FileText, ScrollText, Settings as SettingsIcon } from 'lucide-react'
 import type { MarketConfig, PlatformSettings } from '../../types'
@@ -21,6 +21,7 @@ export function SettingsPage() {
       <AdminPageHeader icon={SettingsIcon} title="Settings" description="Platform-wide kill switches and spot market configuration." back={{ to: '/admin' }} />
       <div className="space-y-6">
         <PlatformKillSwitches />
+        <SupportAutoGreeting />
         <SpotMarkets />
 
         <AdminSection title="More" description="Other configuration pages, kept accessible here rather than added to the main dashboard grid.">
@@ -68,6 +69,96 @@ function PlatformKillSwitches() {
             else throw new ApiError(0, res.error, null)
           }}
           onClose={() => setPending(null)}
+        />
+      )}
+    </AdminPanel>
+  )
+}
+
+// Support ticket auto-greeting — a real message posted by an actual staff
+// account (chosen below) the moment a customer opens a new ticket, never a
+// fabricated/bot sender. Same step-up-gated /admin/platform-settings
+// endpoint as the kill switches above, since this is the same tier of
+// platform-wide configuration change.
+function SupportAutoGreeting() {
+  const { push } = useToast()
+  const { data, loading, error, refetch } = useAdmin<Overview>('/admin/overview')
+  const [admins, setAdmins] = useState<{ id: string; email: string; fullName: string }[] | null>(null)
+  const [enabled, setEnabled] = useState(false)
+  const [message, setMessage] = useState('')
+  const [senderId, setSenderId] = useState('')
+  const [confirming, setConfirming] = useState(false)
+
+  useEffect(() => {
+    api.get<{ id: string; email: string; fullName: string }[]>('/admin/admins').then(setAdmins).catch(() => setAdmins(null))
+  }, [])
+
+  useEffect(() => {
+    if (!data) return
+    setEnabled(data.platform.supportAutoGreetingEnabled)
+    setMessage(data.platform.supportAutoGreetingMessage ?? '')
+    setSenderId(data.platform.supportAutoGreetingSenderId ?? '')
+  }, [data])
+
+  return (
+    <AdminPanel loading={loading} error={error} refetch={refetch}>
+      {data && (
+        <div className="admin-card p-6">
+          <h3 className="font-bold text-admin-text">Support ticket auto-greeting</h3>
+          <p className="mt-1 text-sm text-admin-muted">
+            Posted as a real reply from the staff account chosen below, the moment a customer opens a new ticket. Requires step-up re-authentication.
+          </p>
+          <div className="mt-4 space-y-3">
+            <label className="flex items-center gap-2 text-sm text-admin-text">
+              <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} /> Enabled
+            </label>
+            <div>
+              <p className="mb-1 text-xs font-medium text-admin-mutedDim">Greeting message</p>
+              <textarea
+                className="admin-input min-h-[80px] w-full text-sm"
+                value={message}
+                onChange={(e) => setMessage(e.target.value)}
+                placeholder="Hi! Thanks for reaching out — our team will get back to you shortly."
+                maxLength={2000}
+              />
+            </div>
+            <div>
+              <p className="mb-1 text-xs font-medium text-admin-mutedDim">Sent as</p>
+              <select className="admin-input w-full max-w-sm text-sm" value={senderId} onChange={(e) => setSenderId(e.target.value)}>
+                <option value="">Select a staff account…</option>
+                {(admins ?? []).map((a) => <option key={a.id} value={a.id}>{a.fullName} — {a.email}</option>)}
+              </select>
+            </div>
+            <button
+              onClick={() => setConfirming(true)}
+              disabled={enabled && (!message.trim() || !senderId)}
+              className="admin-btn-primary px-4 py-2 text-sm"
+            >
+              Save
+            </button>
+            {enabled && (!message.trim() || !senderId) && (
+              <p className="text-xs text-bear">A message and a sender are required while auto-greeting is enabled.</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {confirming && (
+        <StepUpModal
+          title="Change support auto-greeting"
+          description="Platform-wide support controls require step-up re-authentication."
+          onConfirm={async ({ reason, confirmPassword }) => {
+            const res = await tryAction(() => api.patch('/admin/platform-settings', {
+              supportAutoGreetingEnabled: enabled,
+              supportAutoGreetingMessage: message.trim() || undefined,
+              supportAutoGreetingSenderId: senderId || undefined,
+              reason,
+              confirmPassword,
+            }))
+            if (res.ok) { push('success', 'Auto-greeting updated.'); setConfirming(false); refetch() }
+            else throw new ApiError(0, res.error, null)
+          }}
+          onClose={() => setConfirming(false)}
         />
       )}
     </AdminPanel>

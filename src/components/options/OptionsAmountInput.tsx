@@ -32,7 +32,7 @@ export function OptionsAmountInput({
         <label htmlFor="option-amount-input" className="sr-only">Investment ({currency})</label>
         <input
           id="option-amount-input"
-          className="input font-mono text-base"
+          className="input font-mono text-lg font-bold"
           type="number"
           min="0"
           inputMode="decimal"
@@ -56,13 +56,13 @@ export function OptionsAmountInput({
       </div>
 
       <div className="grid grid-cols-2 gap-3">
-        <div className="rounded-xl border border-ink-700 bg-ink-900/60 p-3">
-          <p className="text-[11px] uppercase tracking-wide text-slate-500">Duration</p>
-          <p className="mt-1 font-mono text-lg font-bold text-ocean-300">{durationSeconds != null ? `${durationSeconds}s` : '—'}</p>
+        <div className="rounded-xl border border-ink-700 bg-ink-900/60 p-3.5">
+          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Duration</p>
+          <p className="mt-1 font-mono text-2xl font-extrabold text-ocean-300">{durationSeconds != null ? `${durationSeconds}s` : '—'}</p>
         </div>
-        <div className="rounded-xl border border-ink-700 bg-ink-900/60 p-3">
-          <p className="text-[11px] uppercase tracking-wide text-slate-500">Profit</p>
-          <p className="mt-1 font-mono text-lg font-bold text-ocean-300">{payout != null ? `${payout}%` : '—'}</p>
+        <div className="rounded-xl border border-ink-700 bg-ink-900/60 p-3.5">
+          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Profit</p>
+          <p className="mt-1 font-mono text-2xl font-extrabold text-ocean-300">{payout != null ? `${payout}%` : '—'}</p>
         </div>
       </div>
     </div>

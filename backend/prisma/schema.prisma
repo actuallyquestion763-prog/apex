@@ -781,6 +781,17 @@ model PlatformSettings {
   // user account may hold at once. Nullable = not enforced (Checkpoint E
   // Part 16: no authoritative value exists yet; do not invent one).
   maxOpenOrdersPerUser Int?
+  // Support ticket auto-greeting — a real, persisted SupportMessage created
+  // by SupportService.createTicket() the moment a customer opens a new
+  // ticket, authored by a real staff account (supportAutoGreetingSenderId),
+  // never a fabricated/bot sender. All three fields are optional and the
+  // feature defaults off; the sender must be a real ADMIN/SUPER_ADMIN,
+  // validated in AdminService.updatePlatformSettings() at write time (not
+  // enforced at the DB level, matching updatedByAdminId's existing
+  // plain-String-no-FK convention above).
+  supportAutoGreetingEnabled   Boolean @default(false)
+  supportAutoGreetingMessage   String?
+  supportAutoGreetingSenderId  String?
 }
 
 enum MarketDataSource {

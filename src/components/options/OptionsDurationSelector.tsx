@@ -24,9 +24,9 @@ export function OptionsDurationSelector({
           key={d.durationSeconds}
           aria-current={activeDurationSeconds === d.durationSeconds}
           title={`$${d.minAmount}+ -> ${d.durationSeconds}s -> ${d.payoutPercent}%`}
-          className={`rounded-lg px-3 py-2 text-sm font-bold transition ${
+          className={`rounded-xl px-4 py-3 text-base font-extrabold transition ${
             activeDurationSeconds === d.durationSeconds
-              ? 'bg-bull text-white'
+              ? 'bg-bull text-white shadow-glow-sm'
               : 'border border-ink-600 bg-ink-800 text-slate-400'
           }`}
         >

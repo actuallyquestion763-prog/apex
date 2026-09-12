@@ -18,15 +18,15 @@ export function SpotHoldings({ assets, loading, executionStatus }: { assets: Ass
   return (
     <div>
       {assets.map((a) => (
-        <div key={a.currency} className="flex items-center gap-3 border-b border-ink-700/40 px-5 py-3.5 last:border-b-0">
-          <AssetIcon symbol={`${a.currency}/USDT`} size={32} />
+        <div key={a.currency} className="flex items-center gap-3.5 border-b border-ink-700/40 px-5 py-4 last:border-b-0">
+          <AssetIcon symbol={`${a.currency}/USDT`} size={40} />
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-semibold text-white">{a.currency}</p>
+            <p className="text-base font-bold text-white">{a.currency}</p>
             {Number(a.reserved) !== 0 && (
               <p className="text-xs text-slate-500">{a.reserved} reserved</p>
             )}
           </div>
-          <p className="font-mono text-sm font-semibold text-white">{a.total} {a.currency}</p>
+          <p className="font-mono text-base font-bold text-white">{a.total} {a.currency}</p>
         </div>
       ))}
     </div>

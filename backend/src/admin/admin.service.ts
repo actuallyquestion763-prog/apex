@@ -392,6 +392,18 @@ export class AdminService {
 
   async updatePlatformSettings(dto: UpdatePlatformSettingsDto, adminId: string) {
     await this.stepUp.assertStepUpAuthorized(adminId, dto.confirmPassword)
+
+    // Support auto-greeting must always be authored by a real, current
+    // staff account — never a fabricated/bot sender — so the chosen
+    // sender is validated here, at write time, against real ADMIN/
+    // SUPER_ADMIN accounts (the DTO only checks that it's a string).
+    if (dto.supportAutoGreetingSenderId !== undefined) {
+      const sender = await this.prisma.user.findUnique({ where: { id: dto.supportAutoGreetingSenderId }, select: { role: true } })
+      if (!sender || (sender.role !== 'ADMIN' && sender.role !== 'SUPER_ADMIN')) {
+        throw new BadRequestException('supportAutoGreetingSenderId must be an existing admin account.')
+      }
+    }
+
     const before = await this.platformSettings.get()
     const { reason, confirmPassword: _cp, ...patch } = dto
     const updated = await this.platformSettings.update(patch, adminId)
@@ -420,6 +432,20 @@ export class AdminService {
         reason,
         { maxOpenOrdersPerUser: before.maxOpenOrdersPerUser },
         { maxOpenOrdersPerUser: patch.maxOpenOrdersPerUser },
+      )
+    }
+
+    const greetingChanged = ['supportAutoGreetingEnabled', 'supportAutoGreetingMessage', 'supportAutoGreetingSenderId'].some(
+      (key) => (patch as any)[key] !== undefined && (patch as any)[key] !== (before as any)[key],
+    )
+    if (greetingChanged) {
+      await this.recordAdminAction(
+        adminId,
+        AuditEvent.SUPPORT_AUTO_GREETING_CHANGED,
+        undefined,
+        reason,
+        { supportAutoGreetingEnabled: before.supportAutoGreetingEnabled, supportAutoGreetingSenderId: before.supportAutoGreetingSenderId },
+        { supportAutoGreetingEnabled: updated.supportAutoGreetingEnabled, supportAutoGreetingSenderId: updated.supportAutoGreetingSenderId },
       )
     }
 

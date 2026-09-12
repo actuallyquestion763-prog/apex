@@ -189,6 +189,9 @@ export interface PlatformSettings {
   depositsEnabled: boolean
   withdrawalsEnabled: boolean
   registrationsEnabled: boolean
+  supportAutoGreetingEnabled: boolean
+  supportAutoGreetingMessage: string | null
+  supportAutoGreetingSenderId: string | null
 }
 
 // ---- Local-only, non-financial state -----------------------------------

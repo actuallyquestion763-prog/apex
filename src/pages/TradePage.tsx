@@ -137,7 +137,7 @@ export default function TradePage() {
         {/* Chart */}
         <div className="lg:col-span-2">
           <div className="card overflow-hidden p-4">
-            <CandlestickChart symbol={symbol} height={360} quoteAsset={quoteAsset} />
+            <CandlestickChart symbol={symbol} height={440} quoteAsset={quoteAsset} />
           </div>
           <Stats24hRow symbol={symbol} />
         </div>
@@ -189,7 +189,7 @@ export default function TradePage() {
                   onClick={() => submitOption('BUY')}
                   title={optionDisabledReason}
                   aria-label="Buy — predict the price will be higher at expiry"
-                  className="rounded-xl bg-bull py-3.5 text-base font-bold text-white transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-40"
+                  className="rounded-xl bg-bull py-4 text-lg font-extrabold text-white transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   BUY
                 </button>
@@ -198,7 +198,7 @@ export default function TradePage() {
                   onClick={() => submitOption('SELL')}
                   title={optionDisabledReason}
                   aria-label="Sell — predict the price will be lower at expiry"
-                  className="rounded-xl bg-bear py-3.5 text-base font-bold text-white transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-40"
+                  className="rounded-xl bg-bear py-4 text-lg font-extrabold text-white transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   SELL
                 </button>
