@@ -41,7 +41,7 @@ describe('KycPage', () => {
     expect(submitKycMock).not.toHaveBeenCalled()
   })
 
-  it('submits with front + selfie for a PASSPORT (no back required) and calls the real backend submit function', async () => {
+  it('submits with just the front document for a PASSPORT (no back required) and calls the real backend submit function', async () => {
     submitKycMock.mockResolvedValue({ ok: true, data: { id: 'v1', status: 'PENDING' } })
     renderKyc()
 
@@ -52,7 +52,6 @@ describe('KycPage', () => {
     fireEvent.change(screen.getByPlaceholderText('Document number'), { target: { value: 'P1234567' } })
 
     fireEvent.drop(screen.getByLabelText('Upload ID document'), { dataTransfer: { files: [makeFile('front.png')] } })
-    fireEvent.drop(screen.getByLabelText('Upload Selfie / verification photo'), { dataTransfer: { files: [makeFile('selfie.png')] } })
 
     fireEvent.click(screen.getByRole('button', { name: /submit for verification/i }))
 
@@ -61,7 +60,13 @@ describe('KycPage', () => {
     expect(call.idType).toBe('PASSPORT')
     expect(call.back).toBeNull()
     expect(call.front.name).toBe('front.png')
-    expect(call.selfie.name).toBe('selfie.png')
+    expect(call.selfie).toBeUndefined()
+  })
+
+  it('no longer shows a Selfie / verification photo upload tile — removed per operator request', () => {
+    renderKyc()
+    expect(screen.queryByText('Selfie / verification photo')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Upload Selfie / verification photo')).not.toBeInTheDocument()
   })
 
   it('shows the FRONT and BACK upload tiles for NATIONAL_ID (both required)', () => {

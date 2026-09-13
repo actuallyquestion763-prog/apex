@@ -31,7 +31,7 @@ export function KycPage() {
             <AdminTable>
               <AdminTableHead columns={[
                 { label: 'ID' }, { label: 'User' }, { label: 'Document' }, { label: 'ID Number' }, { label: 'Country' },
-                { label: 'ID Card' }, { label: 'Selfie' }, { label: 'Status' }, { label: 'Date' }, { label: 'Actions', align: 'right' },
+                { label: 'Documents' }, { label: 'Status' }, { label: 'Date' }, { label: 'Actions', align: 'right' },
               ]} />
               <tbody>
                 {(data ?? []).map((k) => (
@@ -44,8 +44,7 @@ export function KycPage() {
                     <td className="px-4 py-2.5 text-admin-muted">{k.idType ?? '—'}</td>
                     <td className="px-4 py-2.5 font-mono text-xs text-admin-muted">{k.idNumber ?? '—'}</td>
                     <td className="px-4 py-2.5 text-admin-muted">{k.country ?? '—'}</td>
-                    <td className="px-4 py-2.5"><button onClick={() => setReviewId(k.id)} className="admin-btn-info px-2.5 py-1 text-[11px]">View ID</button></td>
-                    <td className="px-4 py-2.5"><button onClick={() => setReviewId(k.id)} className="admin-btn-info px-2.5 py-1 text-[11px]">View Selfie</button></td>
+                    <td className="px-4 py-2.5"><button onClick={() => setReviewId(k.id)} className="admin-btn-info px-2.5 py-1 text-[11px]">View documents</button></td>
                     <td className="px-4 py-2.5"><AdminStatusBadge tone={statusTone(k.status)}>{k.status}</AdminStatusBadge></td>
                     <td className="px-4 py-2.5 text-admin-muted">{new Date(k.submittedAt).toLocaleDateString()}</td>
                     <td className="px-4 py-2.5 text-right"><button onClick={() => setReviewId(k.id)} className="admin-btn-secondary px-2.5 py-1.5 text-[11px]">Review</button></td>

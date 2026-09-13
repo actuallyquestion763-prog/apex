@@ -24,7 +24,6 @@ export function KycPage() {
   const [idNumber, setIdNumber] = useState('')
   const [front, setFront] = useState<File | null>(null)
   const [back, setBack] = useState<File | null>(null)
-  const [selfie, setSelfie] = useState<File | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
   const status = user?.kycStatus ?? 'NOT_STARTED'
@@ -38,14 +37,13 @@ export function KycPage() {
     }
     if (!front) { push('error', 'Upload the front of your ID.'); return }
     if (selectedIdType.needsBack && !back) { push('error', 'Upload the back of your ID.'); return }
-    if (!selfie) { push('error', 'Upload a verification selfie.'); return }
 
     setSubmitting(true)
-    const res = await submitKyc({ fullName: fullName.trim(), dateOfBirth, country: country.trim(), idType, idNumber: idNumber.trim(), front, back: selectedIdType.needsBack ? back : null, selfie })
+    const res = await submitKyc({ fullName: fullName.trim(), dateOfBirth, country: country.trim(), idType, idNumber: idNumber.trim(), front, back: selectedIdType.needsBack ? back : null })
     setSubmitting(false)
     if (res.ok) {
       push('success', 'Verification submitted. Our team will review it shortly.')
-      setFront(null); setBack(null); setSelfie(null)
+      setFront(null); setBack(null)
       await Promise.all([refresh(), refetch()])
     } else {
       push('error', res.error)
@@ -106,12 +104,11 @@ export function KycPage() {
             </div>
           </div>
 
-          <div className={`grid gap-6 ${selectedIdType.needsBack ? 'lg:grid-cols-3' : 'lg:grid-cols-2'}`}>
+          <div className={`grid gap-6 ${selectedIdType.needsBack ? 'lg:grid-cols-2' : 'lg:grid-cols-1'}`}>
             <div className="card p-6"><KycDocumentUpload label={selectedIdType.needsBack ? 'Front of ID' : 'ID document'} file={front} onSelect={setFront} /></div>
             {selectedIdType.needsBack && (
               <div className="card p-6"><KycDocumentUpload label="Back of ID" file={back} onSelect={setBack} /></div>
             )}
-            <div className="card p-6"><KycDocumentUpload label="Selfie / verification photo" file={selfie} onSelect={setSelfie} /></div>
           </div>
 
           <button onClick={submit} disabled={submitting} className="btn-gold py-3 px-8">

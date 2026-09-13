@@ -41,7 +41,7 @@ describe('Mine/Profile + KYC (real PostgreSQL)', () => {
     return { adminId: user.id, cookie: extractSessionCookie(res) }
   }
 
-  function submitKyc(cookie: string, opts: { idType?: string; withBack?: boolean; withSelfie?: boolean; idNumber?: string } = {}) {
+  function submitKyc(cookie: string, opts: { idType?: string; withBack?: boolean; idNumber?: string } = {}) {
     const idType = opts.idType ?? 'NATIONAL_ID'
     let req = request(server)
       .post('/kyc/submit')
@@ -54,9 +54,6 @@ describe('Mine/Profile + KYC (real PostgreSQL)', () => {
       .attach('front', PNG_BYTES, { filename: 'front.png', contentType: 'image/png' })
     if (opts.withBack !== false && idType !== 'PASSPORT') {
       req = req.attach('back', PNG_BYTES, { filename: 'back.png', contentType: 'image/png' })
-    }
-    if (opts.withSelfie !== false) {
-      req = req.attach('selfie', PNG_BYTES, { filename: 'selfie.png', contentType: 'image/png' })
     }
     return req
   }
@@ -82,7 +79,7 @@ describe('Mine/Profile + KYC (real PostgreSQL)', () => {
 
   // ---- 2. Submission validation -------------------------------------------
 
-  it('2. a full NATIONAL_ID submission (front+back+selfie) succeeds and moves status to PENDING', async () => {
+  it('2. a full NATIONAL_ID submission (front+back) succeeds and moves status to PENDING', async () => {
     const { cookie } = await registerAndLogin('kycsubmit')
     const res = await submitKyc(cookie, { idType: 'NATIONAL_ID' }).expect(201)
     expect(res.body.status).toBe('PENDING')
@@ -90,7 +87,7 @@ describe('Mine/Profile + KYC (real PostgreSQL)', () => {
     expect(me.body.user.kycStatus).toBe('PENDING')
   })
 
-  it('3. a PASSPORT submission needs only front+selfie — no back image required', async () => {
+  it('3. a PASSPORT submission needs only the front image — no back image required', async () => {
     const { cookie } = await registerAndLogin('kycpassport')
     const res = await submitKyc(cookie, { idType: 'PASSPORT' }).expect(201)
     expect(res.body.status).toBe('PENDING')
@@ -113,13 +110,7 @@ describe('Mine/Profile + KYC (real PostgreSQL)', () => {
       .field('idNumber', 'P1234567')
       .attach('front', PNG_BYTES, { filename: 'front.png', contentType: 'image/png' })
       .attach('back', PNG_BYTES, { filename: 'back.png', contentType: 'image/png' })
-      .attach('selfie', PNG_BYTES, { filename: 'selfie.png', contentType: 'image/png' })
     expect(res.status).toBe(400)
-  })
-
-  it('6. a submission missing the selfie is rejected', async () => {
-    const { cookie } = await registerAndLogin('kycnoselfie')
-    await submitKyc(cookie, { idType: 'NATIONAL_ID', withSelfie: false }).expect(400)
   })
 
   it('7. submitting again while a verification is already PENDING is rejected', async () => {
@@ -210,12 +201,12 @@ describe('Mine/Profile + KYC (real PostgreSQL)', () => {
     expect(events.length).toBeGreaterThanOrEqual(1)
   })
 
-  it('15. front/back/selfie are each independently viewable where present (multi-document submission)', async () => {
+  it('15. front and back are each independently viewable where present (multi-document submission)', async () => {
     const admin = await makeAdminWith('kyc.read')
     const user = await registerAndLogin('kycmultidoc')
     const submitted = await submitKyc(user.cookie, { idType: 'NATIONAL_ID' }).expect(201)
     const kinds = submitted.body.documents.map((d: any) => d.kind).sort()
-    expect(kinds).toEqual(['BACK', 'FRONT', 'SELFIE'])
+    expect(kinds).toEqual(['BACK', 'FRONT'])
 
     for (const doc of submitted.body.documents) {
       await request(server).get(`/admin/kyc/documents/${doc.id}`).set('Cookie', admin.cookie).expect(200)

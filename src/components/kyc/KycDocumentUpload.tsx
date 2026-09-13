@@ -1,9 +1,9 @@
 import { useRef, useState } from 'react'
 import { Upload, FileCheck } from 'lucide-react'
 
-// Reusable front/back/selfie upload tile — same drag-and-drop/click pattern
-// as DepositProofUpload.tsx, generalized with a configurable label since a
-// KYC submission needs 2-3 of these at once (see KycPage.tsx).
+// Reusable front/back upload tile — same drag-and-drop/click pattern as
+// DepositProofUpload.tsx, generalized with a configurable label since a
+// KYC submission needs 1-2 of these at once (see KycPage.tsx).
 export function KycDocumentUpload({ label, file, onSelect }: { label: string; file: File | null; onSelect: (file: File | null) => void }) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [dragOver, setDragOver] = useState(false)

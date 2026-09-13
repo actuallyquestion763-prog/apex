@@ -18,7 +18,6 @@ export class KycController {
   @UseInterceptors(FileFieldsInterceptor([
     { name: 'front', maxCount: 1 },
     { name: 'back', maxCount: 1 },
-    { name: 'selfie', maxCount: 1 },
   ]))
   submit(@CurrentUser() user: AuthenticatedUser, @Body() dto: SubmitKycDto, @UploadedFiles() files: SubmitKycFiles) {
     return this.kycService.submit(user.id, dto, files ?? {})

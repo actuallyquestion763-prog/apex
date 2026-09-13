@@ -15,7 +15,6 @@ interface UploadedFileLike {
 export interface SubmitKycFiles {
   front?: UploadedFileLike[]
   back?: UploadedFileLike[]
-  selfie?: UploadedFileLike[]
 }
 
 // Real submission + private document storage (extends the previous
@@ -39,16 +38,12 @@ export class KycService {
 
     const front = files.front?.[0]
     const back = files.back?.[0]
-    const selfie = files.selfie?.[0]
     // PASSPORT: photo page only. NATIONAL_ID/DRIVERS_LICENSE: both sides.
-    // Every ID type requires a selfie (no pre-existing product rule said
-    // otherwise — this is a deliberate, disclosed default for this checkpoint).
     const needsBack = dto.idType !== 'PASSPORT'
 
     if (!front) throw new BadRequestException('Front of ID is required.')
     if (needsBack && !back) throw new BadRequestException('Back of ID is required for this ID type.')
     if (!needsBack && back) throw new BadRequestException(`${dto.idType} does not require a back image.`)
-    if (!selfie) throw new BadRequestException('A verification selfie is required.')
 
     const isResubmission = user.kycStatus === 'REJECTED'
 
@@ -59,12 +54,10 @@ export class KycService {
     // not something this storage-backend swap needed to fix.
     const storedFront = await this.media.save(front.originalname, front.mimetype, front.buffer)
     const storedBack = back ? await this.media.save(back.originalname, back.mimetype, back.buffer) : null
-    const storedSelfie = await this.media.save(selfie.originalname, selfie.mimetype, selfie.buffer)
 
     const documents = [
       { kind: 'FRONT' as const, storageKey: storedFront.storageKey, mimeType: front.mimetype, filename: front.originalname, size: storedFront.size },
       ...(storedBack ? [{ kind: 'BACK' as const, storageKey: storedBack.storageKey, mimeType: back!.mimetype, filename: back!.originalname, size: storedBack.size }] : []),
-      { kind: 'SELFIE' as const, storageKey: storedSelfie.storageKey, mimeType: selfie.mimetype, filename: selfie.originalname, size: storedSelfie.size },
     ]
 
     const [verification] = await this.prisma.$transaction([

@@ -40,7 +40,6 @@ export interface SubmitKycParams {
   idNumber: string
   front: File
   back: File | null
-  selfie: File
 }
 
 type ActionResult<T> = { ok: true; data: T } | { ok: false; error: string }
@@ -55,7 +54,6 @@ export async function submitKyc(params: SubmitKycParams): Promise<ActionResult<K
     form.append('idNumber', params.idNumber)
     form.append('front', params.front)
     if (params.back) form.append('back', params.back)
-    form.append('selfie', params.selfie)
     return { ok: true, data: await api.postForm<KycVerificationSummary>('/kyc/submit', form) }
   } catch (e) {
     return { ok: false, error: e instanceof ApiError ? e.message : 'Submission failed.' }
