@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { DashboardLayout } from './DashboardLayout'
 import { I18nProvider } from '../i18n'
@@ -84,5 +84,16 @@ describe('DashboardLayout (desktop top navigation)', () => {
     const link = screen.getByRole('link', { name: /admin/i })
     expect(link).toBeInTheDocument()
     expect(link).toHaveAttribute('href', '/admin')
+  })
+
+  it('no longer shows a Support icon in the top-nav header — it moved to a floating button', () => {
+    renderLayout()
+    expect(within(screen.getByRole('banner')).queryByRole('link', { name: 'Support' })).not.toBeInTheDocument()
+  })
+
+  it('renders the floating Support button, linking to /support', () => {
+    renderLayout()
+    const link = screen.getByRole('link', { name: 'Support' })
+    expect(link).toHaveAttribute('href', '/support')
   })
 })

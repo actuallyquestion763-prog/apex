@@ -5,8 +5,9 @@ import { Logo } from './Logo'
 import { NotificationBell } from './NotificationBell'
 import { PriceTicker } from './PriceTicker'
 import { AnnouncementBanner } from './AnnouncementBanner'
-import { LayoutDashboard, TrendingUp, LogOut, Settings, BarChart2, PieChart, CircleUserRound, Headset } from 'lucide-react'
+import { LayoutDashboard, TrendingUp, LogOut, Settings, BarChart2, PieChart, CircleUserRound } from 'lucide-react'
 import BottomNav from './BottomNav'
+import { SupportFab } from './SupportFab'
 import { isAdminRole } from '../lib/roles'
 import { useI18n } from '../i18n'
 
@@ -24,10 +25,10 @@ export function DashboardLayout() {
   if (!user) { navigate('/login'); return null }
 
   // Mirrors BottomNav's 5-tab set exactly (Part: desktop/mobile nav
-  // parity) — Wallet, Verification (KYC), and Support aren't separate
-  // top-level items on either surface; they're reachable from the Mine
-  // (profile) menu / the header's Support icon, same as mobile has always
-  // done.
+  // parity) — Wallet and Verification (KYC) aren't separate top-level
+  // items on either surface; they're reachable from the Mine (profile)
+  // menu. Support is reachable via the floating SupportFab bubble instead
+  // of a nav item, on every authenticated page.
   const navItems = [
     { to: '/home', label: t('nav.home'), icon: LayoutDashboard },
     { to: '/markets', label: t('nav.markets'), icon: BarChart2 },
@@ -69,7 +70,6 @@ export function DashboardLayout() {
               <p className="text-xs text-slate-500">USDT Balance</p>
               <p className="font-mono text-sm font-bold text-white">{usdtBalance ? `${Number(usdtBalance.cash).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT` : '—'}</p>
             </div>
-            <NavLink to="/support" className="flex h-9 w-9 items-center justify-center rounded-lg border border-ink-600 bg-ink-800 text-slate-300 transition hover:text-white" title="Support" aria-label="Support"><Headset className="h-4 w-4" /></NavLink>
             <NotificationBell />
             <button onClick={handleSignOut} className="flex h-9 w-9 items-center justify-center rounded-lg border border-ink-600 bg-ink-800 text-slate-300 hover:text-white" title="Sign out" aria-label="Sign out"><LogOut className="h-4 w-4" /></button>
           </div>
@@ -78,6 +78,7 @@ export function DashboardLayout() {
       <AnnouncementBanner />
       <main className="mx-auto max-w-7xl px-4 py-6 pb-[76px] lg:pb-6"><Outlet /></main>
       <BottomNav />
+      <SupportFab />
     </div>
   )
 }
