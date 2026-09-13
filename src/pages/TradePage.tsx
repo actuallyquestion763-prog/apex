@@ -15,6 +15,7 @@ import { OptionsDurationSelector } from '../components/options/OptionsDurationSe
 import { OptionsAmountInput, isOptionAmountValid } from '../components/options/OptionsAmountInput'
 import { resolveDurationForAmount, nextTier } from '../components/options/optionAmountTier'
 import { OptionsActiveTrade } from '../components/options/OptionsActiveTrade'
+import { OptionsTradeSummary } from '../components/options/OptionsTradeSummary'
 import { OptionsResult } from '../components/options/OptionsResult'
 import type { OptionTrade } from '../types'
 import { api } from '../lib/api'
@@ -60,13 +61,19 @@ export default function TradePage() {
   // automatically from it (never manually picked), then a real fixed-time
   // options trade is created for whichever duration resolved. Reuses the
   // exact same components/logic already built and tested for the Options
-  // product (src/pages/OptionsPage.tsx) — nothing here is a new mechanism.
+  // product — nothing here is a new mechanism.
   const { markets: optionMarkets } = useOptionMarkets()
   const optionMarket = useMemo(() => optionMarkets.find((m) => m.symbol === symbol) ?? null, [optionMarkets, symbol])
   const { balance: optionBalance, refetch: refetchOptionBalance } = useOptionBalance(optionMarket?.currency ?? 'USDT')
   const { trades: activeOptionTrades, refetch: refetchActiveOptionTrades } = useActiveOptionTrades()
   const activeOptionForSymbol = activeOptionTrades.find((t) => t.symbol === symbol)
-  const [optionAmount, setOptionAmount] = useState('100')
+  const [optionAmount, setOptionAmount] = useState('')
+  // Direction is now a SELECTABLE state (Step 4), never an immediate-submit
+  // click — Place Trade (Step 6) is the only action that actually creates
+  // the trade. Reset to null whenever the amount changes, so a stale
+  // direction chosen against a since-changed amount/duration/ROI can never
+  // survive into a submission (see the useEffect below).
+  const [selectedDirection, setSelectedDirection] = useState<'BUY' | 'SELL' | null>(null)
   const [submittingOption, setSubmittingOption] = useState(false)
   const [justSettledOption, setJustSettledOption] = useState<OptionTrade | null>(null)
 
@@ -80,7 +87,15 @@ export default function TradePage() {
   )
   const optionAvailableBalance = optionBalance ? Number(optionBalance.cash) : null
   const optionAmountValid = !!optionMarket && isOptionAmountValid(optionAmount, optionMarket.minInvestment, optionMarket.maxInvestment, optionAvailableBalance)
-  const canTradeOption = !!optionMarket && !!optionDuration && optionAmountValid && !activeOptionForSymbol && status !== 'unavailable'
+  // Amount + duration/ROI must stay synchronized (Step 3 requirement) — the
+  // moment the amount (or the resolved duration/tier it maps to) changes,
+  // any previously-selected direction is discarded rather than silently
+  // carried forward against a now-different ROI/duration.
+  useEffect(() => {
+    setSelectedDirection(null)
+  }, [optionAmount, optionDuration?.durationSeconds, symbol])
+  const canSelectDirection = !!optionMarket && !!optionDuration && optionAmountValid && !activeOptionForSymbol && status !== 'unavailable'
+  const canPlaceTrade = canSelectDirection && selectedDirection !== null
   const optionDisabledReason = !optionMarket
     ? `Options trading isn't configured for ${symbol} yet.`
     : activeOptionForSymbol
@@ -91,6 +106,8 @@ export default function TradePage() {
     ? 'Enter a valid investment amount within the allowed range and your available balance.'
     : !optionDuration
     ? `Enter at least ${upcomingOptionTier?.minAmount ?? optionMarket.minInvestment} ${optionMarket.currency} to unlock a duration/profit tier.`
+    : !selectedDirection
+    ? 'Select UP or DOWN first.'
     : undefined
 
   // Poll the currently-displayed active option trade so its status flips to
@@ -108,13 +125,19 @@ export default function TradePage() {
     return () => clearInterval(id)
   }, [activeOptionForSymbol?.id])
 
-  async function submitOption(direction: 'BUY' | 'SELL') {
-    if (!optionMarket || !optionDuration) return
+  // Step 6 — Place Trade. The final submission: Market + Amount + Duration
+  // (and the ROI it carries, snapshotted server-side from that duration
+  // row, never sent by the client) + Direction, all together. Clicking
+  // UP/DOWN (Step 4) only selects selectedDirection state — it is NOT the
+  // submit action.
+  async function placeTrade() {
+    if (!optionMarket || !optionDuration || !selectedDirection) return
     setSubmittingOption(true)
-    const res = await submitOptionTrade({ symbol: optionMarket.symbol, direction, investment: optionAmount, durationSeconds: optionDuration.durationSeconds })
+    const res = await submitOptionTrade({ symbol: optionMarket.symbol, direction: selectedDirection, investment: optionAmount, durationSeconds: optionDuration.durationSeconds })
     setSubmittingOption(false)
     if (res.ok) {
-      push('success', `${direction} position opened on ${optionMarket.symbol}.`)
+      push('success', `${selectedDirection === 'BUY' ? 'UP' : 'DOWN'} position opened on ${optionMarket.symbol}.`)
+      setSelectedDirection(null)
       refetchActiveOptionTrades()
       refetchOptionBalance()
     } else {
@@ -142,30 +165,33 @@ export default function TradePage() {
           <Stats24hRow symbol={symbol} />
         </div>
 
-        {/* Trading ticket — amount-tier options (Part 30). The user only
-            ever types an amount; duration + profit are resolved
-            automatically from it (see optionAmountTier.ts), then BUY/SELL
-            opens a real fixed-time options trade at that duration. */}
+        {/* Trading ticket — the seven-tier amount-based duration system
+            (final trading spec). Step 1: market (this whole ticket is
+            already scoped to the selected symbol). Step 2: amount. Step 3:
+            duration/ROI, resolved entirely from the amount — never
+            manually picked (see optionAmountTier.ts's
+            resolveDurationForAmount, independently re-enforced by the
+            backend's OptionsRiskService at trade-creation time). Step 4:
+            direction (UP/DOWN) — a SELECTION, not a submit action. Step 5:
+            Trade Summary. Step 6: Place Trade, the only actual submission. */}
         <div>
           {activeOptionForSymbol ? (
             <OptionsActiveTrade trade={activeOptionForSymbol} />
           ) : (
             <div className="card space-y-4 p-4">
+              {/* Step 1 — Market */}
               <div className="text-center">
                 <h2 className="text-xl font-extrabold text-ocean-400">{optionMarket?.displayName ?? symbol}</h2>
                 <p className="text-sm text-slate-500">{symbol.replace('/', '')}</p>
               </div>
 
-              <OptionsDurationSelector durations={optionMarket?.durations ?? []} activeDurationSeconds={optionDuration?.durationSeconds ?? null} />
-
+              {/* Step 2 — Trade Amount */}
               <OptionsAmountInput
                 value={optionAmount}
                 onChange={setOptionAmount}
                 currency={optionMarket?.currency ?? 'USDT'}
-                payoutPercent={optionDuration?.payoutPercent ?? null}
-                durationSeconds={optionDuration?.durationSeconds ?? null}
-                min={optionMarket?.minInvestment ?? '1'}
-                max={optionMarket?.maxInvestment ?? null}
+                min={optionMarket ? optionMarket.minInvestment : '500'}
+                max={optionMarket ? optionMarket.maxInvestment : '500000'}
                 availableBalance={optionAvailableBalance}
               />
               {!optionDuration && optionMarket && optionAmount.trim() !== '' && upcomingOptionTier && (
@@ -183,27 +209,64 @@ export default function TradePage() {
                 </div>
               )}
 
+              {/* Step 3 — Duration (amount-based, read-only tier ladder) */}
+              <OptionsDurationSelector
+                durations={optionMarket?.durations ?? []}
+                activeDurationSeconds={optionDuration?.durationSeconds ?? null}
+                marketMaxInvestment={optionMarket?.maxInvestment ?? null}
+              />
+
+              {/* Step 4 — Direction (UP/DOWN). Selecting one does NOT submit
+                  the trade — it only sets selectedDirection state; Place
+                  Trade below is the actual submission. */}
               <div className="grid grid-cols-2 gap-3">
                 <button
-                  disabled={!canTradeOption || submittingOption}
-                  onClick={() => submitOption('BUY')}
+                  disabled={!canSelectDirection || submittingOption}
+                  onClick={() => setSelectedDirection('BUY')}
                   title={optionDisabledReason}
-                  aria-label="Buy — predict the price will be higher at expiry"
-                  className="rounded-xl bg-bull py-4 text-lg font-extrabold text-white transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-40"
+                  aria-pressed={selectedDirection === 'BUY'}
+                  aria-label="Up — predict the price will be higher at expiry"
+                  className={`rounded-xl py-4 text-lg font-extrabold text-white transition disabled:cursor-not-allowed disabled:opacity-40 ${
+                    selectedDirection === 'BUY' ? 'bg-bull shadow-glow-sm ring-2 ring-white/40' : 'bg-bull/70 hover:brightness-105'
+                  }`}
                 >
-                  BUY
+                  UP
                 </button>
                 <button
-                  disabled={!canTradeOption || submittingOption}
-                  onClick={() => submitOption('SELL')}
+                  disabled={!canSelectDirection || submittingOption}
+                  onClick={() => setSelectedDirection('SELL')}
                   title={optionDisabledReason}
-                  aria-label="Sell — predict the price will be lower at expiry"
-                  className="rounded-xl bg-bear py-4 text-lg font-extrabold text-white transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-40"
+                  aria-pressed={selectedDirection === 'SELL'}
+                  aria-label="Down — predict the price will be lower at expiry"
+                  className={`rounded-xl py-4 text-lg font-extrabold text-white transition disabled:cursor-not-allowed disabled:opacity-40 ${
+                    selectedDirection === 'SELL' ? 'bg-bear shadow-glow-sm ring-2 ring-white/40' : 'bg-bear/70 hover:brightness-95'
+                  }`}
                 >
-                  SELL
+                  DOWN
                 </button>
               </div>
-              <p className="text-center text-[11px] text-slate-600">BUY predicts the price will be HIGHER at expiry. SELL predicts LOWER. An exact match at expiry is a DRAW — your investment is returned.</p>
+              <p className="text-center text-[11px] text-slate-600">UP predicts the price will be HIGHER at expiry. DOWN predicts LOWER. An exact match at expiry is a DRAW — your investment is returned.</p>
+
+              {/* Step 5 — Trade Summary (shown once amount, duration, AND
+                  direction are all selected). */}
+              {selectedDirection && optionDuration && (
+                <OptionsTradeSummary
+                  investment={parseFloat(optionAmount)}
+                  currency={optionMarket?.currency ?? 'USDT'}
+                  payoutPercent={optionDuration.payoutPercent}
+                />
+              )}
+
+              {/* Step 6 — Place Trade: the only action that submits Market +
+                  Amount + Duration (+ its ROI) + Direction together. */}
+              <button
+                disabled={!canPlaceTrade || submittingOption}
+                onClick={placeTrade}
+                title={optionDisabledReason}
+                className="w-full rounded-xl bg-gold-500 py-3.5 text-base font-extrabold text-ink-950 transition hover:bg-gold-400 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {submittingOption ? 'Placing…' : 'PLACE TRADE'}
+              </button>
             </div>
           )}
         </div>

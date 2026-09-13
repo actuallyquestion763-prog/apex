@@ -103,8 +103,12 @@ export class OptionsService implements OnModuleInit, OnModuleDestroy {
     }
 
     // Authoritative entry price (Part 12) — never accepted from the client,
-    // never STALE/UNAVAILABLE (Part 30/31: no trade without a trustworthy price).
-    const quote = await this.marketData.getQuote(dto.symbol)
+    // never STALE/UNAVAILABLE (Part 30/31: no trade without a trustworthy
+    // price). Uses getFreshQuote(), NOT getQuote() — see MarketDataService's
+    // getFreshQuote() comment: the display cache must never be what decides
+    // a trade's entry price, or a short-duration trade could settle against
+    // the exact same cached value it entered at.
+    const quote = await this.marketData.getFreshQuote(dto.symbol)
     if (quote.status !== 'LIVE' && quote.status !== 'SIMULATED') {
       throw new BadRequestException(`Market price for ${dto.symbol} is not currently available (${quote.status}). Try again shortly.`)
     }
@@ -285,7 +289,12 @@ export class OptionsService implements OnModuleInit, OnModuleDestroy {
       }
       result = forcedResult
     } else {
-      const quote = await this.marketData.getQuote(trade.symbol)
+      // getFreshQuote(), not getQuote() — the real settlement price must
+      // never be the same cached read a concurrent/prior request already
+      // got within the last FRESH_MS; see MarketDataService's
+      // getFreshQuote() comment for why (the market-data cache/option-
+      // settlement fix).
+      const quote = await this.marketData.getFreshQuote(trade.symbol)
       if (quote.status !== 'LIVE' && quote.status !== 'SIMULATED') {
         return this.markUnresolved(trade, `Expiry price unavailable for ${trade.symbol} (status: ${quote.status}).`)
       }

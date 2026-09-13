@@ -257,51 +257,63 @@ async function main() {
     update: {},
   })
 
-  // maxInvestment is null (no per-trade ceiling beyond platform-wide
-  // limits) across every asset — an admin explicit request, not a default
-  // this script invented.
-  const OPTION_MARKETS: { symbol: string; currency: string; minInvestment: string; maxInvestment: string | null; durations: { durationSeconds: number; payoutPercent: string }[] }[] = [
-    {
-      symbol: 'XAU/USD', currency: 'USDT', minInvestment: '1', maxInvestment: null,
-      durations: [
-        { durationSeconds: 30, payoutPercent: '5' },
-        { durationSeconds: 60, payoutPercent: '7' },
-        { durationSeconds: 90, payoutPercent: '9' },
-        { durationSeconds: 120, payoutPercent: '12' },
-        { durationSeconds: 180, payoutPercent: '15' },
-      ],
-    },
-    // Every other spot asset (see the `markets` array above) gets the same
-    // duration/payout structure as BTC/USDT — no per-asset risk judgment is
-    // being made here (that would be inventing data this script has no
-    // basis for); it's the one already-reviewed structure, applied
-    // consistently so every spot asset has a working options ticket once an
-    // admin turns the platform-wide kill switch on.
-    ...(['BTC/USDT', 'ETH/USDT', 'BNB/USDT', 'XRP/USDT', 'SOL/USDT', 'ADA/USDT', 'DOGE/USDT', 'USDT/USD'] as const).map((symbol) => ({
-      symbol, currency: 'USDT', minInvestment: '1', maxInvestment: null,
-      durations: [
-        { durationSeconds: 30, payoutPercent: '5' },
-        { durationSeconds: 60, payoutPercent: '7' },
-        { durationSeconds: 120, payoutPercent: '12' },
-        { durationSeconds: 180, payoutPercent: '15' },
-      ],
-    })),
+  // Seven-tier amount-based duration system (operator-specified final
+  // trading spec, replacing the earlier flat 30/60/90/120/180s @ 5/7/9/12/
+  // 15% ladder that had minAmount=0 on every tier — i.e. no real tiering at
+  // all). Every market gets the SAME seven tiers, uniformly:
+  //   $500–$1,000    -> 30s   -> 10%
+  //   $1,000–$5,000  -> 1min  -> 12%
+  //   $5,000–$10,000 -> 2min  -> 15%
+  //   $10,000–$50,000  -> 5min  -> 18%
+  //   $50,000–$100,000 -> 10min -> 22%
+  //   $100,000–$250,000 -> 15min -> 25%
+  //   $250,000–$500,000 -> 30min -> 30%
+  // minAmount boundaries use a $0.01 gap above each displayed upper bound
+  // (e.g. tier 2's minAmount is 1000.01, not 1000) so a whole-dollar amount
+  // exactly AT a boundary (e.g. $1,000) resolves to the LOWER tier, and the
+  // very next cent resolves to the next tier — the exact, unambiguous rule
+  // specified, expressed the same way in resolveDurationForAmount() on the
+  // frontend (src/components/options/optionAmountTier.ts) and in
+  // resolveDurationForAmount() here (option-amount-tier.util.ts): the
+  // qualifying tier is always the one with the GREATEST minAmount at or
+  // below the entered amount.
+  const OPTION_TIERS: { durationSeconds: number; payoutPercent: string; minAmount: string }[] = [
+    { durationSeconds: 30, payoutPercent: '10', minAmount: '500' },
+    { durationSeconds: 60, payoutPercent: '12', minAmount: '1000.01' },
+    { durationSeconds: 120, payoutPercent: '15', minAmount: '5000.01' },
+    { durationSeconds: 300, payoutPercent: '18', minAmount: '10000.01' },
+    { durationSeconds: 600, payoutPercent: '22', minAmount: '50000.01' },
+    { durationSeconds: 900, payoutPercent: '25', minAmount: '100000.01' },
+    { durationSeconds: 1800, payoutPercent: '30', minAmount: '250000.01' },
   ]
-  for (const m of OPTION_MARKETS) {
+  // maxInvestment is intentionally null (no platform-wide cap): the top
+  // tier (30 Minutes / 30% ROI) applies to $250,000.01 and above with no
+  // upper bound, per operator direction after reviewing the live ticket —
+  // supersedes the earlier $500,000 ceiling from the original spec.
+  const OPTION_MARKET_SYMBOLS = ['XAU/USD', 'BTC/USDT', 'ETH/USDT', 'BNB/USDT', 'XRP/USDT', 'SOL/USDT', 'ADA/USDT', 'DOGE/USDT', 'USDT/USD'] as const
+  for (const symbol of OPTION_MARKET_SYMBOLS) {
     const market = await prisma.optionMarket.upsert({
-      where: { symbol: m.symbol },
-      create: { symbol: m.symbol, enabled: true, currency: m.currency, minInvestment: m.minInvestment, maxInvestment: m.maxInvestment },
-      update: { enabled: true, currency: m.currency, minInvestment: m.minInvestment, maxInvestment: m.maxInvestment },
+      where: { symbol },
+      create: { symbol, enabled: true, currency: 'USDT', minInvestment: '500', maxInvestment: null },
+      update: { enabled: true, currency: 'USDT', minInvestment: '500', maxInvestment: null },
     })
-    for (const d of m.durations) {
+    for (const d of OPTION_TIERS) {
       await prisma.optionDuration.upsert({
         where: { optionMarketId_durationSeconds: { optionMarketId: market.id, durationSeconds: d.durationSeconds } },
-        create: { optionMarketId: market.id, durationSeconds: d.durationSeconds, enabled: true, payoutPercent: d.payoutPercent },
-        update: { payoutPercent: d.payoutPercent },
+        create: { optionMarketId: market.id, durationSeconds: d.durationSeconds, enabled: true, payoutPercent: d.payoutPercent, minAmount: d.minAmount },
+        update: { enabled: true, payoutPercent: d.payoutPercent, minAmount: d.minAmount },
       })
     }
+    // Remove any duration left over from the old flat 30/60/90/120/180s
+    // ladder that isn't one of the seven new tiers (e.g. 90s, 180s) — safe
+    // to hard-delete: OptionTrade.durationSeconds is a plain snapshotted
+    // Int, never a foreign key to OptionDuration, so no historical trade
+    // record depends on this row continuing to exist.
+    await prisma.optionDuration.deleteMany({
+      where: { optionMarketId: market.id, durationSeconds: { notIn: OPTION_TIERS.map((d) => d.durationSeconds) } },
+    })
   }
-  console.log(`Seeded options-trading settings + ${OPTION_MARKETS.length} example option markets (options.tradingEnabled remains OFF platform-wide until an admin turns it on).`)
+  console.log(`Seeded options-trading settings + ${OPTION_MARKET_SYMBOLS.length} option markets with the seven-tier amount/duration/ROI system (options.tradingEnabled remains OFF platform-wide until an admin turns it on).`)
 
   // Checkpoint K — crypto deposit ASSET metadata only (symbol/name), each
   // `enabled: false`. Deliberately seeds ZERO CryptoDepositAddress rows —

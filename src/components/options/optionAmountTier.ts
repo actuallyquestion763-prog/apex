@@ -28,3 +28,27 @@ export function nextTier(durations: OptionDurationConfig[], amount: number): Opt
   }
   return next
 }
+
+// Display-only upper bound for one tier's amount-range label (e.g. the
+// "$10.0K–$50.0K" on a duration card) — the tier's own minAmount is
+// already its lower bound. The upper bound is whatever comes JUST BEFORE
+// the next-higher configured tier's minAmount (so ranges never visually
+// overlap), or the market's own maxInvestment for the highest tier (no
+// higher tier exists to bound it). Returns null when neither applies
+// (unbounded — e.g. a market with no maxInvestment and this is the only
+// tier), so the caller can render "and up" rather than inventing a number.
+export function tierUpperBound(
+  durations: OptionDurationConfig[],
+  tier: OptionDurationConfig,
+  marketMaxInvestment: string | null,
+): number | null {
+  const tierMin = parseFloat(tier.minAmount)
+  let nextMin: number | null = null
+  for (const d of durations) {
+    const dMin = parseFloat(d.minAmount)
+    if (dMin <= tierMin) continue
+    if (nextMin === null || dMin < nextMin) nextMin = dMin
+  }
+  if (nextMin !== null) return nextMin - 0.01
+  return marketMaxInvestment != null ? parseFloat(marketMaxInvestment) : null
+}

@@ -53,27 +53,67 @@ export class MarketDataService {
   }
 
   async getQuote(symbol: string): Promise<QuoteResult> {
-    const instrument = await this.prisma.marketConfig.findUnique({ where: { symbol } })
-    if (!instrument || !instrument.enabled) {
-      return { symbol, status: 'UNAVAILABLE', reason: 'Instrument is not configured or is disabled.' }
-    }
-    if (!instrument.provider || !instrument.providerSymbol) {
-      return { symbol, status: 'UNAVAILABLE', reason: 'No market-data provider is configured for this instrument.' }
-    }
-    const provider = this.providers[instrument.provider]
-    if (!provider) {
-      this.logger.warn(`Unknown provider "${instrument.provider}" configured for symbol ${symbol}`)
-      return { symbol, status: 'UNAVAILABLE', reason: 'Configured provider is not recognized.' }
-    }
+    const resolved = await this.resolveInstrument(symbol)
+    if ('unavailable' in resolved) return resolved.unavailable
 
     const cached = this.cache.get(symbol)
     const now = Date.now()
     if (cached && now - cached.receivedAt < this.FRESH_MS) {
       return cached.quote
     }
+    return this.fetchAndCache(symbol, resolved.instrument, resolved.provider, now, cached)
+  }
 
+  // Option-trade entry/settlement pricing (Part: market-data cache/option-
+  // settlement fix) — deliberately bypasses the freshness cache above.
+  // getQuote()'s cache exists to avoid hammering the provider on every UI/
+  // ticker poll, which is fine for display purposes; but it made a fixed-
+  // time trade's ENTRY and SETTLEMENT price reads capable of silently
+  // returning the exact same cached value whenever settlement happened
+  // within FRESH_MS of entry (guaranteed for any duration <= FRESH_MS,
+  // e.g. every 30s trade against the 30s cache) — determineResult() then
+  // sees an exact price match and rules DRAW every time, regardless of
+  // real market movement. This method always calls the provider fresh, so
+  // entry and settlement each get a real, independently-timestamped price.
+  // It still writes the result into the same shared cache afterward, so a
+  // concurrent/subsequent getQuote() call within FRESH_MS benefits from
+  // this fetch too — this does not add extra steady-state provider load,
+  // it just refuses to let a trade-critical read silently reuse a value
+  // that happens to already be cached.
+  async getFreshQuote(symbol: string): Promise<QuoteResult> {
+    const resolved = await this.resolveInstrument(symbol)
+    if ('unavailable' in resolved) return resolved.unavailable
+    const now = Date.now()
+    return this.fetchAndCache(symbol, resolved.instrument, resolved.provider, now, this.cache.get(symbol))
+  }
+
+  private async resolveInstrument(
+    symbol: string,
+  ): Promise<{ instrument: { provider: string | null; providerSymbol: string | null }; provider: MarketDataProvider } | { unavailable: QuoteResult }> {
+    const instrument = await this.prisma.marketConfig.findUnique({ where: { symbol } })
+    if (!instrument || !instrument.enabled) {
+      return { unavailable: { symbol, status: 'UNAVAILABLE', reason: 'Instrument is not configured or is disabled.' } }
+    }
+    if (!instrument.provider || !instrument.providerSymbol) {
+      return { unavailable: { symbol, status: 'UNAVAILABLE', reason: 'No market-data provider is configured for this instrument.' } }
+    }
+    const provider = this.providers[instrument.provider]
+    if (!provider) {
+      this.logger.warn(`Unknown provider "${instrument.provider}" configured for symbol ${symbol}`)
+      return { unavailable: { symbol, status: 'UNAVAILABLE', reason: 'Configured provider is not recognized.' } }
+    }
+    return { instrument, provider }
+  }
+
+  private async fetchAndCache(
+    symbol: string,
+    instrument: { provider: string | null; providerSymbol: string | null },
+    provider: MarketDataProvider,
+    now: number,
+    cached: { quote: MarketQuote; receivedAt: number } | undefined,
+  ): Promise<QuoteResult> {
     try {
-      const raw = await provider.getQuote({ providerSymbol: instrument.providerSymbol })
+      const raw = await provider.getQuote({ providerSymbol: instrument.providerSymbol! })
       const validated = this.validate(raw, symbol)
       const quote: MarketQuote = {
         symbol,

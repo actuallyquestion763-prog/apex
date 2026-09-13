@@ -243,6 +243,58 @@ describe('MarketDataService', () => {
   // symbols on the same fake) so this genuinely exercises independent
   // per-provider failure, not just independent per-symbol config lookup
   // (already covered by test 14 above).
+  // ---- getFreshQuote() (market-data cache/option-settlement fix) --------
+
+  it('28. getFreshQuote always calls the provider, even when a fresh cached value exists — never silently reuses the cache', async () => {
+    const { service } = build({ 'XAU/USD': liveRow })
+    await service.getQuote('XAU/USD') // populates the cache
+    expect(fakeGood.calls).toHaveLength(1)
+
+    fakeGood.setNext({ last: 101, bid: 100.5, ask: 101.5, timestampSeconds: Math.floor(Date.now() / 1000) })
+    const fresh = await service.getFreshQuote('XAU/USD')
+    expect(fakeGood.calls).toHaveLength(2) // a second, real provider call — not served from cache
+    expect(fresh.status).toBe('LIVE')
+    expect((fresh as any).last).toBe(101) // the NEW value, not the still-fresh cached 100
+  })
+
+  it('29. getFreshQuote writes its result into the shared cache, so a subsequent getQuote() within FRESH_MS sees it too', async () => {
+    const { service } = build({ 'XAU/USD': liveRow })
+    fakeGood.setNext({ last: 200, bid: 199.5, ask: 200.5, timestampSeconds: Math.floor(Date.now() / 1000) })
+    await service.getFreshQuote('XAU/USD')
+    expect(fakeGood.calls).toHaveLength(1)
+
+    const viaCache = await service.getQuote('XAU/USD')
+    expect(fakeGood.calls).toHaveLength(1) // no second provider call — served from the cache getFreshQuote() populated
+    expect((viaCache as any).last).toBe(200)
+  })
+
+  it('30. two consecutive getFreshQuote calls on a provider that returns a genuinely unchanged price both report the same value — the cache-bypass does not itself invent movement', async () => {
+    const { service } = build({ 'XAU/USD': liveRow })
+    const fixed = { last: 150, bid: 149.5, ask: 150.5, timestampSeconds: Math.floor(Date.now() / 1000) }
+    fakeGood.setNext(fixed)
+    const first = await service.getFreshQuote('XAU/USD')
+    fakeGood.setNext(fixed)
+    const second = await service.getFreshQuote('XAU/USD')
+    expect(fakeGood.calls).toHaveLength(2) // genuinely two independent provider calls
+    expect((first as any).last).toBe((second as any).last) // both real reads happen to agree — legitimate DRAW territory
+  })
+
+  it('31. getFreshQuote provider failure with a valid recent cached value falls back to STALE (safe), never throws', async () => {
+    const { service } = build({ 'XAU/USD': liveRow })
+    await service.getQuote('XAU/USD') // cache a good value
+    fakeGood.setNext(new Error('provider outage during settlement'))
+    const result = await service.getFreshQuote('XAU/USD')
+    expect(result.status).toBe('STALE')
+    expect((result as any).last).toBe(100) // the last known-good value, never fabricated
+  })
+
+  it('32. getFreshQuote provider failure with no cached value returns UNAVAILABLE, never throws', async () => {
+    const { service } = build({ 'XAU/USD': liveRow })
+    fakeGood.setNext(new Error('provider unreachable'))
+    const result = await service.getFreshQuote('XAU/USD')
+    expect(result.status).toBe('UNAVAILABLE')
+  })
+
   it('27. a failure in one configured provider does not affect a DIFFERENT market on a different, healthy provider', async () => {
     const healthy = new FakeProvider('GOLDAPI', VALID_QUOTE)
     const failing = new FakeProvider('BINANCE', new Error('Binance outage'))

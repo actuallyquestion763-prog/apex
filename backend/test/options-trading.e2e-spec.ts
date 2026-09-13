@@ -4,6 +4,7 @@ import { Decimal } from '@prisma/client/runtime/library'
 import { createTestApp, uniqueEmail, extractSessionCookie, createUserDirect, enableTotpDirect, currentTotpCode } from './helpers/test-app'
 import { LedgerService } from '../src/ledger/ledger.service'
 import { OptionsService } from '../src/options/options.service'
+import { SimulatedProvider } from '../src/markets/providers/simulated.provider'
 import type { PrismaService } from '../src/prisma/prisma.service'
 
 // Fixed-Time Options Trading — a separate product from spot Orders. Every
@@ -875,5 +876,187 @@ describe('Fixed-Time Options Trading (real PostgreSQL, SimulatedProvider)', () =
     expect(typeof res.body.activeTrades).toBe('number')
     expect(typeof res.body.wins).toBe('number')
     expect(Array.isArray(res.body.byAsset)).toBe(true)
+  })
+})
+
+// ---- Market-data cache / option-settlement fix -----------------------------
+//
+// A real (non-forced) trade's entry and settlement prices used to both go
+// through MarketDataService.getQuote()'s shared 30s display cache — so a
+// duration <= the cache's FRESH_MS (30s) could settle against the EXACT
+// same cached quote it entered at, producing an incorrect guaranteed DRAW
+// regardless of real market movement. The fix: entry/settlement now use
+// getFreshQuote(), which always calls the provider fresh (never served
+// from the display cache), while still populating that same cache for
+// ordinary UI/ticker reads. This suite uses a fully-controllable fake
+// SimulatedProvider (queued responses) instead of the real random-walk one,
+// so entry vs. settlement prices are deterministic, not probabilistic.
+class QueuedFakeProvider {
+  readonly name = 'SIMULATED'
+  private queue: (number | Error)[] = []
+  calls = 0
+
+  queueNext(value: number | Error) {
+    this.queue.push(value)
+  }
+
+  async getQuote() {
+    this.calls += 1
+    const next = this.queue.shift()
+    if (next === undefined) throw new Error('QueuedFakeProvider: no queued response left')
+    if (next instanceof Error) throw next
+    return { last: next, bid: next * 0.999, ask: next * 1.001, timestampSeconds: Math.floor(Date.now() / 1000) }
+  }
+
+  async healthCheck() {
+    return true
+  }
+}
+
+describe('Market-data cache / option-settlement fix (real PostgreSQL, controllable fake provider)', () => {
+  let app: INestApplication
+  let prisma: PrismaService
+  let ledger: LedgerService
+  let options: OptionsService
+  let server: any
+  let superCookie: string
+  let superPassword: string
+  let fakeProvider: QueuedFakeProvider
+
+  beforeAll(async () => {
+    fakeProvider = new QueuedFakeProvider()
+    const t = await createTestApp((builder) => builder.overrideProvider(SimulatedProvider).useValue(fakeProvider))
+    app = t.app
+    prisma = t.prisma
+    server = app.getHttpServer()
+    ledger = app.get(LedgerService)
+    options = app.get(OptionsService)
+
+    const email = uniqueEmail('freshquotesuper')
+    superPassword = 'correct-horse-battery'
+    await createUserDirect(prisma, { email, password: superPassword, role: 'SUPER_ADMIN' })
+    const loginRes = await request(server).post('/auth/login').send({ email, password: superPassword }).expect(200)
+    superCookie = extractSessionCookie(loginRes)
+
+    await request(server)
+      .patch('/admin/options/settings')
+      .set('Cookie', superCookie)
+      .send({ tradingEnabled: true, reason: 'enable for fresh-quote e2e suite', confirmPassword: superPassword })
+      .expect(200)
+  })
+
+  afterAll(async () => {
+    await app.close()
+  })
+
+  async function registerAndLogin(prefix: string) {
+    const email = uniqueEmail(prefix)
+    const password = 'correct-horse-battery'
+    const { user } = await createUserDirect(prisma, { email, password, fullName: 'Fresh Quote Test', role: 'USER' })
+    const res = await request(server).post('/auth/login').send({ email, password }).expect(200)
+    return { userId: user.id, cookie: extractSessionCookie(res) }
+  }
+
+  async function grantAsset(userId: string, currency: string, amount: string) {
+    const account = await prisma.account.findFirstOrThrow({ where: { userId } })
+    const { cash } = await ledger.getOrCreateUserLedgerAccounts(account.id, currency)
+    const revenue = await ledger.getSystemLedgerAccount('REVENUE', currency)
+    await ledger.postTransaction({
+      description: 'fresh-quote test fixture asset grant',
+      idempotencyKey: `freshquote-fixture-grant-${userId}-${currency}-${Date.now()}-${Math.random()}`,
+      entries: [
+        { ledgerAccountId: revenue.id, direction: 'DEBIT', amount, currency, entryType: 'ADJUSTMENT' },
+        { ledgerAccountId: cash.id, direction: 'CREDIT', amount, currency, entryType: 'ADJUSTMENT' },
+      ],
+    })
+  }
+
+  let marketSeq = 0
+  async function setupMarket(durationSeconds: number) {
+    marketSeq += 1
+    const symbol = `FRESH${marketSeq}-TEST/USDT-${Date.now()}`
+    await prisma.marketConfig.create({
+      data: { symbol, dataSource: 'SIMULATED', tradingEnabled: true, enabled: true, baseAsset: 'TEST', quoteAsset: 'USDT', marketType: 'CRYPTO_SPOT', provider: 'SIMULATED', providerSymbol: 'BTCUSDT' },
+    })
+    const market = await prisma.optionMarket.create({ data: { symbol, enabled: true, currency: 'USDT', minInvestment: new Decimal('1') } })
+    await prisma.optionDuration.create({ data: { optionMarketId: market.id, durationSeconds, payoutPercent: new Decimal('5'), enabled: true } })
+    return symbol
+  }
+
+  it('1. a 30-second trade whose settlement price genuinely differs from entry resolves WIN/LOSS, never a false DRAW', async () => {
+    const symbol = await setupMarket(30)
+    const { userId, cookie } = await registerAndLogin('changed30')
+    await grantAsset(userId, 'USDT', '1000')
+    const callsBefore = fakeProvider.calls
+
+    fakeProvider.queueNext(100) // entry
+    const trade = await request(server).post('/options/trades').set('Cookie', cookie).send({ symbol, direction: 'BUY', investment: '100', durationSeconds: 30 }).expect(201)
+    expect(trade.body.entryPrice).toBe('100')
+
+    fakeProvider.queueNext(150) // settlement — genuinely different
+    const settled = await options.settleTrade(trade.body.id)
+    expect(settled.status).toBe('SETTLED')
+    expect(settled.expiryPrice!.toString()).toBe('150')
+    expect(settled.result).toBe('WIN') // BUY + price rose
+    expect(fakeProvider.calls - callsBefore).toBe(2) // one real provider call for entry, one for settlement — never reused
+  })
+
+  it('2. a 30-second trade whose settlement price is genuinely identical to entry still correctly resolves DRAW', async () => {
+    const symbol = await setupMarket(30)
+    const { userId, cookie } = await registerAndLogin('identical30')
+    await grantAsset(userId, 'USDT', '1000')
+    const callsBefore = fakeProvider.calls
+
+    fakeProvider.queueNext(200) // entry
+    const trade = await request(server).post('/options/trades').set('Cookie', cookie).send({ symbol, direction: 'BUY', investment: '100', durationSeconds: 30 }).expect(201)
+
+    fakeProvider.queueNext(200) // settlement — a real, independent provider call that happens to agree exactly
+    const settled = await options.settleTrade(trade.body.id)
+    expect(settled.status).toBe('SETTLED')
+    expect(settled.result).toBe('DRAW') // the rule is preserved for a TRUE match, not disabled by the fix
+    expect(fakeProvider.calls - callsBefore).toBe(2) // proves this was two real reads, not one cached value reused
+  })
+
+  it('3. a 60-second trade also settles against a fresh price, not a cached one (the fix is not duration-specific)', async () => {
+    const symbol = await setupMarket(60)
+    const { userId, cookie } = await registerAndLogin('changed60')
+    await grantAsset(userId, 'USDT', '1000')
+    const callsBefore = fakeProvider.calls
+
+    fakeProvider.queueNext(300)
+    const trade = await request(server).post('/options/trades').set('Cookie', cookie).send({ symbol, direction: 'SELL', investment: '100', durationSeconds: 60 }).expect(201)
+
+    fakeProvider.queueNext(250) // fell — SELL should WIN
+    const settled = await options.settleTrade(trade.body.id)
+    expect(settled.result).toBe('WIN')
+    expect(fakeProvider.calls - callsBefore).toBe(2)
+  })
+
+  it('4. a provider failure during settlement marks the trade UNRESOLVED for retry — never a fabricated result, never a crash', async () => {
+    const symbol = await setupMarket(30)
+    const { userId, cookie } = await registerAndLogin('failsettle')
+    await grantAsset(userId, 'USDT', '1000')
+
+    fakeProvider.queueNext(100)
+    const trade = await request(server).post('/options/trades').set('Cookie', cookie).send({ symbol, direction: 'BUY', investment: '100', durationSeconds: 30 }).expect(201)
+
+    fakeProvider.queueNext(new Error('provider outage during settlement'))
+    const result = await options.settleTrade(trade.body.id)
+    expect(result.status).toBe('UNRESOLVED')
+
+    // Confirm the investment is still reserved, not lost or double-counted,
+    // while the trade waits for a retry (the existing safe-failure path,
+    // unchanged by this fix). Must specify 'USDT' — getAccountBalances
+    // defaults to 'USD', a currency this test never touches.
+    const account = await prisma.account.findFirstOrThrow({ where: { userId } })
+    const balances = await ledger.getAccountBalances(account.id, 'USDT')
+    expect(balances.reserved.toString()).toBe('100')
+
+    // A subsequent retry with a healthy provider settles it normally —
+    // proves UNRESOLVED is genuinely recoverable, not a dead end.
+    fakeProvider.queueNext(120)
+    const retried = await options.settleTrade(trade.body.id)
+    expect(retried.status).toBe('SETTLED')
+    expect(retried.result).toBe('WIN')
   })
 })

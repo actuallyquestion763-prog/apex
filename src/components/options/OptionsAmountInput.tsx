@@ -1,26 +1,28 @@
-// Amount entry + a live Duration/Profit preview — display only, matching
-// the EXACT values the backend will use (payoutPercent is read verbatim
-// from the selected OptionDuration; the profit % is never computed from the
-// investment amount, and the duration is never free-typed — both are
-// derived entirely from which duration button is selected, the ONLY thing
-// this input's own value can ever change is how much is invested). This is
-// never authoritative: the backend independently re-derives and enforces
-// everything at trade-creation time.
+// Amount entry for the amount-tier trading ticket (seven-tier system) —
+// display only: this component never decides duration/payout itself (see
+// OptionsDurationSelector for the read-only tier ladder, and
+// OptionsTradeSummary for the Investment/Profit/Return breakdown). The
+// backend independently re-derives and enforces everything at
+// trade-creation time; nothing here is authoritative.
+const QUICK_AMOUNTS = [500, 1_000, 5_000, 10_000, 50_000, 100_000]
+
+function formatQuickLabel(amount: number): string {
+  if (amount >= 1000) return `$${amount / 1000}K`
+  return `$${amount}`
+}
+
 export function OptionsAmountInput({
-  value, onChange, currency, payoutPercent, durationSeconds, min, max, availableBalance,
+  value, onChange, currency, min, max, availableBalance,
 }: {
   value: string
   onChange: (v: string) => void
   currency: string
-  payoutPercent: string | null
-  durationSeconds: number | null
   min: string
   max: string | null
   availableBalance: number | null
 }) {
   const investment = parseFloat(value)
   const valid = Number.isFinite(investment) && investment > 0
-  const payout = payoutPercent ? parseFloat(payoutPercent) : null
 
   const belowMin = valid && investment < parseFloat(min)
   const aboveMax = valid && max != null && investment > parseFloat(max)
@@ -36,12 +38,35 @@ export function OptionsAmountInput({
           type="number"
           min="0"
           inputMode="decimal"
-          placeholder={`Amount ${currency}`}
+          placeholder={
+            min && max
+              ? `Enter amount ($${Number(min).toLocaleString()} – $${Number(max).toLocaleString()})`
+              : min
+                ? `Enter amount ($${Number(min).toLocaleString()} and above)`
+                : `Amount ${currency}`
+          }
           value={value}
           onChange={(e) => onChange(e.target.value)}
           aria-describedby="option-amount-hint"
           aria-invalid={belowMin || aboveMax || insufficientBalance}
         />
+      </div>
+
+      <div className="flex flex-wrap gap-1.5">
+        {QUICK_AMOUNTS.map((amount) => (
+          <button
+            key={amount}
+            type="button"
+            onClick={() => onChange(String(amount))}
+            className={`rounded-lg px-3 py-1.5 text-xs font-bold transition ${
+              value === String(amount)
+                ? 'bg-gold-500 text-ink-950'
+                : 'border border-ink-600 bg-ink-800 text-slate-300 hover:border-gold-500/50 hover:text-white'
+            }`}
+          >
+            {formatQuickLabel(amount)}
+          </button>
+        ))}
       </div>
 
       <div role="status" id="option-amount-hint">
@@ -53,17 +78,6 @@ export function OptionsAmountInput({
             <p className="mt-0.5">Available: {availableBalance?.toLocaleString(undefined, { maximumFractionDigits: 2 })} {currency} · Required: {investment.toLocaleString(undefined, { maximumFractionDigits: 2 })} {currency}</p>
           </div>
         )}
-      </div>
-
-      <div className="grid grid-cols-2 gap-3">
-        <div className="rounded-xl border border-ink-700 bg-ink-900/60 p-3.5">
-          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Duration</p>
-          <p className="mt-1 font-mono text-2xl font-extrabold text-ocean-300">{durationSeconds != null ? `${durationSeconds}s` : '—'}</p>
-        </div>
-        <div className="rounded-xl border border-ink-700 bg-ink-900/60 p-3.5">
-          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Profit</p>
-          <p className="mt-1 font-mono text-2xl font-extrabold text-ocean-300">{payout != null ? `${payout}%` : '—'}</p>
-        </div>
       </div>
     </div>
   )

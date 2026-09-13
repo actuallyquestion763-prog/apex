@@ -29,18 +29,23 @@ vi.mock('../store/useStore', () => ({
   computePositionPnl: () => 0,
 }))
 
-// Amount-tier trading ticket (Part 30) — the same options-trading backend
-// used by src/pages/OptionsPage.tsx, embedded into the /trade order panel.
+// Seven-tier amount-based duration system (final trading spec) — this IS
+// the /trade ticket, not an embedded copy of a separate product; same
+// values as prisma/seed.ts's OPTION_TIERS.
 const BTC_OPTION_MARKET: OptionMarketConfig = {
   symbol: 'BTC/USDT',
   displayName: 'Bitcoin',
   currency: 'USDT',
-  minInvestment: '1',
-  maxInvestment: null,
+  minInvestment: '500',
+  maxInvestment: null, // no platform-wide cap — the top tier ($250,000.01+) is unbounded
   durations: [
-    { durationSeconds: 30, payoutPercent: '5', minAmount: '10' },
-    { durationSeconds: 60, payoutPercent: '10', minAmount: '50' },
-    { durationSeconds: 90, payoutPercent: '15', minAmount: '100' },
+    { durationSeconds: 30, payoutPercent: '10', minAmount: '500' },
+    { durationSeconds: 60, payoutPercent: '12', minAmount: '1000.01' },
+    { durationSeconds: 120, payoutPercent: '15', minAmount: '5000.01' },
+    { durationSeconds: 300, payoutPercent: '18', minAmount: '10000.01' },
+    { durationSeconds: 600, payoutPercent: '22', minAmount: '50000.01' },
+    { durationSeconds: 900, payoutPercent: '25', minAmount: '100000.01' },
+    { durationSeconds: 1800, payoutPercent: '30', minAmount: '250000.01' },
   ],
 }
 let mockOptionMarkets: OptionMarketConfig[] = [BTC_OPTION_MARKET]
@@ -124,72 +129,128 @@ describe('TradePage — unchanged sections (chart, Spot Holdings, Open Positions
   })
 })
 
-describe('TradePage — amount-tier trading ticket (Part 30)', () => {
+describe('TradePage — seven-tier amount-based trading ticket (final trading spec)', () => {
   beforeEach(() => {
     mockExecutionStatus = null
     mockAssets = []
     mockPositions = []
     mockOrders = []
     mockOptionMarkets = [BTC_OPTION_MARKET]
-    mockOptionBalance = { currency: 'USDT', cash: '1000', reserved: '0' }
+    mockOptionBalance = { currency: 'USDT', cash: '1000000', reserved: '0' }
     mockActiveOptionTrades = []
     mockSubmitOptionTrade.mockReset().mockResolvedValue({ ok: true, data: { id: 't1' } })
   })
 
-  it('shows the asset name/symbol and no manual duration control — only an amount input', () => {
+  function amountField() {
+    return screen.getByPlaceholderText('Enter amount ($500 and above)')
+  }
+
+  it('shows the asset name/symbol, a Step 2 amount field with no upper cap, and no manual duration control', () => {
     renderTrade()
     expect(screen.getByText('Bitcoin')).toBeInTheDocument()
     expect(screen.getByText('BTCUSDT')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /^30s$|^60s$|^90s$/ })).not.toBeInTheDocument()
-    expect(screen.getByPlaceholderText('Amount USDT')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^30 Seconds$|^1 Minute$/ })).not.toBeInTheDocument()
+    expect(amountField()).toBeInTheDocument()
   })
 
-  it('automatically resolves duration and profit from the amount — $75 lands in the $50/60s/10% tier, never the $100 tier', () => {
+  it('shows a quick-amount button for every tier boundary', () => {
     renderTrade()
-    fireEvent.change(screen.getByPlaceholderText('Amount USDT'), { target: { value: '75' } })
-    // Appears twice: once in the read-only tier ladder, once in the Duration/Profit box.
-    expect(screen.getAllByText('60s').length).toBeGreaterThan(0)
-    expect(screen.getAllByText('10%').length).toBeGreaterThan(0)
-    // The ladder lists every configured tier regardless of which is active —
-    // 90s is still shown, just not highlighted as the resolved one.
-    expect(screen.getAllByText('60s').some((el) => el.getAttribute('aria-current') === 'true')).toBe(true)
-    expect(screen.getAllByText('90s').some((el) => el.getAttribute('aria-current') === 'true')).toBe(false)
+    for (const label of ['$500', '$1K', '$5K', '$10K', '$50K', '$100K']) {
+      expect(screen.getByRole('button', { name: label })).toBeInTheDocument()
+    }
   })
 
-  it('resolves the top tier at $100 — $100 -> 90s -> 15%, matching the product example exactly', () => {
+  it('automatically resolves duration and ROI from the amount — $7,000 lands in the $5,000.01–$10,000 / 2 Minutes / 15% tier', () => {
     renderTrade()
-    fireEvent.change(screen.getByPlaceholderText('Amount USDT'), { target: { value: '100' } })
-    expect(screen.getAllByText('90s').length).toBeGreaterThan(0)
-    expect(screen.getAllByText('15%').length).toBeGreaterThan(0)
+    fireEvent.change(amountField(), { target: { value: '7000' } })
+    expect(screen.getByText('2 Minutes').closest('[aria-current]')).toHaveAttribute('aria-current', 'true')
+    expect(screen.getByText('ROI: 15%')).toBeInTheDocument()
   })
 
-  it('disables BUY/SELL and shows an honest hint when the amount is below the lowest tier — never fabricates a duration', () => {
+  it('resolves the boundary examples from the spec exactly: $1,000 -> 30 Seconds, $1,001 -> 1 Minute', () => {
     renderTrade()
-    fireEvent.change(screen.getByPlaceholderText('Amount USDT'), { target: { value: '5' } })
-    expect(screen.getByRole('button', { name: /Buy — predict/ })).toBeDisabled()
-    expect(screen.getByRole('button', { name: /Sell — predict/ })).toBeDisabled()
-    expect(screen.getByText(/Enter at least 10 USDT/)).toBeInTheDocument()
+    fireEvent.change(amountField(), { target: { value: '1000' } })
+    expect(screen.getByText('30 Seconds').closest('[aria-current]')).toHaveAttribute('aria-current', 'true')
+
+    fireEvent.change(amountField(), { target: { value: '1001' } })
+    expect(screen.getByText('1 Minute').closest('[aria-current]')).toHaveAttribute('aria-current', 'true')
   })
 
-  it('submits a real options trade with the automatically resolved duration when BUY is clicked', async () => {
+  it('has no upper cap — $750,000 (above the old $500,000 ceiling) still resolves to the top tier with no "maximum investment" error', () => {
     renderTrade()
-    fireEvent.change(screen.getByPlaceholderText('Amount USDT'), { target: { value: '100' } })
-    fireEvent.click(screen.getByRole('button', { name: /Buy — predict/ }))
-    await waitFor(() => expect(mockSubmitOptionTrade).toHaveBeenCalledWith({ symbol: 'BTC/USDT', direction: 'BUY', investment: '100', durationSeconds: 90 }))
+    fireEvent.change(amountField(), { target: { value: '750000' } })
+    expect(screen.getByText('30 Minutes').closest('[aria-current]')).toHaveAttribute('aria-current', 'true')
+    expect(screen.getByText('ROI: 30%')).toBeInTheDocument()
+    expect(screen.queryByText(/Maximum investment/i)).not.toBeInTheDocument()
   })
 
-  it('shows the active trading position (with its Duration/Profit) instead of the entry form once a trade is open on this asset', () => {
+  it('shows the top tier as open-ended ("$250.0K+") since the market has no maxInvestment', () => {
+    renderTrade()
+    expect(screen.getByText('$250.0K+')).toBeInTheDocument()
+  })
+
+  it('disables UP/DOWN and shows an honest hint when the amount is below the lowest tier — never fabricates a duration', () => {
+    renderTrade()
+    fireEvent.change(amountField(), { target: { value: '499' } })
+    expect(screen.getByRole('button', { name: /Up — predict/ })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /Down — predict/ })).toBeDisabled()
+    expect(screen.getByText(/Enter at least 500 USDT/)).toBeInTheDocument()
+  })
+
+  it('clicking UP only selects the direction — it does not submit the trade', () => {
+    renderTrade()
+    fireEvent.change(amountField(), { target: { value: '10000' } })
+    fireEvent.click(screen.getByRole('button', { name: /Up — predict/ }))
+    expect(mockSubmitOptionTrade).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: /Up — predict/ })).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('shows the Trade Summary (Investment / Potential Profit / Total Return) only once amount, duration, AND direction are all selected', () => {
+    renderTrade()
+    fireEvent.change(amountField(), { target: { value: '10000' } })
+    expect(screen.queryByText('Trade Summary')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Up — predict/ }))
+    expect(screen.getByText('Trade Summary')).toBeInTheDocument()
+    // $10,000 -> 2 Minutes -> 15% ROI (exactly on the boundary belongs to
+    // the LOWER tier — $10,001 is what unlocks 5 Minutes/18%, per the spec)
+    // -> profit $1,500, return $11,500
+    expect(screen.getByText('10,000.00 USDT')).toBeInTheDocument()
+    expect(screen.getByText('+1,500.00 USDT')).toBeInTheDocument()
+    expect(screen.getByText('11,500.00 USDT')).toBeInTheDocument()
+  })
+
+  it('changing the amount after selecting a direction clears the stale direction — Place Trade cannot fire against an outdated tier', () => {
+    renderTrade()
+    fireEvent.change(amountField(), { target: { value: '10000' } })
+    fireEvent.click(screen.getByRole('button', { name: /Up — predict/ }))
+    expect(screen.getByRole('button', { name: /Up — predict/ })).toHaveAttribute('aria-pressed', 'true')
+
+    fireEvent.change(amountField(), { target: { value: '75000' } })
+    expect(screen.getByRole('button', { name: /Up — predict/ })).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.queryByText('Trade Summary')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'PLACE TRADE' })).toBeDisabled()
+  })
+
+  it('Place Trade submits Market + Amount + Duration + Direction together, only after all three are selected', async () => {
+    renderTrade()
+    fireEvent.change(amountField(), { target: { value: '10000' } })
+    expect(screen.getByRole('button', { name: 'PLACE TRADE' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: /Up — predict/ }))
+    expect(screen.getByRole('button', { name: 'PLACE TRADE' })).not.toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: 'PLACE TRADE' }))
+    await waitFor(() => expect(mockSubmitOptionTrade).toHaveBeenCalledWith({ symbol: 'BTC/USDT', direction: 'BUY', investment: '10000', durationSeconds: 120 }))
+  })
+
+  it('shows the active trading position instead of the entry form once a trade is open on this asset', () => {
     mockActiveOptionTrades = [{
-      id: 't1', userId: 'u1', accountId: 'a1', symbol: 'BTC/USDT', direction: 'BUY', investment: '100', currency: 'USDT',
-      durationSeconds: 90, payoutPercentSnapshot: '15', entryPrice: '65000', entryPriceTimestamp: new Date().toISOString(), entrySource: 'BINANCE',
-      expiryAt: new Date(Date.now() + 90_000).toISOString(), status: 'ACTIVE', requestedResultMode: 'NORMAL',
+      id: 't1', userId: 'u1', accountId: 'a1', symbol: 'BTC/USDT', direction: 'BUY', investment: '10000', currency: 'USDT',
+      durationSeconds: 300, payoutPercentSnapshot: '18', entryPrice: '65000', entryPriceTimestamp: new Date().toISOString(), entrySource: 'BINANCE',
+      expiryAt: new Date(Date.now() + 300_000).toISOString(), status: 'ACTIVE', requestedResultMode: 'NORMAL',
       createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     } as unknown as OptionTrade]
     renderTrade()
     expect(screen.getByText('Trading Position')).toBeInTheDocument()
-    expect(screen.getByText('15%')).toBeInTheDocument()
-    expect(screen.getByText('90s')).toBeInTheDocument()
-    expect(screen.queryByPlaceholderText('Amount USDT')).not.toBeInTheDocument()
+    expect(screen.queryByPlaceholderText('Enter amount ($500 and above)')).not.toBeInTheDocument()
   })
 
   it('shows an honest unavailable state when no options market is configured for the current spot symbol — never fabricates a ticket', () => {

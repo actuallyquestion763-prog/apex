@@ -9,12 +9,13 @@ import type { Account, OptionMarket, OptionDuration, User } from '@prisma/client
 import { PrismaService } from '../prisma/prisma.service'
 import { LedgerService } from '../ledger/ledger.service'
 import { OptionsSettingsService } from './options-settings.service'
+import { resolveDurationForAmount } from './option-amount-tier.util'
 import type { OptionsRiskCheckResult, OptionsRiskReasonCode } from './options-risk.types'
 
 export interface OptionsRiskCheckContext {
   user: Pick<User, 'id' | 'status'>
   account: Pick<Account, 'id' | 'status'>
-  market: OptionMarket
+  market: OptionMarket & { durations: OptionDuration[] }
   duration: OptionDuration
   investment: Decimal
 }
@@ -64,6 +65,33 @@ export class OptionsRiskService {
     // duration an admin hasn't assigned a real threshold to.
     if (ctx.duration.minAmount.gt(0) && ctx.investment.lt(ctx.duration.minAmount)) {
       return fail('DURATION_MIN_AMOUNT_NOT_MET', `The ${ctx.duration.durationSeconds}s / ${ctx.duration.payoutPercent.toString()}% tier requires a minimum investment of ${ctx.duration.minAmount.toString()} ${ctx.market.currency}.`)
+    }
+
+    // Amount-tier CORRECTNESS (not just "big enough") — the check above
+    // only confirmed the investment meets the submitted duration's OWN
+    // floor; it does not stop a client from submitting a $50,000 investment
+    // against the $500 tier's 30s/10% duration, which would incorrectly
+    // pass that check alone. This independently recomputes which tier the
+    // investment amount ACTUALLY qualifies for (same rule as the frontend's
+    // resolveDurationForAmount()) and rejects unless the submitted duration
+    // ties for that tier's minAmount — the server never trusts which
+    // duration the client says it resolved to.
+    //
+    // Compares by minAmount VALUE, not by durationSeconds identity: a
+    // market with several enabled durations that all still share the
+    // default minAmount=0 (no real tiering configured for it — an existing,
+    // intentional "unenforced" convention, see DURATION_MIN_AMOUNT_NOT_MET's
+    // comment above) must keep accepting ANY of those durations regardless
+    // of amount. Only a genuinely lower-tier duration being submitted when a
+    // strictly higher-minAmount tier ALSO qualifies is the real defect this
+    // catches.
+    const enabledDurations = ctx.market.durations.filter((d) => d.enabled)
+    const correctTier = resolveDurationForAmount(enabledDurations, ctx.investment)
+    if (!correctTier || !ctx.duration.minAmount.equals(correctTier.minAmount)) {
+      const correction = correctTier
+        ? `this amount qualifies for the ${correctTier.durationSeconds}s / ${correctTier.payoutPercent.toString()}% tier instead.`
+        : 'no configured tier applies to this amount.'
+      return fail('DURATION_TIER_MISMATCH', `The ${ctx.duration.durationSeconds}s duration does not match the tier for this investment amount — ${correction}`)
     }
 
     // ---- 17. Concurrent-trade limits (Part 17) — global per-user ceilings,
