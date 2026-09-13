@@ -36,6 +36,15 @@ const TIMEFRAMES: { value: TF; label: string }[] = [
 ]
 const TF_INTERVAL_MS: Record<TF, number> = { '1m': 60_000, '5m': 300_000, '15m': 900_000, '1h': 3_600_000, '4h': 14_400_000, '1d': 86_400_000 }
 
+// fitContent() squeezes ALL loaded candles (up to 200, see fetchRealCandles
+// below) into the chart's width — for a wider timeframe (15m/1H/4H/1D) that
+// spans days, most of the width ends up empty/flat between real price
+// moves, reading as a sparse, half-broken chart rather than a normal
+// trading view. Real exchanges default to a recent, readable window and
+// let the user explicitly zoom out — the existing "Reset / fit" button
+// (resetView(), unchanged) still calls fitContent() for that.
+const DEFAULT_VISIBLE_CANDLES = 60
+
 function toBar(c: Candle) {
   return { time: Math.floor(c.time / 1000) as UTCTimestamp, open: c.open, high: c.high, low: c.low, close: c.close }
 }
@@ -123,7 +132,18 @@ export function CandlestickChart({ symbol, height = 320, quoteAsset }: { symbol:
       candlesRef.current = candles
       candleSeriesRef.current?.setData(candles.map(toBar))
       volumeSeriesRef.current?.setData(candles.map(toVolumeBar))
-      chartRef.current?.timeScale().fitContent()
+      // Default to the most recent DEFAULT_VISIBLE_CANDLES, not the entire
+      // fetched history — see DEFAULT_VISIBLE_CANDLES's own comment. A
+      // short history (fewer candles than that) has nothing to zoom into,
+      // so it still just fits everything.
+      if (candles.length > DEFAULT_VISIBLE_CANDLES) {
+        chartRef.current?.timeScale().setVisibleLogicalRange({
+          from: candles.length - DEFAULT_VISIBLE_CANDLES,
+          to: candles.length + 1, // a little right padding past the latest candle
+        })
+      } else {
+        chartRef.current?.timeScale().fitContent()
+      }
     }
     load()
     return () => { cancelled = true }

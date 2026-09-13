@@ -12,6 +12,7 @@ const update = vi.fn()
 const applyOptions = vi.fn()
 const removeChart = vi.fn()
 const fitContent = vi.fn()
+const setVisibleLogicalRange = vi.fn()
 const subscribeCrosshairMove = vi.fn()
 
 vi.mock('lightweight-charts', () => ({
@@ -20,7 +21,7 @@ vi.mock('lightweight-charts', () => ({
     subscribeCrosshairMove,
     applyOptions,
     remove: removeChart,
-    timeScale: () => ({ fitContent }),
+    timeScale: () => ({ fitContent, setVisibleLogicalRange }),
   })),
   CandlestickSeries: 'CandlestickSeries',
   HistogramSeries: 'HistogramSeries',
@@ -58,6 +59,7 @@ beforeEach(() => {
   update.mockClear()
   removeChart.mockClear()
   fitContent.mockClear()
+  setVisibleLogicalRange.mockClear()
 })
 
 describe('CandlestickChart — TradingView-style chart (lightweight-charts)', () => {
@@ -116,5 +118,32 @@ describe('CandlestickChart — TradingView-style chart (lightweight-charts)', ()
   it('shows the raw price with no currency suffix when quoteAsset is not supplied, rather than guessing one', () => {
     render(<CandlestickChart symbol="BTC/USDT" />)
     expect(screen.getByText('65,000')).toBeInTheDocument()
+  })
+
+  // A wide timeframe (15m/1H/4H/1D) can return up to 200 real candles —
+  // fitting ALL of them by default reads as a sparse, mostly-empty chart
+  // when price barely moves across most of that span. The chart should
+  // default to a recent, readable window instead and let "Reset / fit"
+  // (still fitContent(), unchanged) zoom back out on request.
+  it('defaults to a recent zoomed-in window (not fitContent) when there are more candles than the default visible count', async () => {
+    mockRealCandles = Array.from({ length: 200 }, (_, i) => ({
+      time: Date.now() - (200 - i) * 900_000, open: 100, high: 101, low: 99, close: 100.5, volume: 1,
+    }))
+    render(<CandlestickChart symbol="BTC/USDT" />)
+    await vi.waitFor(() => expect(setVisibleLogicalRange).toHaveBeenCalled())
+    const [range] = setVisibleLogicalRange.mock.calls[0]
+    expect(range.from).toBe(200 - 60)
+    expect(range.to).toBe(201)
+    expect(fitContent).not.toHaveBeenCalled()
+  })
+
+  it('still uses fitContent() when there are fewer candles than the default visible window — nothing to zoom into', async () => {
+    mockRealCandles = [
+      { time: Date.now() - 60_000, open: 100, high: 110, low: 95, close: 105, volume: 10 },
+      { time: Date.now(), open: 105, high: 108, low: 102, close: 106, volume: 8 },
+    ]
+    render(<CandlestickChart symbol="BTC/USDT" />)
+    await vi.waitFor(() => expect(fitContent).toHaveBeenCalled())
+    expect(setVisibleLogicalRange).not.toHaveBeenCalled()
   })
 })
