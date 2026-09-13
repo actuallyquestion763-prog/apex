@@ -47,7 +47,7 @@ describe('KycPage', () => {
 
     fireEvent.change(screen.getByPlaceholderText('As shown on your ID'), { target: { value: 'Emmika Test' } })
     fireEvent.change(screen.getByLabelText('Date of birth'), { target: { value: '1995-06-15' } })
-    fireEvent.change(screen.getByPlaceholderText('Country of residence'), { target: { value: 'Kenya' } })
+    fireEvent.change(screen.getByLabelText('Country'), { target: { value: 'Kenya' } })
     fireEvent.change(screen.getByLabelText('ID type'), { target: { value: 'PASSPORT' } })
     fireEvent.change(screen.getByPlaceholderText('Document number'), { target: { value: 'P1234567' } })
 

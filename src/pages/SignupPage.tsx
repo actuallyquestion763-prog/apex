@@ -4,6 +4,7 @@ import { useAuth } from '../store/auth'
 import { useToast } from '../components/Toast'
 import { Logo } from '../components/Logo'
 import { ArrowRight, Mail, Lock, User, Globe, Check } from 'lucide-react'
+import { COUNTRIES } from '../lib/countries'
 
 export function SignupPage() {
   const { signUp } = useAuth()
@@ -40,7 +41,13 @@ export function SignupPage() {
               <div className="relative"><Mail className="absolute left-3 top-3 h-4 w-4 text-slate-500" /><input type="email" className="input pl-10" placeholder="you@example.com" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} required /></div>
             </div>
             <div><label className="label">Country</label>
-              <div className="relative"><Globe className="absolute left-3 top-3 h-4 w-4 text-slate-500" /><input className="input pl-10" placeholder="United States" value={form.country} onChange={(e) => setForm({ ...form, country: e.target.value })} required /></div>
+              <div className="relative">
+                <Globe className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-slate-500" />
+                <select className="input appearance-none pl-10" value={form.country} onChange={(e) => setForm({ ...form, country: e.target.value })} required>
+                  <option value="" disabled>Select your country</option>
+                  {COUNTRIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <div><label className="label">Password</label>

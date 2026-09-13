@@ -5,6 +5,7 @@ import { KycDocumentUpload } from '../components/kyc/KycDocumentUpload'
 import { useToast } from '../components/Toast'
 import type { KycIdType } from '../types'
 import { ShieldCheck, Clock, CheckCircle2, XCircle, AlertCircle } from 'lucide-react'
+import { COUNTRIES } from '../lib/countries'
 
 const ID_TYPES: { value: KycIdType; label: string; needsBack: boolean }[] = [
   { value: 'NATIONAL_ID', label: 'National ID card', needsBack: true },
@@ -89,8 +90,11 @@ export function KycPage() {
               <input id="kyc-dob" className="input" type="date" value={dateOfBirth} onChange={(e) => setDateOfBirth(e.target.value)} />
             </div>
             <div>
-              <label className="label">Country</label>
-              <input className="input" value={country} onChange={(e) => setCountry(e.target.value)} placeholder="Country of residence" />
+              <label className="label" htmlFor="kyc-country">Country</label>
+              <select id="kyc-country" className="input" value={country} onChange={(e) => setCountry(e.target.value)}>
+                <option value="" disabled>Select your country</option>
+                {COUNTRIES.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
             </div>
             <div>
               <label className="label" htmlFor="kyc-id-type">ID type</label>
