@@ -1,9 +1,41 @@
-import { BadRequestException, Inject, Injectable, InternalServerErrorException, NotFoundException } from '@nestjs/common'
+import { BadRequestException, Inject, Injectable, InternalServerErrorException, Logger, NotFoundException } from '@nestjs/common'
 import { randomUUID } from 'crypto'
 import type { Readable } from 'stream'
 import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
 import { matchesFileSignature } from './file-signature.util'
 import { S3_CLIENT } from './media-storage.tokens'
+
+// A credential/secret is never a legitimate part of an S3 SDK error's own
+// name/message/metadata (those are protocol-level: error codes, HTTP
+// status, request ids) — this is a defense-in-depth scrub, not the primary
+// safeguard, in case a provider ever echoes a caller-supplied value (e.g.
+// an access key id) back into a message. Matches long token-shaped
+// substrings generically rather than one provider's exact key format, so
+// it isn't tied to AWS's specific AKIA... prefix — but ONLY redacts a match
+// that contains a digit (see the replacer below), since a real access
+// key/secret is virtually always alphanumeric while AWS's own long
+// English error-code words (e.g. "SignatureDoesNotMatch", 21 characters,
+// no digits) are not — without that distinction this would redact the
+// diagnostic codes it exists to preserve.
+const CREDENTIAL_LIKE = /[A-Za-z0-9/+_-]{20,}/g
+
+// Extracts only protocol-level diagnostic fields from an S3 SDK error —
+// never the request body, file buffer, or any KYC/user field, none of
+// which this function ever receives in the first place (it only ever sees
+// the `err` thrown by an S3Client command, which structurally cannot
+// contain them). Used for server-side logging ONLY; the client always gets
+// the same fixed, generic message regardless of what this returns.
+function summarizeS3Error(err: unknown): Record<string, unknown> {
+  const e = err as { name?: string; message?: string; $metadata?: { httpStatusCode?: number; requestId?: string }; Code?: string } | null
+  const rawMessage = e?.message ?? String(err)
+  return {
+    name: e?.name ?? 'UnknownError',
+    code: e?.Code,
+    httpStatusCode: e?.$metadata?.httpStatusCode,
+    requestId: e?.$metadata?.requestId,
+    message: rawMessage.replace(CREDENTIAL_LIKE, (match) => (/\d/.test(match) ? '[REDACTED]' : match)),
+  }
+}
 
 // Production storage backend: an S3-compatible bucket (Cloudflare R2 in
 // production; any S3-compatible endpoint works, since every provider-facing
@@ -43,6 +75,8 @@ export interface StoredFile {
 
 @Injectable()
 export class MediaStorageService {
+  private readonly logger = new Logger('MediaStorageService')
+
   constructor(@Inject(S3_CLIENT) private readonly s3: S3Client) {}
 
   private get bucket(): string {
@@ -80,7 +114,16 @@ export class MediaStorageService {
         Body: buffer,
         ContentType: mimeType,
       }))
-    } catch {
+    } catch (err) {
+      // Server-side ONLY (never in the client response, see below): the
+      // real S3/R2 error — name/error-code/HTTP-status/requestId, plus a
+      // credential-scrubbed message — so a failure like a bad bucket,
+      // wrong credentials, or a region/endpoint mismatch is actually
+      // diagnosable from Render's log stream. storageKey/mimeType are
+      // server-generated/client-declared metadata, never file bytes or any
+      // KYC field. See summarizeS3Error()'s own comment for exactly what
+      // this can and cannot contain.
+      this.logger.error(`PutObject failed for storageKey=${storageKey} mimeType=${mimeType}: ${JSON.stringify(summarizeS3Error(err))}`)
       // Never surface the underlying SDK error (which can include the
       // endpoint/bucket) to a client — a clean, generic failure here still
       // lets the caller know the upload didn't happen.

@@ -1,7 +1,7 @@
 import { Readable } from 'stream'
 import { mockClient } from 'aws-sdk-client-mock'
 import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3'
-import { BadRequestException, InternalServerErrorException, NotFoundException } from '@nestjs/common'
+import { BadRequestException, InternalServerErrorException, Logger, NotFoundException } from '@nestjs/common'
 import { MediaStorageService } from './media-storage.service'
 
 // Minimal, real-signature-matching byte sequences for every currently
@@ -92,6 +92,60 @@ describe('MediaStorageService', () => {
       s3Mock.on(PutObjectCommand).rejects(new Error('AccessDenied: real-bucket-name, real-endpoint.example.com, AKIAREALKEY'))
       await expect(service.save('a.png', 'image/png', PNG_BYTES)).rejects.toThrow(InternalServerErrorException)
       await expect(service.save('a.png', 'image/png', PNG_BYTES)).rejects.not.toThrow(/AKIAREALKEY|real-endpoint/)
+    })
+
+    // Step A (Part 33) — the real error must now actually be captured
+    // server-side, since AllExceptionsFilter never logs an HttpException
+    // (see media-storage.service.ts's summarizeS3Error() comment for why
+    // that made the previous bare `catch {}` a dead end for diagnosis).
+    it('logs the real S3 error server-side on an upload failure, distinct from AccessDenied/NoSuchBucket/etc.', async () => {
+      const errorSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
+      const err = new Error('The specified bucket does not exist')
+      err.name = 'NoSuchBucket'
+      ;(err as unknown as { $metadata: { httpStatusCode: number; requestId: string } }).$metadata = { httpStatusCode: 404, requestId: 'req-123' }
+      s3Mock.on(PutObjectCommand).rejects(err)
+
+      await expect(service.save('a.png', 'image/png', PNG_BYTES)).rejects.toThrow(InternalServerErrorException)
+
+      expect(errorSpy).toHaveBeenCalled()
+      const logged = errorSpy.mock.calls.map((c) => String(c[0])).join('\n')
+      expect(logged).toContain('NoSuchBucket')
+      expect(logged).toContain('404')
+      expect(logged).toContain('req-123')
+      errorSpy.mockRestore()
+    })
+
+    it('redacts credential-shaped substrings from the LOGGED error too, not just the client-facing message, while preserving long alphabetic diagnostic codes', async () => {
+      const errorSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
+      // AKIAIOSFODNN7EXAMPLE is AWS's own published example access key
+      // format (real-shaped, contains a digit) — paired with a
+      // SignatureDoesNotMatch, a real AWS error CODE that is itself 21
+      // unbroken alphabetic characters (no digits), specifically to prove
+      // the redaction distinguishes "credential-shaped" from "a long
+      // English error-code word" rather than blindly redacting anything
+      // over 20 characters.
+      s3Mock.on(PutObjectCommand).rejects(new Error('SignatureDoesNotMatch using access key AKIAIOSFODNN7EXAMPLE and secret th1sIsASecretLookingToken1234567890'))
+
+      await expect(service.save('a.png', 'image/png', PNG_BYTES)).rejects.toThrow(InternalServerErrorException)
+
+      const logged = errorSpy.mock.calls.map((c) => String(c[0])).join('\n')
+      expect(logged).not.toContain('AKIAIOSFODNN7EXAMPLE')
+      expect(logged).not.toContain('th1sIsASecretLookingToken1234567890')
+      expect(logged).toContain('[REDACTED]')
+      expect(logged).toContain('SignatureDoesNotMatch') // the useful diagnostic code survives, unredacted
+      errorSpy.mockRestore()
+    })
+
+    it('never logs the uploaded file bytes on a failure', async () => {
+      const errorSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
+      s3Mock.on(PutObjectCommand).rejects(new Error('some transient failure'))
+
+      await expect(service.save('a.png', 'image/png', PNG_BYTES)).rejects.toThrow(InternalServerErrorException)
+
+      const logged = errorSpy.mock.calls.map((c) => String(c[0])).join('\n')
+      expect(logged).not.toContain(PNG_BYTES.toString('base64'))
+      expect(logged).not.toContain(PNG_BYTES.toString('binary'))
+      errorSpy.mockRestore()
     })
   })
 
