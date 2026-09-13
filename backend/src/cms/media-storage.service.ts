@@ -19,22 +19,70 @@ import { S3_CLIENT } from './media-storage.tokens'
 // diagnostic codes it exists to preserve.
 const CREDENTIAL_LIKE = /[A-Za-z0-9/+_-]{20,}/g
 
+function redactMessage(rawMessage: string): string {
+  return rawMessage.replace(CREDENTIAL_LIKE, (match) => (/\d/.test(match) ? '[REDACTED]' : match))
+}
+
+// One error's worth of protocol/network diagnostic fields — used both for
+// a plain S3ServiceException AND for each individual entry inside an
+// AggregateError's .errors array (Node's networking stack throws these
+// when e.g. a dual-stack IPv4/IPv6 connection attempt fails on every
+// address it tried). hostname/address/port/errno/syscall come from Node's
+// own net/dns layer, never from request/response content — structurally
+// they cannot contain a credential, a cookie, a file byte, or a KYC field,
+// since nothing here is ever passed the request body or the S3 access
+// key/secret (those live only in s3-client.factory.ts's client
+// construction, not in the thrown error object at all).
+function summarizeOneError(err: unknown): Record<string, unknown> {
+  const e = err as {
+    name?: string
+    message?: string
+    code?: string
+    errno?: number
+    syscall?: string
+    hostname?: string
+    address?: string
+    port?: number
+    $metadata?: { httpStatusCode?: number; requestId?: string }
+    Code?: string
+  } | null
+  const rawMessage = e?.message ?? (err == null ? 'null' : String(err))
+  return {
+    name: e?.name ?? 'UnknownError',
+    code: e?.code ?? e?.Code,
+    errno: e?.errno,
+    syscall: e?.syscall,
+    hostname: e?.hostname,
+    address: e?.address,
+    port: e?.port,
+    httpStatusCode: e?.$metadata?.httpStatusCode,
+    requestId: e?.$metadata?.requestId,
+    message: redactMessage(rawMessage),
+  }
+}
+
 // Extracts only protocol-level diagnostic fields from an S3 SDK error —
 // never the request body, file buffer, or any KYC/user field, none of
 // which this function ever receives in the first place (it only ever sees
 // the `err` thrown by an S3Client command, which structurally cannot
 // contain them). Used for server-side logging ONLY; the client always gets
 // the same fixed, generic message regardless of what this returns.
+//
+// AggregateError-aware: the top-level AggregateError itself typically has
+// name="AggregateError" and an EMPTY message — the actual cause (a real
+// ECONNREFUSED/ETIMEDOUT/ENOTFOUND/EAI_AGAIN/TLS/connection-reset error
+// from each attempted address) lives one level down, in its standard
+// `.errors` array. Every entry there is summarized the same safe way as
+// the top-level error, so a bad-endpoint/DNS/network/credential failure is
+// actually visible instead of collapsing into an uninformative
+// {"name":"AggregateError","message":""}.
 function summarizeS3Error(err: unknown): Record<string, unknown> {
-  const e = err as { name?: string; message?: string; $metadata?: { httpStatusCode?: number; requestId?: string }; Code?: string } | null
-  const rawMessage = e?.message ?? String(err)
-  return {
-    name: e?.name ?? 'UnknownError',
-    code: e?.Code,
-    httpStatusCode: e?.$metadata?.httpStatusCode,
-    requestId: e?.$metadata?.requestId,
-    message: rawMessage.replace(CREDENTIAL_LIKE, (match) => (/\d/.test(match) ? '[REDACTED]' : match)),
+  const summary = summarizeOneError(err)
+  const nested = (err as { errors?: unknown[] } | null)?.errors
+  if (Array.isArray(nested) && nested.length > 0) {
+    summary.aggregateErrors = nested.map(summarizeOneError)
   }
+  return summary
 }
 
 // Production storage backend: an S3-compatible bucket (Cloudflare R2 in

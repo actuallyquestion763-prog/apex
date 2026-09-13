@@ -147,6 +147,98 @@ describe('MediaStorageService', () => {
       expect(logged).not.toContain(PNG_BYTES.toString('binary'))
       errorSpy.mockRestore()
     })
+
+    // ---- AggregateError handling (the actual production log shape) ----------
+    // A bare `{"name":"AggregateError","message":""}` (exactly what
+    // production logged) is useless for diagnosis — the real cause lives in
+    // the standard `.errors` array Node's own networking stack populates
+    // (e.g. dual-stack IPv4/IPv6 Happy Eyeballs, each address attempt
+    // failing independently). These prove that array is actually unpacked.
+
+    it('unpacks a dual-stack connection-refused AggregateError into per-address diagnostic detail', async () => {
+      const errorSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
+      const ipv4Attempt = Object.assign(new Error('connect ECONNREFUSED 203.0.113.10:443'), {
+        code: 'ECONNREFUSED', errno: -111, syscall: 'connect', address: '203.0.113.10', port: 443,
+      })
+      const ipv6Attempt = Object.assign(new Error('connect ECONNREFUSED 2001:db8::1:443'), {
+        code: 'ECONNREFUSED', errno: -111, syscall: 'connect', address: '2001:db8::1', port: 443,
+      })
+      const agg = new AggregateError([ipv4Attempt, ipv6Attempt], '')
+      s3Mock.on(PutObjectCommand).rejects(agg)
+
+      await expect(service.save('a.png', 'image/png', PNG_BYTES)).rejects.toThrow(InternalServerErrorException)
+
+      expect(errorSpy).toHaveBeenCalled()
+      const logged = errorSpy.mock.calls.map((c) => String(c[0])).join('\n')
+      expect(logged).toContain('AggregateError')
+      expect(logged).toContain('"aggregateErrors"')
+      expect(logged).toContain('ECONNREFUSED')
+      expect(logged).toContain('203.0.113.10')
+      expect(logged).toContain('2001:db8::1')
+      expect(logged).toContain('"port":443')
+      expect(logged).toContain('"syscall":"connect"')
+      errorSpy.mockRestore()
+    })
+
+    it('unpacks a DNS-resolution AggregateError (ENOTFOUND/EAI_AGAIN) including the hostname', async () => {
+      const errorSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
+      const dnsFailure = Object.assign(new Error('getaddrinfo ENOTFOUND my-bucket.r2.example-endpoint.com'), {
+        code: 'ENOTFOUND', errno: -3008, syscall: 'getaddrinfo', hostname: 'my-bucket.r2.example-endpoint.com',
+      })
+      s3Mock.on(PutObjectCommand).rejects(new AggregateError([dnsFailure], ''))
+
+      await expect(service.save('a.png', 'image/png', PNG_BYTES)).rejects.toThrow(InternalServerErrorException)
+
+      const logged = errorSpy.mock.calls.map((c) => String(c[0])).join('\n')
+      expect(logged).toContain('ENOTFOUND')
+      expect(logged).toContain('getaddrinfo')
+      expect(logged).toContain('my-bucket.r2.example-endpoint.com')
+      errorSpy.mockRestore()
+    })
+
+    it('an AggregateError with an empty top-level message (the exact shape seen in production) still logs something useful, never just "{}"', async () => {
+      const errorSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
+      const timeout = Object.assign(new Error('connect ETIMEDOUT'), { code: 'ETIMEDOUT', errno: -110, syscall: 'connect' })
+      s3Mock.on(PutObjectCommand).rejects(new AggregateError([timeout], ''))
+
+      await expect(service.save('a.png', 'image/png', PNG_BYTES)).rejects.toThrow(InternalServerErrorException)
+
+      const logged = errorSpy.mock.calls.map((c) => String(c[0])).join('\n')
+      expect(logged).toContain('AggregateError')
+      expect(logged).toContain('ETIMEDOUT')
+      expect(logged).not.toContain('"message":"{}"')
+      errorSpy.mockRestore()
+    })
+
+    it('redacts a credential-shaped substring inside a NESTED AggregateError child message too, not just the top level', async () => {
+      const errorSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
+      const authFailure = Object.assign(
+        new Error('SignatureDoesNotMatch: computed with access key AKIAIOSFODNN7EXAMPLE'),
+        { code: 'InvalidAccessKeyId' },
+      )
+      s3Mock.on(PutObjectCommand).rejects(new AggregateError([authFailure], ''))
+
+      await expect(service.save('a.png', 'image/png', PNG_BYTES)).rejects.toThrow(InternalServerErrorException)
+
+      const logged = errorSpy.mock.calls.map((c) => String(c[0])).join('\n')
+      expect(logged).not.toContain('AKIAIOSFODNN7EXAMPLE')
+      expect(logged).toContain('[REDACTED]')
+      expect(logged).toContain('SignatureDoesNotMatch') // diagnostic code survives
+      expect(logged).toContain('InvalidAccessKeyId') // diagnostic code survives
+      errorSpy.mockRestore()
+    })
+
+    it('never logs file bytes or the client response text even for an AggregateError failure', async () => {
+      const errorSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
+      const refused = Object.assign(new Error('connect ECONNREFUSED 203.0.113.10:443'), { code: 'ECONNREFUSED' })
+      s3Mock.on(PutObjectCommand).rejects(new AggregateError([refused], ''))
+
+      await expect(service.save('a.png', 'image/png', PNG_BYTES)).rejects.toThrow(InternalServerErrorException)
+
+      const logged = errorSpy.mock.calls.map((c) => String(c[0])).join('\n')
+      expect(logged).not.toContain(PNG_BYTES.toString('base64'))
+      errorSpy.mockRestore()
+    })
   })
 
   // ---- getObjectStream() — read (replaces pathFor()) ----------------------
