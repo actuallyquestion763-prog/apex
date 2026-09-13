@@ -4,9 +4,16 @@ export default {
   theme: {
     extend: {
       colors: {
+        // Deep navy-blue family (customer-facing site background/cards/
+        // borders) — shifted from Tailwind's default desaturated slate-gray
+        // to a genuinely blue hue, at the operator's explicit request to
+        // match a reference site's background color everywhere. Every page
+        // already references these same ink-* tokens for its background,
+        // card, and border classes, so this one change cascades site-wide
+        // without touching individual page files.
         ink: {
-          950: '#090f15', 900: '#0f172a', 850: '#141b2e', 800: '#1e293b',
-          700: '#334155', 600: '#475569', 500: '#64748b',
+          950: '#050c1c', 900: '#081633', 850: '#0c1c40', 800: '#12274f',
+          700: '#1c3563', 600: '#2c4a80', 500: '#4368a8',
         },
         gold: {
           50: '#fffbeb', 100: '#fef3c7', 200: '#fde68a', 300: '#fcd34d',
