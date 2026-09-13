@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common'
 import { PrismaService } from '../prisma/prisma.service'
 import { AuditService } from '../audit/audit.service'
 import { AuditEvent } from '../audit/audit-events'
@@ -6,6 +6,7 @@ import type { PermissionKey } from '../common/permissions'
 import { sanitizeText } from '../cms/cms.validation'
 import { MediaStorageService } from '../cms/media-storage.service'
 import { PlatformSettingsService } from '../platform-settings/platform-settings.service'
+import { EmailService } from '../email/email.service'
 import type { CreateTicketDto, CreateMessageDto } from './dto/ticket.dto'
 import type { CreateCategoryDto, UpdateCategoryDto } from './dto/category.dto'
 
@@ -32,11 +33,14 @@ const VALID_TRANSITIONS: Record<string, string[]> = {
  */
 @Injectable()
 export class SupportService {
+  private readonly logger = new Logger('SupportService')
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly media: MediaStorageService,
     private readonly platformSettings: PlatformSettingsService,
+    private readonly email: EmailService,
   ) {}
 
   // ---- Categories -----------------------------------------------------------------
@@ -79,17 +83,21 @@ export class SupportService {
 
   // ---- Customer-facing --------------------------------------------------------------
 
-  // Deliberately does not create a SupportNotification: a brand-new ticket
-  // has no assigned agent yet, and this system has no all-staff broadcast/
-  // subscription concept (Part 16) — any agent with support.tickets.read
-  // already sees it immediately in the ticket list. A notification needs an
-  // actual individual recipient, not a fabricated one.
+  // Deliberately does not create an in-app SupportNotification: a
+  // brand-new ticket has no assigned agent yet, and this system has no
+  // all-staff broadcast/subscription concept (Part 16) — any agent with
+  // support.tickets.read already sees it immediately in the ticket list.
+  // That in-app mechanism needs an actual individual USER recipient, not a
+  // fabricated one — but the ADMIN NOTIFICATIONS email below is a
+  // different channel (a configured address, not a user), so it has no
+  // such limitation and fires here unconditionally.
   async createTicket(userId: string, dto: CreateTicketDto) {
     const category = await this.prisma.supportCategory.findUnique({ where: { id: dto.categoryId } })
     if (!category || !category.isActive) throw new BadRequestException('Selected category is not available.')
 
     const requestedPriority = dto.requestedPriority ?? 'NORMAL'
-    return this.prisma.$transaction(async (tx) => {
+    const sanitizedMessage = sanitizeText(dto.message)
+    const ticket = await this.prisma.$transaction(async (tx) => {
       const ticket = await tx.supportTicket.create({
         data: {
           userId,
@@ -100,7 +108,7 @@ export class SupportService {
         },
       })
       await tx.supportMessage.create({
-        data: { ticketId: ticket.id, authorId: userId, body: sanitizeText(dto.message), visibility: 'PUBLIC' },
+        data: { ticketId: ticket.id, authorId: userId, body: sanitizedMessage, visibility: 'PUBLIC' },
       })
 
       // Auto-greeting (Part: Customer Support redesign) — a real, persisted
@@ -122,6 +130,17 @@ export class SupportService {
 
       return ticket
     })
+
+    // ADMIN NOTIFICATIONS — deliberately AFTER the transaction has already
+    // committed, never inside it: an interactive-transaction retry (e.g. on
+    // a write-conflict) would otherwise re-run this alongside the DB writes
+    // and could send the email more than once for what is ultimately a
+    // single committed ticket. A failure here is caught inside
+    // sendAdminNotification() and can never fail ticket creation itself.
+    const customer = await this.prisma.user.findUnique({ where: { id: userId }, select: { email: true, fullName: true } })
+    await this.sendAdminNotification('NEW_TICKET', { id: ticket.id, subject: ticket.subject, category, user: customer }, sanitizedMessage, ticket.createdAt)
+
+    return ticket
   }
 
   async listMyTickets(userId: string) {
@@ -143,7 +162,10 @@ export class SupportService {
   }
 
   async addCustomerMessage(userId: string, ticketId: string, dto: CreateMessageDto) {
-    const ticket = await this.prisma.supportTicket.findUnique({ where: { id: ticketId } })
+    const ticket = await this.prisma.supportTicket.findUnique({
+      where: { id: ticketId },
+      include: { category: true, user: { select: { email: true, fullName: true } } },
+    })
     if (!ticket) throw new NotFoundException('Ticket not found.')
     if (ticket.userId !== userId) throw new ForbiddenException('You do not have access to this ticket.')
     if (ticket.status === 'CLOSED') throw new BadRequestException('This ticket is closed. Contact support to reopen it.')
@@ -152,10 +174,11 @@ export class SupportService {
     // simply never read here, regardless of what a manipulated request body
     // contains (see support.e2e-spec.ts's internal-note-spoofing test).
     const nextStatus = ticket.status === 'RESOLVED' ? 'IN_PROGRESS' : ticket.status === 'WAITING_FOR_CUSTOMER' ? 'WAITING_INTERNAL' : ticket.status
+    const sanitizedBody = sanitizeText(dto.body)
 
     const message = await this.prisma.$transaction(async (tx) => {
       const created = await tx.supportMessage.create({
-        data: { ticketId, authorId: userId, body: sanitizeText(dto.body), visibility: 'PUBLIC' },
+        data: { ticketId, authorId: userId, body: sanitizedBody, visibility: 'PUBLIC' },
       })
       if (nextStatus !== ticket.status) {
         await tx.supportTicket.update({ where: { id: ticketId }, data: { status: nextStatus as any } })
@@ -169,6 +192,13 @@ export class SupportService {
     if (ticket.assignedAgentId) {
       await this.notify(ticket.assignedAgentId, ticketId, 'CUSTOMER_REPLIED', `New customer reply on "${ticket.subject}".`)
     }
+    // ADMIN NOTIFICATIONS — every customer reply puts the ticket back in
+    // admin's court, regardless of whether it happens to be assigned to a
+    // specific agent yet (unlike the in-app notify() above, this channel's
+    // recipient is a configured address, not a specific staff user, so it
+    // has no "unassigned = nobody to tell" limitation). Never fired for an
+    // admin's own reply — see addStaffMessage, which never calls this.
+    await this.sendAdminNotification('CUSTOMER_REPLY', { id: ticket.id, subject: ticket.subject, category: ticket.category, user: ticket.user }, sanitizedBody, message.createdAt)
     return message
   }
 
@@ -323,6 +353,59 @@ export class SupportService {
     await this.prisma.supportNotification.create({ data: { userId, ticketId, event, message } })
   }
 
+  // ---- Admin email notifications (ADMIN NOTIFICATIONS feature) ----------------------
+  // A SEPARATE channel from notify() above: that creates an in-app
+  // SupportNotification row for one specific USER; this emails a
+  // configured ADDRESS (PlatformSettings.supportNotificationEmail) that
+  // need not correspond to any single user account (e.g. a shared ops
+  // inbox) — see platform-settings.service.ts. Only ever called from
+  // customer-initiated paths (createTicket, addCustomerMessage,
+  // addAttachmentAsCustomer); addStaffMessage/addAttachmentAsStaff never
+  // call this, so "no admin self-notification on an admin's own reply" is
+  // structural, not a runtime check. Always invoked AFTER the triggering
+  // write has already committed (never from inside a $transaction — a
+  // transaction retry must never risk a duplicate send), and always
+  // swallows its own errors: a delivery failure must never fail the
+  // support request that triggered it (same division of responsibility as
+  // auth.service.ts's forgotPassword() around sendPasswordResetEmail()).
+  private async sendAdminNotification(
+    kind: 'NEW_TICKET' | 'CUSTOMER_REPLY',
+    ticket: { id: string; subject: string; category: { name: string } | null; user: { email: string; fullName: string } | null },
+    messagePreview: string,
+    createdAt: Date,
+  ): Promise<void> {
+    const settings = await this.platformSettings.get()
+    const toEmail = settings.supportNotificationEmail
+    if (!toEmail) return // feature is a silent no-op until an address is configured — never a hardcoded fallback
+    try {
+      await this.email.sendSupportNotificationEmail(toEmail, {
+        kind,
+        ticketId: ticket.id,
+        ticketSubject: ticket.subject,
+        categoryName: ticket.category?.name ?? 'Uncategorized',
+        customerLabel: ticket.user?.fullName || ticket.user?.email || 'Unknown customer',
+        messagePreview: messagePreview.length > 300 ? `${messagePreview.slice(0, 300)}…` : messagePreview,
+        createdAt,
+        ticketUrl: this.buildAdminTicketUrl(ticket.id),
+      })
+    } catch (err) {
+      this.logger.error(`Failed to send support admin notification (${kind}, ticket ${ticket.id}): ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+
+  // No auth token, session cookie, or any other secret in this URL (ADMIN
+  // NOTIFICATIONS security requirement) — a plain deep link into the
+  // EXISTING authenticated /admin/support route. Whoever clicks it still
+  // has to sign in as an admin exactly as if they'd navigated there by
+  // hand; the ticket id in the query string grants no access by itself
+  // (SupportService.getTicketForStaff() / the support.tickets.read
+  // permission check is what actually gates the data, unchanged by this
+  // feature).
+  private buildAdminTicketUrl(ticketId: string): string {
+    const origin = process.env.FRONTEND_ORIGIN || 'http://localhost:5173'
+    return `${origin}/admin/support?ticket=${ticketId}`
+  }
+
   listMyNotifications(userId: string) {
     return this.prisma.supportNotification.findMany({
       where: { userId },
@@ -353,7 +436,10 @@ export class SupportService {
   // attachment.
 
   async addAttachmentAsCustomer(userId: string, ticketId: string, file: UploadedFileLike, body?: string) {
-    const ticket = await this.prisma.supportTicket.findUnique({ where: { id: ticketId } })
+    const ticket = await this.prisma.supportTicket.findUnique({
+      where: { id: ticketId },
+      include: { category: true, user: { select: { email: true, fullName: true } } },
+    })
     if (!ticket) throw new NotFoundException('Ticket not found.')
     if (ticket.userId !== userId) throw new ForbiddenException('You do not have access to this ticket.')
     if (ticket.status === 'CLOSED') throw new BadRequestException('This ticket is closed. Contact support to reopen it.')
@@ -362,6 +448,8 @@ export class SupportService {
     if (ticket.assignedAgentId) {
       await this.notify(ticket.assignedAgentId, ticketId, 'CUSTOMER_REPLIED', `New customer reply on "${ticket.subject}".`)
     }
+    // ADMIN NOTIFICATIONS — same reasoning as addCustomerMessage above.
+    await this.sendAdminNotification('CUSTOMER_REPLY', { id: ticket.id, subject: ticket.subject, category: ticket.category, user: ticket.user }, message.body, message.createdAt)
     return message
   }
 

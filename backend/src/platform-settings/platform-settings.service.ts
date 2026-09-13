@@ -32,6 +32,7 @@ export class PlatformSettingsService {
       supportAutoGreetingEnabled: boolean
       supportAutoGreetingMessage: string | null
       supportAutoGreetingSenderId: string | null
+      supportNotificationEmail: string | null
     }>,
     updatedByAdminId: string,
   ) {

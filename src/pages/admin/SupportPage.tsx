@@ -12,11 +12,12 @@
 // dark/gold admin theme; nothing here changes any shared token, class, or
 // component, so this page's look-and-feel does not leak anywhere else.
 import { useEffect, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Headset, MoreVertical, Paperclip, Search, SlidersHorizontal, Send, User } from 'lucide-react'
 import type { SupportTicket } from '../../types'
 import { api, attachmentUrl } from '../../lib/api'
 import { useToast } from '../../components/Toast'
-import { AdminPageHeader, AdminPanel, statusTone, useAdmin, tryAction, AdminEmptyState } from '../../components/admin'
+import { AdminBackLink, AdminPanel, statusTone, useAdmin, tryAction, AdminEmptyState } from '../../components/admin'
 
 const TICKET_STATUSES = ['OPEN', 'IN_PROGRESS', 'WAITING_FOR_CUSTOMER', 'WAITING_INTERNAL', 'RESOLVED', 'CLOSED'] as const
 const TICKET_PRIORITIES = ['LOW', 'NORMAL', 'HIGH', 'URGENT'] as const
@@ -50,7 +51,18 @@ const PREVIEW_PILL_CLASS: Record<ReturnType<typeof statusTone>, string> = {
 
 export function SupportPage() {
   const { error, loading, data, refetch } = useAdmin<SupportTicket[]>('/admin/support/tickets')
+  // Deep-link support for the ADMIN NOTIFICATIONS email's "Open Support
+  // Ticket" button (?ticket=<id>) — the link carries no auth of its own,
+  // just an id; this only pre-selects it once the ticket list has loaded,
+  // so it still goes through the exact same authenticated fetch/permission
+  // path as clicking a row by hand.
+  const [searchParams] = useSearchParams()
   const [selected, setSelected] = useState<string | null>(null)
+  useEffect(() => {
+    const ticketId = searchParams.get('ticket')
+    if (ticketId && data?.some((t) => t.id === ticketId)) setSelected(ticketId)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data])
   const [status, setStatus] = useState('')
   const [priority, setPriority] = useState('')
   const [category, setCategory] = useState('')
@@ -79,7 +91,7 @@ export function SupportPage() {
 
   return (
     <div>
-      <AdminPageHeader icon={Headset} title="Customer Support" description="Support tickets and live conversation threads." back={{ to: '/admin' }} />
+      <AdminBackLink to="/admin" />
       <AdminPanel loading={loading} error={error} refetch={refetch}>
         <div className={`flex overflow-hidden rounded-2xl border ${NAVY.border} ${NAVY.panel}`} style={{ height: 'calc(100vh - 160px)' }}>
           {/* Left sidebar — search + conversation list */}
@@ -290,8 +302,12 @@ function SupportTicketDetail({ ticket, onBack, onChanged }: { ticket: SupportTic
                     </div>
                     <p className="whitespace-pre-wrap break-words">{m.body}</p>
                     {(m.attachments ?? []).map((a) => (
-                      <a key={a.id} href={attachmentUrl(a.id)} className="mt-1 flex items-center gap-1.5 text-[#cddcff] hover:text-white" download>
-                        <Paperclip className="h-3 w-3" /> {a.filename}
+                      <a key={a.id} href={attachmentUrl(a.id)} target="_blank" rel="noreferrer" className="mt-1 block">
+                        {a.mimeType.startsWith('image/') ? (
+                          <img src={attachmentUrl(a.id)} alt={a.filename} className="max-h-64 max-w-full rounded-lg object-cover" />
+                        ) : (
+                          <span className="flex items-center gap-1.5 text-[#cddcff] hover:text-white"><Paperclip className="h-3 w-3" /> {a.filename}</span>
+                        )}
                       </a>
                     ))}
                     <p className="mt-1 text-right text-[10px] text-[#cddcff]/70">{new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>

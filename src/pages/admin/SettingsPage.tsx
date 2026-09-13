@@ -22,6 +22,7 @@ export function SettingsPage() {
       <div className="space-y-6">
         <PlatformKillSwitches />
         <SupportAutoGreeting />
+        <SupportNotificationEmail />
         <SpotMarkets />
 
         <AdminSection title="More" description="Other configuration pages, kept accessible here rather than added to the main dashboard grid.">
@@ -156,6 +157,66 @@ function SupportAutoGreeting() {
               confirmPassword,
             }))
             if (res.ok) { push('success', 'Auto-greeting updated.'); setConfirming(false); refetch() }
+            else throw new ApiError(0, res.error, null)
+          }}
+          onClose={() => setConfirming(false)}
+        />
+      )}
+    </AdminPanel>
+  )
+}
+
+// ADMIN NOTIFICATIONS — where SupportService emails "New Support Ticket" /
+// "Customer Reply" alerts (backend/src/support/support.service.ts). Empty
+// = feature is a silent no-op, never a hardcoded fallback address. Same
+// step-up-gated /admin/platform-settings endpoint as the other
+// platform-wide settings above.
+function SupportNotificationEmail() {
+  const { push } = useToast()
+  const { data, loading, error, refetch } = useAdmin<Overview>('/admin/overview')
+  const [email, setEmail] = useState('')
+  const [confirming, setConfirming] = useState(false)
+
+  useEffect(() => {
+    if (!data) return
+    setEmail(data.platform.supportNotificationEmail ?? '')
+  }, [data])
+
+  return (
+    <AdminPanel loading={loading} error={error} refetch={refetch}>
+      {data && (
+        <div className="admin-card p-6">
+          <h3 className="font-bold text-admin-text">Support notification email</h3>
+          <p className="mt-1 text-sm text-admin-muted">
+            Where "New Support Ticket" and "Customer Reply" alerts are emailed. Leave blank to disable. Requires step-up re-authentication.
+          </p>
+          <div className="mt-4 space-y-3">
+            <div>
+              <p className="mb-1 text-xs font-medium text-admin-mutedDim">Notification email address</p>
+              <input
+                type="email"
+                className="admin-input w-full max-w-sm text-sm"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="support-alerts@edgecryptotrade.site"
+              />
+            </div>
+            <button onClick={() => setConfirming(true)} className="admin-btn-primary px-4 py-2 text-sm">Save</button>
+          </div>
+        </div>
+      )}
+
+      {confirming && (
+        <StepUpModal
+          title="Change support notification email"
+          description="Platform-wide support controls require step-up re-authentication."
+          onConfirm={async ({ reason, confirmPassword }) => {
+            const res = await tryAction(() => api.patch('/admin/platform-settings', {
+              supportNotificationEmail: email.trim() || undefined,
+              reason,
+              confirmPassword,
+            }))
+            if (res.ok) { push('success', 'Support notification email updated.'); setConfirming(false); refetch() }
             else throw new ApiError(0, res.error, null)
           }}
           onClose={() => setConfirming(false)}

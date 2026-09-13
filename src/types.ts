@@ -192,6 +192,7 @@ export interface PlatformSettings {
   supportAutoGreetingEnabled: boolean
   supportAutoGreetingMessage: string | null
   supportAutoGreetingSenderId: string | null
+  supportNotificationEmail: string | null
 }
 
 // ---- Local-only, non-financial state -----------------------------------

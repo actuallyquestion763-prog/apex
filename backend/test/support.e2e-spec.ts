@@ -320,7 +320,11 @@ describe('Customer Support (real PostgreSQL)', () => {
     expect(row.storageKey).not.toContain('..')
     expect(row.storageKey).not.toContain('passwd')
 
-    await request(server).get(`/support/attachments/${attachmentId}`).set('Cookie', customer.cookie).expect(200)
+    const download = await request(server).get(`/support/attachments/${attachmentId}`).set('Cookie', customer.cookie).expect(200)
+    // 'inline' (not 'attachment') — an image attachment must render directly
+    // in the chat thread, not force a download, matching CmsMedia/Kyc's own
+    // file-serving convention.
+    expect(download.headers['content-disposition']).toMatch(/^inline;/)
 
     const otherCustomer = await makeCustomer('attachother')
     await request(server).get(`/support/attachments/${attachmentId}`).set('Cookie', otherCustomer.cookie).expect(403)

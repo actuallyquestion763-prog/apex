@@ -1,6 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common'
 import nodemailer, { type Transporter } from 'nodemailer'
 import { buildPasswordResetEmailHtml, buildPasswordResetEmailText } from './templates/password-reset.template'
+import {
+  buildSupportNotificationEmailHtml,
+  buildSupportNotificationEmailText,
+  supportNotificationEmailSubject,
+  type SupportNotificationEmailParams,
+} from './templates/support-notification.template'
 
 // Outgoing email, SMTP only — no third-party email API/SDK, since none was
 // already part of this project (Part 1: "if the project already has an
@@ -45,6 +51,28 @@ export class EmailService {
       subject: 'Reset your EDGETRADE password',
       text: buildPasswordResetEmailText(resetUrl, expiresInMinutes),
       html: buildPasswordResetEmailHtml(resetUrl, expiresInMinutes),
+    })
+  }
+
+  // ADMIN NOTIFICATIONS (Support) — "New Support Ticket" / "Customer Reply"
+  // alerts. The recipient is always caller-supplied (PlatformSettings.
+  // supportNotificationEmail, read by SupportService — never hardcoded or
+  // read from an env var here), so this method has no opinion on WHO gets
+  // notified, only HOW. The caller (SupportService) is responsible for
+  // catching a rejection here so a delivery failure never fails the
+  // support request that triggered it — same division of responsibility
+  // as sendPasswordResetEmail/auth.service.ts's forgotPassword().
+  async sendSupportNotificationEmail(toEmail: string, params: SupportNotificationEmailParams): Promise<void> {
+    if (!this.transporter) {
+      this.logger.error(`Could not send support notification email (${params.kind}, ticket ${params.ticketId}): SMTP is not configured.`)
+      return
+    }
+    await this.transporter.sendMail({
+      from: process.env.EMAIL_FROM || '"EDGETRADE" <no-reply@edgecryptotrade.site>',
+      to: toEmail,
+      subject: supportNotificationEmailSubject(params),
+      text: buildSupportNotificationEmailText(params),
+      html: buildSupportNotificationEmailHtml(params),
     })
   }
 }

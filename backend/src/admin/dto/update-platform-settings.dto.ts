@@ -1,4 +1,4 @@
-import { IsBoolean, IsInt, IsOptional, IsString, MaxLength, Min, MinLength } from 'class-validator'
+import { IsBoolean, IsEmail, IsInt, IsOptional, IsString, MaxLength, Min, MinLength } from 'class-validator'
 
 const MAX_GREETING_LENGTH = 2000
 
@@ -47,6 +47,17 @@ export class UpdatePlatformSettingsDto {
   @IsOptional()
   @IsString()
   supportAutoGreetingSenderId?: string
+
+  // ADMIN NOTIFICATIONS — where SupportService emails "New Support Ticket"
+  // / "Customer Reply" alerts. Rides this same step-up-gated endpoint as
+  // every other platform-wide setting above, rather than a new permission
+  // tier for one field (same reasoning as maxOpenOrdersPerUser). Feature
+  // is a silent no-op while this is unset — see
+  // support.service.ts's sendAdminNotification().
+  @IsOptional()
+  @IsEmail()
+  @MaxLength(320)
+  supportNotificationEmail?: string
 
   @IsString()
   @MinLength(3)

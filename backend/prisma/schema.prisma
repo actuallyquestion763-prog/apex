@@ -792,6 +792,14 @@ model PlatformSettings {
   supportAutoGreetingEnabled   Boolean @default(false)
   supportAutoGreetingMessage   String?
   supportAutoGreetingSenderId  String?
+  // Admin support-notification email (ADMIN NOTIFICATIONS feature) — where
+  // SupportService emails "New Support Ticket" / "Customer Reply" alerts.
+  // Free-text address, not an FK to User — same convention as
+  // supportAutoGreetingSenderId's siblings above; this may be a shared ops
+  // inbox rather than any one admin's login email. Nullable = feature is a
+  // silent no-op until an address is configured (never a hardcoded
+  // fallback address — see EmailService.sendSupportNotificationEmail()).
+  supportNotificationEmail String?
 }
 
 enum MarketDataSource {

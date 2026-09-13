@@ -67,7 +67,10 @@ export class SupportController {
   @Get('attachments/:id')
   async getAttachment(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
     const file = await this.support.getAttachmentFile(user.id, id)
-    return new StreamableFile(file.stream, { type: file.mimeType, disposition: `attachment; filename="${encodeURIComponent(file.filename)}"` })
+    // 'inline' (not 'attachment') so an image renders in the chat thread
+    // instead of forcing a download — same convention as CmsMedia/Kyc's
+    // own file-serving routes (cms.controller.ts, kyc.controller.ts).
+    return new StreamableFile(file.stream, { type: file.mimeType, disposition: `inline; filename="${encodeURIComponent(file.filename)}"` })
   }
 
   @Get('notifications')

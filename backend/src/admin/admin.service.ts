@@ -449,6 +449,21 @@ export class AdminService {
       )
     }
 
+    // ADMIN NOTIFICATIONS — the recipient address is where "New Support
+    // Ticket" / "Customer Reply" emails go (support.service.ts), so
+    // changing it is audited the same way as every other platform-wide
+    // setting above, not silently applied.
+    if (patch.supportNotificationEmail !== undefined && patch.supportNotificationEmail !== before.supportNotificationEmail) {
+      await this.recordAdminAction(
+        adminId,
+        AuditEvent.SUPPORT_NOTIFICATION_EMAIL_CHANGED,
+        undefined,
+        reason,
+        { supportNotificationEmail: before.supportNotificationEmail },
+        { supportNotificationEmail: updated.supportNotificationEmail },
+      )
+    }
+
     return updated
   }
 
