@@ -35,10 +35,18 @@ export default defineConfig({
         // using /api/... paths on the frontend side.
         rewrite: (path) => path.replace(/^\/api/, ''),
       },
-      // Legacy standalone market proxy (server/market.js) — kept for now,
-      // no longer used by the frontend (which now goes through /api/markets
-      // instead), but not deleted since it still works standalone.
-      '/market': {
+      // Legacy standalone market proxy (server/market.js, routes like
+      // /market/xau) — kept for now, no longer used by the frontend (which
+      // now goes through /api/markets instead), but not deleted since it
+      // still works standalone. Trailing slash is deliberate: a bare
+      // '/market' prefix-matches '/markets' too (Vite's proxy match is a
+      // plain string prefix), which hijacked every request to the app's
+      // OWN /markets page route — including a hard refresh or direct link
+      // — and 500'd it against this proxy's dead port 4001 target instead
+      // of serving the SPA. '/market/' still matches every real legacy
+      // route (all of which have a path segment after it) without
+      // colliding with '/markets'.
+      '/market/': {
         target: 'http://localhost:4001',
         changeOrigin: true,
         secure: false,

@@ -1,35 +1,25 @@
 import { Link } from 'react-router-dom'
 import { useAuth } from '../store/auth'
-import { useAccountSummary, usePositions, computePositionPnl, useCashBalance, useAssetBalances, useExecutionStatus, useMarketConfigs } from '../store/useStore'
+import { useAccountSummary, useCashBalance, useMarketConfigs } from '../store/useStore'
 import MarketPrice from '../components/MarketPrice'
 import MarketOverview from '../components/MarketOverview'
-import { SpotHoldings } from '../components/SpotHoldings'
 import { getPrice } from '../store/priceFeed'
 import { useToast } from '../components/Toast'
 import { AssetIcon } from '../components/AssetIcon'
-import { PriceChange } from '../components/PriceChange'
-import { EmptyState } from '../components/EmptyState'
-import { ArrowDownToLine, ArrowUpFromLine, Repeat, BarChart2, Copy, Gift, ChevronRight, Inbox } from 'lucide-react'
+import { Copy, Gift } from 'lucide-react'
 
 const TRENDING = ['BTC/USDT', 'ETH/USDT', 'XAU/USD', 'SOL/USDT']
 
 export function DashboardPage() {
   const { user } = useAuth()
-  const { summary, loading, error } = useAccountSummary()
+  const { error } = useAccountSummary()
   // Spot Balance — the primary crypto/spot funding currency, read from its
   // own real USDT ledger balance. Never derived from the USD summary below
   // (Part 2: showing USD as USDT here would be financially incorrect).
   const { balance: usdtBalance, loading: usdtLoading } = useCashBalance('USDT')
-  const { assets, loading: assetsLoading } = useAssetBalances()
-  const { status: executionStatus } = useExecutionStatus()
-  const { positions } = usePositions()
   const { markets } = useMarketConfigs()
   const { push } = useToast()
 
-  const openPositions = positions.filter((p) => p.status === 'OPEN')
-  const cash = summary ? Number(summary.cash) : 0
-  const equity = summary ? Number(summary.equity) : 0
-  const unrealizedPnl = summary ? Number(summary.unrealizedPnl) : 0
   const usdtCash = usdtBalance ? Number(usdtBalance.cash) : 0
 
   const referralCode = user?.referralCode ?? ''
@@ -55,56 +45,6 @@ export function DashboardPage() {
         <p className="text-xs font-medium uppercase tracking-wide text-ocean-300">Spot Balance</p>
         <p className="mt-2 font-mono text-3xl font-bold text-white">{usdtLoading ? '—' : `${usdtCash.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT`}</p>
         <p className="mt-1 text-xs text-slate-500">The funding currency for BTC/USDT, ETH/USDT, and other crypto/spot trades.</p>
-      </div>
-
-      {/* USD account summary — a separate balance from Spot Balance above;
-          not used for crypto/spot trading. */}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <SummaryCard label="USD Balance" value={cash} loading={loading} />
-        <SummaryCard label="USD Equity" value={equity} hint="Balance + unrealized P&L" loading={loading} />
-        <SummaryCard label="USD Available Balance" value={cash} loading={loading} />
-        <SummaryCard label="Unrealized P&L (USD)" value={unrealizedPnl} signed loading={loading} />
-      </div>
-
-      {/* Spot Holdings — ledger-derived, same component/architecture as
-          TradePage/AssetsPage (Part 2: reuse, never duplicate). */}
-      <div className="card overflow-hidden">
-        <div className="border-b border-ink-700/60 px-5 py-4"><h3 className="font-bold text-white">Spot Holdings</h3></div>
-        <SpotHoldings assets={assets} loading={assetsLoading} executionStatus={executionStatus} />
-      </div>
-
-      {/* Quick actions — each gets its own accent (money in = green, money
-          out = gold, everything else = the app's ocean-blue primary) rather
-          than four identical blue icons, so the row reads at a glance. */}
-      <div className="grid grid-cols-4 gap-3">
-        <QuickAction to="/deposit" label="Deposit" icon={ArrowDownToLine} color="bull" />
-        <QuickAction to="/withdraw" label="Withdraw" icon={ArrowUpFromLine} color="gold" />
-        <QuickAction to="/trade" label="Trade" icon={Repeat} color="ocean" />
-        <QuickAction to="/markets" label="Markets" icon={BarChart2} color="ocean" />
-      </div>
-
-      {/* Open positions preview */}
-      <div className="card overflow-hidden">
-        <div className="flex items-center justify-between border-b border-ink-700/60 px-5 py-4">
-          <h3 className="font-bold text-white">Open Positions ({openPositions.length})</h3>
-          <Link to="/trade" className="text-sm text-ocean-400 hover:text-ocean-300">View →</Link>
-        </div>
-        {openPositions.length === 0 ? (
-          <EmptyState icon={Inbox} title="No open positions" hint="This platform is not yet connected to a broker/exchange, so orders cannot result in a filled position." />
-        ) : openPositions.slice(0, 3).map((p) => {
-          const pnl = computePositionPnl(p)
-          return (
-            <Link key={p.id} to={`/trade?symbol=${encodeURIComponent(p.symbol)}`} className="flex items-center gap-3 border-b border-ink-700/40 px-5 py-3 transition last:border-b-0 hover:bg-ink-800/40">
-              <AssetIcon symbol={p.symbol} size={28} />
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold text-white">{p.symbol}</p>
-                <p className={`text-xs ${p.side === 'BUY' ? 'text-bull' : 'text-bear'}`}>{p.side}</p>
-              </div>
-              <PriceChange value={pnl} mode="usd" />
-              <ChevronRight className="h-4 w-4 text-slate-600" />
-            </Link>
-          )
-        })}
       </div>
 
       {/* Featured market */}
@@ -165,37 +105,5 @@ export function DashboardPage() {
         </div>
       </div>
     </div>
-  )
-}
-
-function SummaryCard({ label, value, hint, signed, loading }: { label: string; value: number; hint?: string; signed?: boolean; loading?: boolean }) {
-  const color = signed ? (value >= 0 ? 'text-bull' : 'text-bear') : 'text-white'
-  const sign = signed ? (value >= 0 ? '+' : '-') : ''
-  return (
-    <div className="card p-4">
-      <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</p>
-      <p className={`mt-1.5 font-mono text-xl font-bold ${color}`}>
-        {loading ? '—' : `${sign}$${Math.abs(value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-      </p>
-      {hint && <p className="mt-1 text-[11px] text-slate-600">{hint}</p>}
-    </div>
-  )
-}
-
-const QUICK_ACTION_COLORS = {
-  bull: { icon: 'bg-bull/15 text-bull', border: 'hover:border-bull/40' },
-  gold: { icon: 'bg-gold-500/15 text-gold-400', border: 'hover:border-gold-500/40' },
-  ocean: { icon: 'bg-ocean-500/15 text-ocean-400', border: 'hover:border-ocean-500/40' },
-}
-
-function QuickAction({ to, label, icon: Icon, color }: { to: string; label: string; icon: typeof ArrowDownToLine; color: keyof typeof QUICK_ACTION_COLORS }) {
-  const c = QUICK_ACTION_COLORS[color]
-  return (
-    <Link to={to} className={`card flex flex-col items-center gap-2 p-4 text-center transition ${c.border}`}>
-      <div className={`flex h-10 w-10 items-center justify-center rounded-full ${c.icon}`}>
-        <Icon className="h-5 w-5" />
-      </div>
-      <span className="text-xs font-medium text-slate-300">{label}</span>
-    </Link>
   )
 }

@@ -11,9 +11,7 @@ vi.mock('../store/priceFeed', () => ({
   snapshot: () => [],
 }))
 
-let mockSummary: { cash: string; equity: string; unrealizedPnl: string } | null = { cash: '6000', equity: '6000', unrealizedPnl: '0' }
 let mockUsdtBalance: { currency: string; cash: string; reserved: string } | null = { currency: 'USDT', cash: '0', reserved: '0' }
-let mockAssets: { currency: string; cash: string; reserved: string; total: string }[] = []
 
 vi.mock('../store/auth', () => ({
   useAuth: () => ({ user: { id: 'u1', fullName: 'Test User', referralCode: 'TEST1234', status: 'ACTIVE' } }),
@@ -29,12 +27,8 @@ function market(symbol: string, quoteAsset: string, baseAsset: string) {
 }
 
 vi.mock('../store/useStore', () => ({
-  useAccountSummary: () => ({ summary: mockSummary, loading: false, error: null }),
+  useAccountSummary: () => ({ summary: null, loading: false, error: null }),
   useCashBalance: () => ({ balance: mockUsdtBalance, loading: false }),
-  useAssetBalances: () => ({ assets: mockAssets, loading: false }),
-  useExecutionStatus: () => ({ status: { provider: 'BinanceSandbox', message: '' } }),
-  usePositions: () => ({ positions: [] }),
-  computePositionPnl: () => 0,
   useMarketConfigs: () => ({ markets: [market('BTC/USDT', 'USDT', 'BTC'), market('XAU/USD', 'USD', 'XAU')] }),
 }))
 
@@ -44,9 +38,7 @@ function renderDashboard() {
 
 describe('DashboardPage — USDT primary Spot Balance (USDT Primary Currency UX checkpoint)', () => {
   beforeEach(() => {
-    mockSummary = { cash: '6000', equity: '6000', unrealizedPnl: '0' }
     mockUsdtBalance = { currency: 'USDT', cash: '0', reserved: '0' }
-    mockAssets = []
   })
 
   it('shows the real USDT balance as the primary Spot Balance', () => {
@@ -56,25 +48,10 @@ describe('DashboardPage — USDT primary Spot Balance (USDT Primary Currency UX 
     expect(screen.getByText('5,900.71 USDT')).toBeInTheDocument()
   })
 
-  it('shows 0.00 USDT when the user has USD but no USDT — never fabricates a USDT balance from USD', () => {
-    mockSummary = { cash: '6000', equity: '6000', unrealizedPnl: '0' } // plenty of USD
-    mockUsdtBalance = { currency: 'USDT', cash: '0', reserved: '0' } // zero USDT
+  it('shows 0.00 USDT when the user has no USDT — never fabricates a balance', () => {
+    mockUsdtBalance = { currency: 'USDT', cash: '0', reserved: '0' }
     renderDashboard()
     expect(screen.getByText('0.00 USDT')).toBeInTheDocument()
-    expect(screen.queryByText('6,000.00 USDT')).not.toBeInTheDocument()
-  })
-
-  it('shows the USD summary cards as clearly-labeled, separate USD figures', () => {
-    renderDashboard()
-    expect(screen.getByText('USD Balance')).toBeInTheDocument()
-    expect(screen.getByText('USD Available Balance')).toBeInTheDocument()
-  })
-
-  it('shows a Spot Holdings section reusing the shared SpotHoldings component', () => {
-    mockAssets = [{ currency: 'BTC', cash: '0.00138', reserved: '0', total: '0.00138' }]
-    renderDashboard()
-    expect(screen.getByText('Spot Holdings')).toBeInTheDocument()
-    expect(screen.getByText('0.00138 BTC')).toBeInTheDocument()
   })
 
   it('builds the referral link from the real page origin, never a hardcoded domain', () => {
@@ -97,5 +74,15 @@ describe('DashboardPage — USDT primary Spot Balance (USDT Primary Currency UX 
   it('labels a USD-quoted trending market with USD, preserving existing USD behavior (P1-3)', () => {
     renderDashboard()
     expect(screen.getAllByText('65,000 USD').length).toBeGreaterThan(0)
+  })
+
+  it('no longer shows the USD summary cards, Spot Holdings, quick actions, or Open Positions preview — removed per operator request', () => {
+    renderDashboard()
+    expect(screen.queryByText('USD Balance')).not.toBeInTheDocument()
+    expect(screen.queryByText('USD Available Balance')).not.toBeInTheDocument()
+    expect(screen.queryByText('Spot Holdings')).not.toBeInTheDocument()
+    expect(screen.queryByText('Deposit')).not.toBeInTheDocument()
+    expect(screen.queryByText('Withdraw')).not.toBeInTheDocument()
+    expect(screen.queryByText(/Open Positions/)).not.toBeInTheDocument()
   })
 })
