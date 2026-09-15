@@ -330,6 +330,48 @@ describe('Customer Support (real PostgreSQL)', () => {
     await request(server).get(`/support/attachments/${attachmentId}`).set('Cookie', otherCustomer.cookie).expect(403)
   })
 
+  // Regression test for a real bug: the upload response itself always
+  // included `attachments` (createMessageWithAttachment always did), but
+  // re-fetching the ticket afterwards — what the actual chat UI renders
+  // off — silently dropped every attachment, because getTicketForCustomer()/
+  // getTicketForStaff() never included the relation on their nested
+  // `messages` query. The customer/admin pages' image-vs-download-link
+  // logic was always correct; it just never received any attachment data
+  // to act on. This asserts the SAME endpoints the UI actually calls,
+  // not just the upload response.
+  it('26c. the attachment is still present (with its real mimeType) when the ticket is re-fetched afterwards, for both the customer and the admin views', async () => {
+    const customer = await makeCustomer('attachrefetch')
+    const agent = await makeAgentWith('support.tickets.read')
+    const ticket = await request(server).post('/support/tickets').set('Cookie', customer.cookie).send({ categoryId, subject: 'Screenshot attached', message: 'see attached' }).expect(201)
+    await request(server).post(`/support/tickets/${ticket.body.id}/attachments`).set('Cookie', customer.cookie)
+      .attach('file', PNG_BYTES, { filename: 'screenshot.png', contentType: 'image/png' })
+      .expect(201)
+
+    const customerView = await request(server).get(`/support/tickets/${ticket.body.id}`).set('Cookie', customer.cookie).expect(200)
+    const customerAttachmentMsg = customerView.body.messages.find((m: any) => (m.attachments ?? []).length > 0)
+    expect(customerAttachmentMsg).toBeDefined()
+    expect(customerAttachmentMsg.attachments[0]).toMatchObject({ filename: 'screenshot.png', mimeType: 'image/png' })
+
+    const adminView = await request(server).get(`/admin/support/tickets/${ticket.body.id}`).set('Cookie', agent.cookie).expect(200)
+    const adminAttachmentMsg = adminView.body.messages.find((m: any) => (m.attachments ?? []).length > 0)
+    expect(adminAttachmentMsg).toBeDefined()
+    expect(adminAttachmentMsg.attachments[0]).toMatchObject({ filename: 'screenshot.png', mimeType: 'image/png' })
+  })
+
+  it('26d. a text-only message (no attachment) round-trips unchanged through the same ticket-refetch endpoints', async () => {
+    const customer = await makeCustomer('attachtextonly')
+    const agent = await makeAgentWith('support.tickets.read')
+    const ticket = await request(server).post('/support/tickets').set('Cookie', customer.cookie).send({ categoryId, subject: 'Just a question', message: 'no attachment here' }).expect(201)
+
+    const customerView = await request(server).get(`/support/tickets/${ticket.body.id}`).set('Cookie', customer.cookie).expect(200)
+    expect(customerView.body.messages[0].body).toBe('no attachment here')
+    expect(customerView.body.messages[0].attachments ?? []).toHaveLength(0)
+
+    const adminView = await request(server).get(`/admin/support/tickets/${ticket.body.id}`).set('Cookie', agent.cookie).expect(200)
+    expect(adminView.body.messages[0].body).toBe('no attachment here')
+    expect(adminView.body.messages[0].attachments ?? []).toHaveLength(0)
+  })
+
   it('26b. an oversized or disallowed-type attachment is rejected before it is ever stored', async () => {
     const customer = await makeCustomer('attachreject')
     const ticket = await request(server).post('/support/tickets').set('Cookie', customer.cookie).send({ categoryId, subject: 'Q', message: 'hi' }).expect(201)

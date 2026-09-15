@@ -154,7 +154,7 @@ export class SupportService {
   async getTicketForCustomer(userId: string, ticketId: string) {
     const ticket = await this.prisma.supportTicket.findUnique({
       where: { id: ticketId },
-      include: { category: true, messages: { where: { visibility: 'PUBLIC' }, orderBy: { createdAt: 'asc' } } },
+      include: { category: true, messages: { where: { visibility: 'PUBLIC' }, orderBy: { createdAt: 'asc' }, include: { attachments: true } } },
     })
     if (!ticket) throw new NotFoundException('Ticket not found.')
     if (ticket.userId !== userId) throw new ForbiddenException('You do not have access to this ticket.')
@@ -228,7 +228,7 @@ export class SupportService {
         category: true,
         user: { select: { id: true, email: true, fullName: true, kycStatus: true } },
         assignedAgent: { select: { id: true, email: true, fullName: true } },
-        messages: { orderBy: { createdAt: 'asc' }, include: { author: { select: { id: true, email: true, fullName: true, role: true } } } },
+        messages: { orderBy: { createdAt: 'asc' }, include: { author: { select: { id: true, email: true, fullName: true, role: true } }, attachments: true } },
       },
     })
     if (!ticket) throw new NotFoundException('Ticket not found.')
