@@ -138,6 +138,7 @@ export const AuditEvent = {
   // conversation history, stored in SupportMessage, not a security/compliance
   // event. Only administrative actions on tickets are.
   TICKET_ASSIGNED: 'TICKET_ASSIGNED',
+  TICKET_STARTED_BY_STAFF: 'TICKET_STARTED_BY_STAFF',
   TICKET_STATUS_CHANGED: 'TICKET_STATUS_CHANGED',
   TICKET_PRIORITY_CHANGED: 'TICKET_PRIORITY_CHANGED',
   INTERNAL_NOTE_CREATED: 'INTERNAL_NOTE_CREATED',

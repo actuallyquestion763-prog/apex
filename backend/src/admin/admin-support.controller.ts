@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common'
 import { FileInterceptor } from '@nestjs/platform-express'
 import { SupportService } from '../support/support.service'
-import { CreateMessageDto, UpdateStatusDto, UpdatePriorityDto, AssignTicketDto, AttachmentBodyDto } from '../support/dto/ticket.dto'
+import { CreateMessageDto, CreateStaffTicketDto, UpdateStatusDto, UpdatePriorityDto, AssignTicketDto, AttachmentBodyDto } from '../support/dto/ticket.dto'
 import { CreateCategoryDto, UpdateCategoryDto } from '../support/dto/category.dto'
 import { SessionAuthGuard } from '../common/guards/session-auth.guard'
 import { RolesGuard } from '../common/guards/roles.guard'
@@ -32,6 +32,26 @@ export class AdminSupportController {
   @RequirePermissions('support.tickets.read')
   listTickets(@Query('status') status?: string) {
     return this.support.listAllTickets(status)
+  }
+
+  // "Contact any user" — starts a brand-new conversation with a user who
+  // has no ticket yet (or a closed one). Gated by support.tickets.reply,
+  // same permission as replying to an existing ticket — this is the same
+  // capability (an admin talking to a customer), just with no existing
+  // ticket to reply into yet.
+  @Post('tickets')
+  @RequirePermissions('support.tickets.reply')
+  createTicket(@Body() dto: CreateStaffTicketDto, @CurrentUser() admin: AuthenticatedUser) {
+    return this.support.createTicketAsStaff(admin.id, dto)
+  }
+
+  // Backs the user picker for the above — deliberately Support-scoped
+  // (support.tickets.reply, not the broader users.read) so Support staff
+  // don't need an unrelated admin permission just to start a conversation.
+  @Get('users')
+  @RequirePermissions('support.tickets.reply')
+  searchUsers(@Query('q') q?: string) {
+    return this.support.searchUsersForSupport(q)
   }
 
   @Get('tickets/:id')

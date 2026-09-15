@@ -7,7 +7,7 @@ import { sanitizeText } from '../cms/cms.validation'
 import { MediaStorageService } from '../cms/media-storage.service'
 import { PlatformSettingsService } from '../platform-settings/platform-settings.service'
 import { EmailService } from '../email/email.service'
-import type { CreateTicketDto, CreateMessageDto } from './dto/ticket.dto'
+import type { CreateTicketDto, CreateMessageDto, CreateStaffTicketDto } from './dto/ticket.dto'
 import type { CreateCategoryDto, UpdateCategoryDto } from './dto/category.dto'
 
 type UploadedFileLike = { originalname: string; mimetype: string; buffer: Buffer }
@@ -203,6 +203,64 @@ export class SupportService {
   }
 
   // ---- Staff / admin ------------------------------------------------------------------
+
+  // Lightweight, Support-scoped user lookup for "contact any user" — a
+  // dedicated search rather than reusing AdminService.listUsers() so this
+  // stays gated by the Support permission domain (support.tickets.reply)
+  // instead of requiring the separate, broader users.read permission (see
+  // this module's own financial/permission-boundary comment at the top of
+  // this class). Returns just enough to populate a picker: no balances, no
+  // KYC status, no admin-wide fields.
+  async searchUsersForSupport(q?: string) {
+    const search = q?.trim()
+    return this.prisma.user.findMany({
+      where: search ? { OR: [{ email: { contains: search, mode: 'insensitive' } }, { fullName: { contains: search, mode: 'insensitive' } }, { id: search }] } : undefined,
+      select: { id: true, email: true, fullName: true },
+      orderBy: { fullName: 'asc' },
+      take: 20,
+    })
+  }
+
+  // Admin-initiated conversation — the mirror of createTicket() above:
+  // same shape (one ticket + one opening PUBLIC message, in one
+  // transaction), but the caller specifies which user it belongs to and
+  // the opening message is authored by the admin instead of the customer.
+  // Auto-assigns the starting admin as the ticket's agent so the
+  // existing in-app notify() on the customer's next reply (addCustomerMessage)
+  // has someone to notify, and auto-picks the first active category the
+  // same way the customer-facing chat-first flow does, since there is no
+  // category picker in this UI either.
+  async createTicketAsStaff(adminId: string, dto: CreateStaffTicketDto) {
+    const user = await this.prisma.user.findUnique({ where: { id: dto.userId }, select: { id: true } })
+    if (!user) throw new NotFoundException('User not found.')
+
+    const category = dto.categoryId
+      ? await this.prisma.supportCategory.findUnique({ where: { id: dto.categoryId } })
+      : await this.prisma.supportCategory.findFirst({ where: { isActive: true }, orderBy: { order: 'asc' } })
+    if (!category || !category.isActive) throw new BadRequestException('Selected category is not available.')
+
+    const sanitizedMessage = sanitizeText(dto.message)
+    const ticket = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.supportTicket.create({
+        data: {
+          userId: dto.userId,
+          categoryId: category.id,
+          subject: 'Message from Support Team',
+          requestedPriority: 'NORMAL',
+          priority: 'NORMAL',
+          assignedAgentId: adminId,
+        },
+      })
+      await tx.supportMessage.create({
+        data: { ticketId: created.id, authorId: adminId, body: sanitizedMessage, visibility: 'PUBLIC' },
+      })
+      return created
+    })
+
+    await this.audit.record({ actorId: adminId, action: AuditEvent.TICKET_STARTED_BY_STAFF, targetType: 'SUPPORT_TICKET', targetId: ticket.id, metadata: { userId: dto.userId } })
+    await this.notify(dto.userId, ticket.id, 'AGENT_REPLIED', 'Support sent you a message.')
+    return this.getTicketForStaff(ticket.id)
+  }
 
   listAllTickets(status?: string) {
     return this.prisma.supportTicket.findMany({

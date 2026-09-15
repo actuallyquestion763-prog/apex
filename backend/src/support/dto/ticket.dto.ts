@@ -23,6 +23,27 @@ export class CreateTicketDto {
   requestedPriority?: (typeof PRIORITIES)[number]
 }
 
+// Admin-initiated conversation (Customer Support: "contact any user" —
+// the mirror image of CreateTicketDto: same shape, but the caller
+// specifies WHO the ticket belongs to instead of it always being the
+// authenticated caller themselves. categoryId is optional here since the
+// customer never picks one either in the current chat-first design (see
+// SupportService.createTicketAsStaff() for the same "first active
+// category" default).
+export class CreateStaffTicketDto {
+  @IsUUID()
+  userId!: string
+
+  @IsOptional()
+  @IsUUID()
+  categoryId?: string
+
+  @IsString()
+  @MinLength(1)
+  @MaxLength(4000)
+  message!: string
+}
+
 export class CreateMessageDto {
   @IsString()
   @MinLength(1)

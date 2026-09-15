@@ -13,7 +13,7 @@
 // component, so this page's look-and-feel does not leak anywhere else.
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Headset, MoreVertical, Paperclip, Search, SlidersHorizontal, Send, User } from 'lucide-react'
+import { Headset, MoreVertical, Paperclip, Plus, Search, SlidersHorizontal, Send, User } from 'lucide-react'
 import type { SupportTicket } from '../../types'
 import { api, attachmentUrl } from '../../lib/api'
 import { useToast } from '../../components/Toast'
@@ -74,6 +74,9 @@ export function SupportPage() {
   // tucked behind this toggle instead of always taking up space.
   const [showFilters, setShowFilters] = useState(false)
   const activeFilterCount = [status, priority, category, agent].filter(Boolean).length
+  // "Contact any user" (operator request) — lets an admin start a brand-new
+  // conversation with a user who has no ticket yet, or only a closed one.
+  const [showNewMessage, setShowNewMessage] = useState(false)
 
   const categories = Array.from(new Set((data ?? []).map((t) => t.category?.name).filter(Boolean))) as string[]
   const agents = Array.from(new Map((data ?? []).filter((t) => t.assignedAgent).map((t) => [t.assignedAgent!.id, t.assignedAgent!])).values())
@@ -118,6 +121,14 @@ export function SupportPage() {
                     <span className="absolute -right-1 -top-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-[#f0c23a] text-[9px] font-bold text-[#1a1a2e]">{activeFilterCount}</span>
                   )}
                 </button>
+                <button
+                  onClick={() => setShowNewMessage((v) => !v)}
+                  className={`shrink-0 rounded-full border p-2 transition ${showNewMessage ? 'border-[#3576f0] bg-[#3576f0]/20 text-[#6ea1ff]' : `${NAVY.border} text-[#8291c4] hover:text-white`}`}
+                  title="Message a user"
+                  aria-label="Message a user"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                </button>
               </div>
               {showFilters && (
                 <div className="mt-2 grid grid-cols-2 gap-1.5">
@@ -141,6 +152,16 @@ export function SupportPage() {
                 </div>
               )}
             </div>
+            {showNewMessage && (
+              <NewMessagePanel
+                onClose={() => setShowNewMessage(false)}
+                onCreated={async (ticketId) => {
+                  setShowNewMessage(false)
+                  await refetch()
+                  setSelected(ticketId)
+                }}
+              />
+            )}
             <div className="flex-1 overflow-y-auto">
               {filtered.length === 0 ? (
                 <AdminEmptyState icon={Headset} title="No conversations match" />
@@ -184,6 +205,89 @@ export function SupportPage() {
           </div>
         </div>
       </AdminPanel>
+    </div>
+  )
+}
+
+// "Contact any user" — search the whole user base (not just existing
+// conversations) and send an opening message, creating a new ticket owned
+// by that user with this admin as its first (and auto-assigned) author.
+// Deliberately its own small self-contained component: own search
+// state, own selected-user state, own message draft — none of it needs
+// to live in the parent SupportPage beyond "a ticket got created."
+function NewMessagePanel({ onClose, onCreated }: { onClose: () => void; onCreated: (ticketId: string) => void }) {
+  const { push } = useToast()
+  const [query, setQuery] = useState('')
+  const [searching, setSearching] = useState(false)
+  const [results, setResults] = useState<{ id: string; email: string; fullName: string }[] | null>(null)
+  const [selectedUserId, setSelectedUserId] = useState('')
+  const [message, setMessage] = useState('')
+  const [sending, setSending] = useState(false)
+
+  async function search() {
+    setSearching(true)
+    try {
+      setResults(await api.get<{ id: string; email: string; fullName: string }[]>(`/admin/support/users?q=${encodeURIComponent(query.trim())}`))
+    } catch {
+      push('error', 'Could not search users.')
+    } finally {
+      setSearching(false)
+    }
+  }
+
+  async function send() {
+    if (!selectedUserId || !message.trim()) return
+    setSending(true)
+    const res = await tryAction(() => api.post<{ id: string }>('/admin/support/tickets', { userId: selectedUserId, message: message.trim() }))
+    setSending(false)
+    if (res.ok) { push('success', 'Message sent.'); onCreated(res.data.id) }
+    else push('error', res.error)
+  }
+
+  return (
+    <div className={`border-b ${NAVY.border} ${NAVY.headerBg} p-3`}>
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-bold text-white">Message a user</p>
+        <button onClick={onClose} className="text-[11px] text-[#8291c4] hover:text-white">Close</button>
+      </div>
+      <div className="mt-2 flex items-center gap-1.5">
+        <input
+          className={`flex-1 rounded-lg border-none px-3 py-1.5 text-xs outline-none ${NAVY.input}`}
+          placeholder="Search by name or email…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && search()}
+        />
+        <button onClick={search} disabled={searching} className="shrink-0 rounded-lg bg-[#3576f0] px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50">{searching ? '…' : 'Search'}</button>
+      </div>
+      {results && (
+        <select
+          className={`mt-2 w-full rounded-lg border-none px-3 py-1.5 text-xs ${NAVY.input}`}
+          value={selectedUserId}
+          onChange={(e) => setSelectedUserId(e.target.value)}
+        >
+          <option value="">{results.length === 0 ? 'No users found' : 'Select a user…'}</option>
+          {results.map((u) => <option key={u.id} value={u.id}>{u.fullName} — {u.email}</option>)}
+        </select>
+      )}
+      {selectedUserId && (
+        <div className="mt-2 space-y-1.5">
+          <textarea
+            className={`w-full resize-none rounded-lg border-none px-3 py-1.5 text-xs outline-none ${NAVY.input}`}
+            rows={2}
+            placeholder="Type your message…"
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+          />
+          <button
+            onClick={send}
+            disabled={sending || !message.trim()}
+            className="w-full rounded-lg bg-[#3576f0] py-1.5 text-xs font-semibold text-white transition hover:bg-[#4a86ff] disabled:opacity-50"
+          >
+            {sending ? 'Sending…' : 'Start conversation'}
+          </button>
+        </div>
+      )}
     </div>
   )
 }

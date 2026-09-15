@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { SupportPage } from './SupportPage'
 import { ToastProvider } from '../../components/Toast'
@@ -40,6 +40,8 @@ function renderAdminSupport() {
   return render(<MemoryRouter><ToastProvider><SupportPage /></ToastProvider></MemoryRouter>)
 }
 
+const FOUND_USER = { id: 'u-new', email: 'newcustomer@example.com', fullName: 'New Customer' }
+
 describe('Admin SupportPage', () => {
   beforeEach(() => {
     apiGet.mockReset()
@@ -48,6 +50,7 @@ describe('Admin SupportPage', () => {
       if (path === '/admin/support/tickets') return Promise.resolve([TICKET])
       if (path === '/admin/support/tickets/t1') return Promise.resolve(TICKET)
       if (path === '/admin/support/agents') return Promise.resolve([])
+      if (path.startsWith('/admin/support/users')) return Promise.resolve([FOUND_USER])
       return Promise.resolve(null)
     })
   })
@@ -74,5 +77,44 @@ describe('Admin SupportPage', () => {
     await screen.findByAltText('photo.png')
     expect(screen.getByText('notes.pdf')).toBeInTheDocument()
     expect(screen.queryByAltText('notes.pdf')).not.toBeInTheDocument()
+  })
+
+  describe('"Message a user" — contacting a user with no existing ticket', () => {
+    it('is hidden until the toggle button is clicked', async () => {
+      renderAdminSupport()
+      await screen.findByText('kabwa')
+      expect(screen.queryByPlaceholderText('Search by name or email…')).not.toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: 'Message a user' }))
+      expect(screen.getByPlaceholderText('Search by name or email…')).toBeInTheDocument()
+    })
+
+    it('searches users and lists results for selection', async () => {
+      renderAdminSupport()
+      await screen.findByText('kabwa')
+      fireEvent.click(screen.getByRole('button', { name: 'Message a user' }))
+      fireEvent.change(screen.getByPlaceholderText('Search by name or email…'), { target: { value: 'New' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Search' }))
+      expect(await screen.findByText('New Customer — newcustomer@example.com')).toBeInTheDocument()
+    })
+
+    it('selecting a found user reveals a message box; sending creates a ticket and opens it', async () => {
+      apiPost.mockResolvedValue({ id: 't-new' })
+      renderAdminSupport()
+      await screen.findByText('kabwa')
+      fireEvent.click(screen.getByRole('button', { name: 'Message a user' }))
+      fireEvent.change(screen.getByPlaceholderText('Search by name or email…'), { target: { value: 'New' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Search' }))
+      await screen.findByText('New Customer — newcustomer@example.com')
+
+      fireEvent.change(screen.getByRole('combobox'), { target: { value: 'u-new' } })
+      const messageBox = await screen.findByPlaceholderText('Type your message…')
+      fireEvent.change(messageBox, { target: { value: 'Hello, following up.' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Start conversation' }))
+
+      await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/admin/support/tickets', { userId: 'u-new', message: 'Hello, following up.' }))
+      // Panel closes and the new ticket becomes selected once created — the
+      // "Message a user" search box is gone again.
+      await waitFor(() => expect(screen.queryByPlaceholderText('Type your message…')).not.toBeInTheDocument())
+    })
   })
 })

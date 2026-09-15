@@ -505,4 +505,80 @@ describe('Customer Support (real PostgreSQL)', () => {
     expect(ticket.messages).toHaveLength(1)
     expect(ticket.messages[0].body).toBe('Hi there')
   })
+
+  // ---------------------------------------------------------------------
+  // "Contact any user" — admin-initiated conversations (operator request)
+  // ---------------------------------------------------------------------
+
+  it('29. an admin can start a brand-new conversation with a user who has no ticket yet', async () => {
+    const agent = await makeAgentWith('support.tickets.reply')
+    const customer = await makeCustomer('newmsgtarget')
+
+    const res = await request(server).post('/admin/support/tickets').set('Cookie', agent.cookie)
+      .send({ userId: customer.userId, message: 'Hi, following up on your account.' }).expect(201)
+
+    expect(res.body.userId).toBe(customer.userId)
+    expect(res.body.assignedAgentId).toBe(agent.userId) // auto-assigned to whoever started it
+    expect(res.body.messages).toHaveLength(1)
+    expect(res.body.messages[0].authorId).toBe(agent.userId)
+    expect(res.body.messages[0].body).toBe('Hi, following up on your account.')
+    expect(res.body.messages[0].visibility).toBe('PUBLIC')
+
+    // Audited as an administrative action.
+    const events = await prisma.auditLog.findMany({ where: { action: 'TICKET_STARTED_BY_STAFF', targetId: res.body.id } })
+    expect(events).toHaveLength(1)
+    expect(events[0].actorId).toBe(agent.userId)
+  })
+
+  it('29b. an agent WITHOUT support.tickets.reply cannot start a new conversation', async () => {
+    const agent = await makeAgentWith('support.tickets.read') // read-only, no .reply
+    const customer = await makeCustomer('newmsgforbidden')
+    await request(server).post('/admin/support/tickets').set('Cookie', agent.cookie)
+      .send({ userId: customer.userId, message: 'hi' }).expect(403)
+  })
+
+  it('29c. GET /admin/support/users searches by name/email and returns a small, non-sensitive projection', async () => {
+    const agent = await makeAgentWith('support.tickets.reply')
+    const email = uniqueEmail('findable-user')
+    const { user } = await createUserDirect(prisma, { email, password: 'correct-horse-battery', fullName: 'Findable Customer' })
+
+    const res = await request(server).get(`/admin/support/users?q=Findable`).set('Cookie', agent.cookie).expect(200)
+    const match = res.body.find((u: any) => u.id === user.id)
+    expect(match).toEqual({ id: user.id, email, fullName: 'Findable Customer' })
+    // Only id/email/fullName — no balance, KYC status, role, or password hash.
+    expect(Object.keys(match).sort()).toEqual(['email', 'fullName', 'id'])
+  })
+
+  it('29d. the customer can see and reply to a conversation the admin started', async () => {
+    const agent = await makeAgentWith('support.tickets.reply')
+    const customer = await makeCustomer('newmsgreply')
+
+    const created = await request(server).post('/admin/support/tickets').set('Cookie', agent.cookie)
+      .send({ userId: customer.userId, message: 'We noticed an issue with your account.' }).expect(201)
+
+    const customerView = await request(server).get(`/support/tickets/${created.body.id}`).set('Cookie', customer.cookie).expect(200)
+    expect(customerView.body.messages[0].body).toBe('We noticed an issue with your account.')
+
+    const reply = await request(server).post(`/support/tickets/${created.body.id}/messages`).set('Cookie', customer.cookie)
+      .send({ body: 'Thanks, what issue?' }).expect(201)
+    expect(reply.body.authorId).toBe(customer.userId)
+
+    // The customer also gets an in-app notification about the admin's opening message.
+    const notifications = await prisma.supportNotification.findMany({ where: { userId: customer.userId, ticketId: created.body.id } })
+    expect(notifications.some((n) => n.event === 'AGENT_REPLIED')).toBe(true)
+  })
+
+  it('29e. starting a conversation with a nonexistent user returns 404', async () => {
+    const agent = await makeAgentWith('support.tickets.reply')
+    await request(server).post('/admin/support/tickets').set('Cookie', agent.cookie)
+      .send({ userId: '00000000-0000-0000-0000-000000000000', message: 'hi' }).expect(404)
+  })
+
+  it('29f. omitting categoryId auto-selects the first active category, same as the customer-facing chat-first flow', async () => {
+    const agent = await makeAgentWith('support.tickets.reply')
+    const customer = await makeCustomer('newmsgnocat')
+    const res = await request(server).post('/admin/support/tickets').set('Cookie', agent.cookie)
+      .send({ userId: customer.userId, message: 'hi' }).expect(201)
+    expect(res.body.categoryId).toBeTruthy()
+  })
 })
