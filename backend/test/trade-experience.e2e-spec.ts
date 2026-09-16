@@ -437,6 +437,44 @@ describe('Trade Experience — currency-aware balance, execution status, sandbox
     expect((events[0].newState as any)?.testOutcomeMode).toBe('FORCE_WIN')
   })
 
+  it('PATCH /admin/options/test-users/:userId with testOutcomeMode NORMAL is allowed outside development/test, but FORCE_WIN/FORCE_LOSS still are not', async () => {
+    const testUser = await createTestUserDirect()
+    const original = process.env.NODE_ENV
+    try {
+      process.env.NODE_ENV = 'production'
+
+      const forceRes = await request(server)
+        .patch(`/admin/options/test-users/${testUser.id}`)
+        .set('Cookie', superCookie)
+        .send({ testOutcomeMode: 'FORCE_WIN', reason: 'attempted prod override', confirmPassword: superPassword })
+      expect(forceRes.status).toBe(403)
+
+      const normalRes = await request(server)
+        .patch(`/admin/options/test-users/${testUser.id}`)
+        .set('Cookie', superCookie)
+        .send({ testOutcomeMode: 'NORMAL', reason: 'explicit NORMAL always allowed', confirmPassword: superPassword })
+      expect(normalRes.status).toBe(200)
+      expect(normalRes.body.testOutcomeMode).toBe('NORMAL')
+    } finally {
+      process.env.NODE_ENV = original
+    }
+  })
+
+  it('PATCH /admin/options/test-users/:userId with testOutcomeMode NORMAL still cannot touch a real customer outside development/test', async () => {
+    const { userId } = await registerAndLogin('sandboxrealcustomerprod')
+    const original = process.env.NODE_ENV
+    try {
+      process.env.NODE_ENV = 'production'
+      const res = await request(server)
+        .patch(`/admin/options/test-users/${userId}`)
+        .set('Cookie', superCookie)
+        .send({ testOutcomeMode: 'NORMAL', reason: 'attempted prod NORMAL on a real customer', confirmPassword: superPassword })
+      expect(res.status).toBe(403)
+    } finally {
+      process.env.NODE_ENV = original
+    }
+  })
+
   it("a test user's TEST USER WIN overrides the platform-wide LOSE ALL dial (per-user takes priority)", async () => {
     const symbol = await setupOptionMarket()
     const testUser = await createTestUserDirect()

@@ -165,7 +165,13 @@ export class OptionsAdminController {
   @RequirePermissions('options.control')
   async setTestUserOutcomeMode(@Param('userId') userId: string, @Body() dto: SetTestUserOutcomeDto, @CurrentUser() admin: AuthenticatedUser) {
     await this.stepUp.assertStepUpAuthorized(admin.id, dto.confirmPassword)
-    if (!isDemoResultModeAllowed()) {
+    // Same carve-out as PATCH /admin/options/settings' sandboxOutcomeMode
+    // above: clearing an override back to the inert NORMAL state is always
+    // allowed, everywhere — only actually forcing a win/loss for a test user
+    // remains environment-gated. setTestUserOutcomeMode's own isTestUser
+    // check still applies unconditionally, so this can never touch a real
+    // customer's account.
+    if (dto.testOutcomeMode !== 'NORMAL' && !isDemoResultModeAllowed()) {
       throw new ForbiddenException('Per-user test outcome overrides are not available in this environment.')
     }
     return this.optionsService.setTestUserOutcomeMode(admin.id, userId, dto.testOutcomeMode, dto.reason)

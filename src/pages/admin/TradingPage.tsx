@@ -144,26 +144,39 @@ export function TradingPage() {
             nothing else. Only rendered when the backend itself reports
             sandboxControlsAvailable (development/test only); real customer
             trades in production are never reachable by this. */}
-        {settingsRes.data?.sandboxControlsAvailable && (
+        {settingsRes.data && (
           <div className="admin-card border-bear/30 p-3">
             <div className="flex items-center gap-1.5">
               <FlaskConical className="h-3.5 w-3.5 text-bear" />
-              <h3 className="text-xs font-bold uppercase tracking-wide text-bear">All User Control — Test/Simulation Only</h3>
+              <h3 className="text-xs font-bold uppercase tracking-wide text-bear">All User Control</h3>
             </div>
-            <p className="mt-1 text-[10px] text-admin-mutedDim">Platform-wide, this environment only. Never affects real Binance execution or production. Every change is audit logged.</p>
+            {/* NORMAL only ever clears sandboxOutcomeMode back to RANDOM — the
+                same inert state real settlement always uses — so, unlike
+                WIN ALL/LOSE ALL, it's allowed (and shown) in every
+                environment; the backend carve-out that makes this safe lives
+                in OptionsAdminController.updateSettings(). */}
+            <p className="mt-1 text-[10px] text-admin-mutedDim">
+              {settingsRes.data.sandboxControlsAvailable
+                ? "WIN ALL / LOSE ALL force every trade's outcome and only exist in development/test. NORMAL clears any active override so real price-derived settlement applies. Every change is audit logged."
+                : 'NORMAL clears any active sandbox override platform-wide so real price-derived settlement applies. WIN ALL / LOSE ALL force outcomes and exist in development/test only — unavailable here. Every change is audit logged.'}
+            </p>
             <div className="mt-2.5 flex gap-2.5">
-              <button
-                onClick={() => setStepUp({ kind: 'settings', patch: { sandboxOutcomeMode: 'FORCE_WIN' } })}
-                className={`flex-1 rounded-lg px-4 py-2 text-xs font-bold ${settingsRes.data.sandboxOutcomeMode === 'FORCE_WIN' ? 'bg-bull text-white' : 'border border-bull/30 text-bull hover:bg-bull/10'}`}
-              >
-                WIN ALL
-              </button>
-              <button
-                onClick={() => setStepUp({ kind: 'settings', patch: { sandboxOutcomeMode: 'FORCE_LOSS' } })}
-                className={`flex-1 rounded-lg px-4 py-2 text-xs font-bold ${settingsRes.data.sandboxOutcomeMode === 'FORCE_LOSS' ? 'bg-bear text-white' : 'border border-bear/30 text-bear hover:bg-bear/10'}`}
-              >
-                LOSE ALL
-              </button>
+              {settingsRes.data.sandboxControlsAvailable && (
+                <>
+                  <button
+                    onClick={() => setStepUp({ kind: 'settings', patch: { sandboxOutcomeMode: 'FORCE_WIN' } })}
+                    className={`flex-1 rounded-lg px-4 py-2 text-xs font-bold ${settingsRes.data.sandboxOutcomeMode === 'FORCE_WIN' ? 'bg-bull text-white' : 'border border-bull/30 text-bull hover:bg-bull/10'}`}
+                  >
+                    WIN ALL
+                  </button>
+                  <button
+                    onClick={() => setStepUp({ kind: 'settings', patch: { sandboxOutcomeMode: 'FORCE_LOSS' } })}
+                    className={`flex-1 rounded-lg px-4 py-2 text-xs font-bold ${settingsRes.data.sandboxOutcomeMode === 'FORCE_LOSS' ? 'bg-bear text-white' : 'border border-bear/30 text-bear hover:bg-bear/10'}`}
+                  >
+                    LOSE ALL
+                  </button>
+                </>
+              )}
               <button
                 onClick={() => setStepUp({ kind: 'settings', patch: { sandboxOutcomeMode: 'RANDOM' } })}
                 className={`rounded-lg px-3 py-2 text-xs font-bold ${settingsRes.data.sandboxOutcomeMode === 'RANDOM' ? 'border border-admin-borderLight bg-admin-surface text-admin-text' : 'border border-admin-border text-admin-mutedDim hover:text-admin-text'}`}
@@ -210,7 +223,7 @@ export function TradingPage() {
               control, only ever shown at all in the same dev/test
               environment ALL USER CONTROL is gated on, and only ever
               functional for a designated test/sandbox user. */}
-          {settingsRes.data?.sandboxControlsAvailable && (
+          {settingsRes.data?.sandboxControlsAvailable ? (
             selectedUserId && selectedUser ? (
               selectedUser.isTestUser ? (
                 <div className="mt-2.5 flex gap-2.5">
@@ -251,6 +264,26 @@ export function TradingPage() {
                   <button disabled className="admin-btn-secondary px-3 py-2 text-xs">NORMAL</button>
                 </div>
                 <p className="mt-1.5 text-[10px] text-admin-mutedDim">Select a designated test/sandbox user above to enable outcome controls — 🧪 marks test users in the list.</p>
+              </div>
+            )
+          ) : (
+            // Production (and any other non-dev/test environment): USER WIN/
+            // USER LOSE never render here — forcing an outcome stays
+            // development/test only, same as ALL USER CONTROL above. NORMAL
+            // is the one exception: it can only ever clear an override back
+            // to real, price-derived settlement (never force a result), so
+            // it stays usable everywhere a designated test user is selected
+            // — enforced independently by setTestUserOutcomeMode's own
+            // isTestUser check, so this can never reach a real customer. No
+            // placeholder renders when there's nothing to act on.
+            selectedUserId && selectedUser && selectedUser.isTestUser && (
+              <div className="mt-2.5">
+                <button
+                  onClick={() => setStepUp({ kind: 'testUserOutcome', userId: selectedUser.id, testOutcomeMode: 'NORMAL' })}
+                  className={`rounded-lg px-3 py-2 text-xs font-bold ${selectedUser.testOutcomeMode === 'NORMAL' ? 'border border-admin-borderLight bg-admin-surface text-admin-text' : 'border border-admin-border text-admin-mutedDim hover:text-admin-text'}`}
+                >
+                  NORMAL
+                </button>
               </div>
             )
           )}
@@ -447,7 +480,7 @@ export function TradingPage() {
             description={
               stepUp.kind === 'settings' ? 'Platform-wide options controls require step-up re-authentication.'
                 : stepUp.kind === 'createTestUser' ? 'Creates a brand-new, dedicated test/sandbox account — never modifies an existing user.'
-                  : 'Only takes effect for this designated test/sandbox user\'s own test trades, in development/test only.'
+                  : 'Only takes effect for this designated test/sandbox user\'s own test trades. Forcing a win/loss is development/test only; resetting to NORMAL is always allowed.'
             }
             onConfirm={async ({ reason, confirmPassword }) => {
               if (stepUp.kind === 'settings') {
