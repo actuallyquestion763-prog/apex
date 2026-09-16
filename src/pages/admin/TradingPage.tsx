@@ -140,43 +140,47 @@ export function TradingPage() {
       </div>
 
       <div className="space-y-3">
-        {/* ALL USER CONTROL — the existing sandboxOutcomeMode dial, and
-            nothing else. Only rendered when the backend itself reports
-            sandboxControlsAvailable (development/test only); real customer
-            trades in production are never reachable by this. */}
+        {/* ALL USER CONTROL — a single, platform-wide sandboxOutcomeMode
+            dial, no user selector. All three buttons are always presented
+            (UI parity with local), but WIN ALL/LOSE ALL are only ever
+            actually reachable in development/test: this is purely a display
+            change — OptionsAdminController.updateSettings() independently
+            rejects FORCE_WIN/FORCE_LOSS with a 403 whenever
+            isDemoResultModeAllowed() is false, unconditionally, regardless
+            of what this UI shows or who clicks what. The "SANDBOX ONLY" tag
+            below makes that non-operative-in-production status visible up
+            front rather than only as a click-time error. NORMAL carries no
+            such gate anywhere — it only ever clears the override back to
+            real, price-derived settlement, so it's unconditionally allowed
+            and tag-free. */}
         {settingsRes.data && (
           <div className="admin-card border-bear/30 p-3">
             <div className="flex items-center gap-1.5">
               <FlaskConical className="h-3.5 w-3.5 text-bear" />
               <h3 className="text-xs font-bold uppercase tracking-wide text-bear">All User Control</h3>
             </div>
-            {/* NORMAL only ever clears sandboxOutcomeMode back to RANDOM — the
-                same inert state real settlement always uses — so, unlike
-                WIN ALL/LOSE ALL, it's allowed (and shown) in every
-                environment; the backend carve-out that makes this safe lives
-                in OptionsAdminController.updateSettings(). */}
             <p className="mt-1 text-[10px] text-admin-mutedDim">
-              {settingsRes.data.sandboxControlsAvailable
-                ? "WIN ALL / LOSE ALL force every trade's outcome and only exist in development/test. NORMAL clears any active override so real price-derived settlement applies. Every change is audit logged."
-                : 'NORMAL clears any active sandbox override platform-wide so real price-derived settlement applies. WIN ALL / LOSE ALL force outcomes and exist in development/test only — unavailable here. Every change is audit logged.'}
+              Platform-wide, no user selection. WIN ALL / LOSE ALL only take effect in a dedicated sandbox/test environment — the server independently rejects them for real production trading. NORMAL always works and simply restores real price-derived settlement. Every change is audit logged.
             </p>
             <div className="mt-2.5 flex gap-2.5">
-              {settingsRes.data.sandboxControlsAvailable && (
-                <>
-                  <button
-                    onClick={() => setStepUp({ kind: 'settings', patch: { sandboxOutcomeMode: 'FORCE_WIN' } })}
-                    className={`flex-1 rounded-lg px-4 py-2 text-xs font-bold ${settingsRes.data.sandboxOutcomeMode === 'FORCE_WIN' ? 'bg-bull text-white' : 'border border-bull/30 text-bull hover:bg-bull/10'}`}
-                  >
-                    WIN ALL
-                  </button>
-                  <button
-                    onClick={() => setStepUp({ kind: 'settings', patch: { sandboxOutcomeMode: 'FORCE_LOSS' } })}
-                    className={`flex-1 rounded-lg px-4 py-2 text-xs font-bold ${settingsRes.data.sandboxOutcomeMode === 'FORCE_LOSS' ? 'bg-bear text-white' : 'border border-bear/30 text-bear hover:bg-bear/10'}`}
-                  >
-                    LOSE ALL
-                  </button>
-                </>
-              )}
+              <button
+                onClick={() => setStepUp({ kind: 'settings', patch: { sandboxOutcomeMode: 'FORCE_WIN' } })}
+                className={`relative flex-1 rounded-lg px-4 py-2 text-xs font-bold ${settingsRes.data.sandboxOutcomeMode === 'FORCE_WIN' ? 'bg-bull text-white' : 'border border-bull/30 text-bull hover:bg-bull/10'}`}
+              >
+                WIN ALL
+                {!settingsRes.data.sandboxControlsAvailable && (
+                  <span className="absolute -top-1.5 -right-1.5 rounded-full border border-admin-border bg-admin-surface2 px-1 py-0.5 text-[8px] font-bold uppercase tracking-wide text-admin-mutedDim">Sandbox only</span>
+                )}
+              </button>
+              <button
+                onClick={() => setStepUp({ kind: 'settings', patch: { sandboxOutcomeMode: 'FORCE_LOSS' } })}
+                className={`relative flex-1 rounded-lg px-4 py-2 text-xs font-bold ${settingsRes.data.sandboxOutcomeMode === 'FORCE_LOSS' ? 'bg-bear text-white' : 'border border-bear/30 text-bear hover:bg-bear/10'}`}
+              >
+                LOSE ALL
+                {!settingsRes.data.sandboxControlsAvailable && (
+                  <span className="absolute -top-1.5 -right-1.5 rounded-full border border-admin-border bg-admin-surface2 px-1 py-0.5 text-[8px] font-bold uppercase tracking-wide text-admin-mutedDim">Sandbox only</span>
+                )}
+              </button>
               <button
                 onClick={() => setStepUp({ kind: 'settings', patch: { sandboxOutcomeMode: 'RANDOM' } })}
                 className={`rounded-lg px-3 py-2 text-xs font-bold ${settingsRes.data.sandboxOutcomeMode === 'RANDOM' ? 'border border-admin-borderLight bg-admin-surface text-admin-text' : 'border border-admin-border text-admin-mutedDim hover:text-admin-text'}`}
