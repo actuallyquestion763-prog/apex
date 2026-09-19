@@ -67,6 +67,12 @@ export function TradingPage() {
   // an action that cannot possibly succeed. Purely informational: no
   // request is ever sent for this state.
   const [sandboxBlockedAction, setSandboxBlockedAction] = useState<'FORCE_WIN' | 'FORCE_LOSS' | null>(null)
+  const [sandboxAcknowledged, setSandboxAcknowledged] = useState(false)
+
+  function openSandboxBlockedAction(action: 'FORCE_WIN' | 'FORCE_LOSS') {
+    setSandboxBlockedAction(action)
+    setSandboxAcknowledged(false)
+  }
 
   // USER CONTROL — search + select a real user (backed by the existing
   // /admin/users search endpoint), which both filters Current Trading/Trade
@@ -171,7 +177,7 @@ export function TradingPage() {
             </p>
             <div className="mt-2.5 flex gap-2.5">
               <button
-                onClick={() => settingsRes.data?.sandboxControlsAvailable ? setStepUp({ kind: 'settings', patch: { sandboxOutcomeMode: 'FORCE_WIN' } }) : setSandboxBlockedAction('FORCE_WIN')}
+                onClick={() => settingsRes.data?.sandboxControlsAvailable ? setStepUp({ kind: 'settings', patch: { sandboxOutcomeMode: 'FORCE_WIN' } }) : openSandboxBlockedAction('FORCE_WIN')}
                 className={`relative flex-1 rounded-lg px-4 py-2 text-xs font-bold ${settingsRes.data.sandboxOutcomeMode === 'FORCE_WIN' ? 'bg-bull text-white' : 'border border-bull/30 text-bull hover:bg-bull/10'}`}
               >
                 [ WIN ALL ]
@@ -180,7 +186,7 @@ export function TradingPage() {
                 )}
               </button>
               <button
-                onClick={() => settingsRes.data?.sandboxControlsAvailable ? setStepUp({ kind: 'settings', patch: { sandboxOutcomeMode: 'FORCE_LOSS' } }) : setSandboxBlockedAction('FORCE_LOSS')}
+                onClick={() => settingsRes.data?.sandboxControlsAvailable ? setStepUp({ kind: 'settings', patch: { sandboxOutcomeMode: 'FORCE_LOSS' } }) : openSandboxBlockedAction('FORCE_LOSS')}
                 className={`relative flex-1 rounded-lg px-4 py-2 text-xs font-bold ${settingsRes.data.sandboxOutcomeMode === 'FORCE_LOSS' ? 'bg-bear text-white' : 'border border-bear/30 text-bear hover:bg-bear/10'}`}
               >
                 [ LOSE ALL ]
@@ -530,21 +536,25 @@ export function TradingPage() {
             fields, no request ever sent, just the explanation and a way to
             close. Never shown for NORMAL, which always works. */}
         {sandboxBlockedAction && (
-          <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" onClick={() => setSandboxBlockedAction(null)}>
+          <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" onClick={() => { setSandboxBlockedAction(null); setSandboxAcknowledged(false) }}>
             <div className="w-full max-w-sm overflow-hidden rounded-2xl border border-bear/30 bg-ink-900 shadow-2xl" onClick={(e) => e.stopPropagation()}>
               <div className="flex items-center justify-between border-b border-ink-700/60 bg-ink-850 px-5 py-4">
                 <div className="flex items-center gap-2.5">
                   <FlaskConical className="h-5 w-5 text-bear" />
                   <p className="font-bold text-white">Sandbox only</p>
                 </div>
-                <button onClick={() => setSandboxBlockedAction(null)} aria-label="Close" className="text-slate-500 hover:text-white"><X className="h-4 w-4" /></button>
+                <button onClick={() => { setSandboxBlockedAction(null); setSandboxAcknowledged(false) }} aria-label="Close" className="text-slate-500 hover:text-white"><X className="h-4 w-4" /></button>
               </div>
               <div className="space-y-3 p-5">
-                <p className="text-sm font-semibold text-bear">This control is available for sandbox testing only. It cannot be used for live production trading.</p>
+                <p className="text-sm font-semibold text-bear">This action is blocked in production. It is available for sandbox testing only and cannot be used for live trading.</p>
                 <p className="text-xs text-slate-400">
-                  {sandboxBlockedAction === 'FORCE_WIN' ? 'WIN ALL' : 'LOSE ALL'} are test controls for the sandbox environment. Live production trades continue to use the normal settlement rules.
+                  {sandboxBlockedAction === 'FORCE_WIN' ? 'WIN ALL' : 'LOSE ALL'} are test controls for the sandbox environment. Live production trades continue to use the normal settlement rules. No password or execution is possible from this screen.
                 </p>
-                <button onClick={() => setSandboxBlockedAction(null)} className="btn-gold w-full py-2.5">Close</button>
+                <label className="flex items-start gap-2 rounded-xl border border-ink-700 bg-ink-850/60 px-3 py-2 text-xs text-slate-300">
+                  <input type="checkbox" checked={sandboxAcknowledged} onChange={(e) => setSandboxAcknowledged(e.target.checked)} className="mt-0.5 h-4 w-4 rounded border-ink-600 bg-ink-800 text-bear focus:ring-bear/30" />
+                  <span>I understand this is sandbox-only and cannot affect live production trading.</span>
+                </label>
+                <button onClick={() => { setSandboxBlockedAction(null); setSandboxAcknowledged(false) }} disabled={!sandboxAcknowledged} className="btn-gold w-full py-2.5 disabled:cursor-not-allowed disabled:opacity-50">Close</button>
               </div>
             </div>
           </div>
