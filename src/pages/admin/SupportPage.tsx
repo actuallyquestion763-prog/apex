@@ -11,12 +11,15 @@
 // asked to match "completely." Every other admin page keeps the standard
 // dark/gold admin theme; nothing here changes any shared token, class, or
 // component, so this page's look-and-feel does not leak anywhere else.
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useSearchParams } from 'react-router-dom'
-import { Headset, MoreVertical, Paperclip, Plus, Search, SlidersHorizontal, Send, User } from 'lucide-react'
-import type { SupportTicket } from '../../types'
+import { Headset, MoreVertical, Paperclip, Pencil, Plus, Search, SlidersHorizontal, Send, User } from 'lucide-react'
+import type { SupportMessage, SupportTicket } from '../../types'
 import { api, attachmentUrl } from '../../lib/api'
 import { useToast } from '../../components/Toast'
+import { useAuth } from '../../store/auth'
+import { useLongPress } from '../../lib/useLongPress'
 import { AdminBackLink, AdminPanel, statusTone, useAdmin, tryAction, AdminEmptyState } from '../../components/admin'
 
 const TICKET_STATUSES = ['OPEN', 'IN_PROGRESS', 'WAITING_FOR_CUSTOMER', 'WAITING_INTERNAL', 'RESOLVED', 'CLOSED'] as const
@@ -77,6 +80,17 @@ export function SupportPage() {
   // "Contact any user" (operator request) — lets an admin start a brand-new
   // conversation with a user who has no ticket yet, or only a closed one.
   const [showNewMessage, setShowNewMessage] = useState(false)
+  // A staff member editing their own message updates the open thread in
+  // place (no refetch, so no loading flash and no scroll reset). The
+  // conversation-list preview is fed by a separate list fetch, so remember
+  // the edit here to keep that preview in step. `from` is the body the server
+  // last returned: the override only applies while that is still current, so
+  // a later real refetch (or another edit elsewhere) always wins.
+  const [previewEdits, setPreviewEdits] = useState<Record<string, { from: string; to: string }>>({})
+  const previewBody = (msg: { id: string; body: string }) => {
+    const edit = previewEdits[msg.id]
+    return edit && edit.from === msg.body ? edit.to : msg.body
+  }
 
   const categories = Array.from(new Set((data ?? []).map((t) => t.category?.name).filter(Boolean))) as string[]
   const agents = Array.from(new Map((data ?? []).filter((t) => t.assignedAgent).map((t) => [t.assignedAgent!.id, t.assignedAgent!])).values())
@@ -96,12 +110,17 @@ export function SupportPage() {
     <div>
       <AdminBackLink to="/admin" />
       <AdminPanel loading={loading} error={error} refetch={refetch}>
-        <div className={`flex overflow-hidden rounded-2xl border ${NAVY.border} ${NAVY.panel}`} style={{ height: 'calc(100vh - 160px)' }}>
+        {/* On phones the panel runs edge to edge (negative margin cancels the
+            layout's px-4 gutter) and is sized with dvh, so the browser's
+            collapsing address bar doesn't push the composer off-screen; the
+            plain-vh height is the fallback for browsers without dvh. From md
+            up nothing changes: inset, rounded, bordered card. */}
+        <div className={`-mx-4 flex h-[calc(100vh-160px)] overflow-hidden border-y supports-[height:100dvh]:h-[calc(100dvh-160px)] md:mx-0 md:rounded-2xl md:border ${NAVY.border} ${NAVY.panel}`}>
           {/* Left sidebar — search + conversation list */}
-          <div className={`w-full shrink-0 flex-col border-r ${NAVY.border} md:flex md:w-80 ${selected ? 'hidden md:flex' : 'flex'}`}>
+          <div className={`w-full min-w-0 shrink-0 flex-col border-r ${NAVY.border} md:flex md:w-80 ${selected ? 'hidden md:flex' : 'flex'}`}>
             <div className={`border-b ${NAVY.border} ${NAVY.headerBg} p-3`}>
               <div className="flex items-center gap-1.5">
-                <div className="relative flex-1">
+                <div className="relative min-w-0 flex-1">
                   <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#8291c4]" />
                   <input
                     className={`w-full rounded-full border-none py-2 pl-8 pr-3 text-xs outline-none ${NAVY.input}`}
@@ -183,7 +202,7 @@ export function SupportPage() {
                       <p className="truncate text-[11px] text-[#8291c4]">ID: {t.userId.slice(0, 8)}</p>
                       {t.messages?.[0] ? (
                         <p className={`mt-1 inline-block max-w-full truncate rounded px-1.5 py-0.5 text-[11px] font-medium ${PREVIEW_PILL_CLASS[statusTone(t.status)]}`}>
-                          {t.messages[0].body}
+                          {previewBody(t.messages[0])}
                         </p>
                       ) : (
                         <p className="mt-1 inline-block truncate rounded bg-[#25376e] px-1.5 py-0.5 text-[11px] font-medium text-[#8291c4]">No messages yet</p>
@@ -196,9 +215,14 @@ export function SupportPage() {
           </div>
 
           {/* Main chat panel */}
-          <div className={`flex-1 flex-col md:flex ${selected ? 'flex' : 'hidden md:flex'}`}>
+          <div className={`min-w-0 flex-1 flex-col md:flex ${selected ? 'flex' : 'hidden md:flex'}`}>
             {selectedTicket ? (
-              <SupportTicketDetail ticket={selectedTicket} onBack={() => setSelected(null)} onChanged={refetch} />
+              <SupportTicketDetail
+                ticket={selectedTicket}
+                onBack={() => setSelected(null)}
+                onChanged={refetch}
+                onMessageEdited={(id, from, to) => setPreviewEdits((prev) => ({ ...prev, [id]: { from, to } }))}
+              />
             ) : (
               <div className="flex flex-1 items-center justify-center text-sm text-[#8291c4]">Select a conversation to view messages</div>
             )}
@@ -252,7 +276,7 @@ function NewMessagePanel({ onClose, onCreated }: { onClose: () => void; onCreate
       </div>
       <div className="mt-2 flex items-center gap-1.5">
         <input
-          className={`flex-1 rounded-lg border-none px-3 py-1.5 text-xs outline-none ${NAVY.input}`}
+          className={`min-w-0 flex-1 rounded-lg border-none px-3 py-1.5 text-base outline-none sm:text-xs ${NAVY.input}`}
           placeholder="Search by name or email…"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
@@ -273,7 +297,7 @@ function NewMessagePanel({ onClose, onCreated }: { onClose: () => void; onCreate
       {selectedUserId && (
         <div className="mt-2 space-y-1.5">
           <textarea
-            className={`w-full resize-none rounded-lg border-none px-3 py-1.5 text-xs outline-none ${NAVY.input}`}
+            className={`w-full resize-none rounded-lg border-none px-3 py-1.5 text-base outline-none sm:text-xs ${NAVY.input}`}
             rows={2}
             placeholder="Type your message…"
             value={message}
@@ -292,9 +316,184 @@ function NewMessagePanel({ onClose, onCreated }: { onClose: () => void; onCreate
   )
 }
 
-function SupportTicketDetail({ ticket, onBack, onChanged }: { ticket: SupportTicket; onBack: () => void; onChanged: () => void }) {
+// The small right-click / press-and-hold menu for a message the current staff
+// member sent. Rendered in a portal so no scrolling/clipping ancestor (the
+// thread is overflow-y-auto) can cut it off, and clamped to the viewport so
+// it never opens partly off-screen on a narrow phone.
+function MessageContextMenu({ at, onEdit, onClose }: { at: { x: number; y: number }; onEdit: () => void; onClose: () => void }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const [pos, setPos] = useState({ left: at.x, top: at.y })
+
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const margin = 8
+    const { width, height } = el.getBoundingClientRect()
+    setPos({
+      left: Math.max(margin, Math.min(at.x, window.innerWidth - width - margin)),
+      top: Math.max(margin, Math.min(at.y, window.innerHeight - height - margin)),
+    })
+  }, [at.x, at.y])
+
+  useEffect(() => {
+    ref.current?.querySelector<HTMLButtonElement>('button')?.focus()
+    const onPointerDown = (e: Event) => { if (!ref.current?.contains(e.target as Node)) onClose() }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('mousedown', onPointerDown)
+    document.addEventListener('touchstart', onPointerDown)
+    document.addEventListener('keydown', onKey)
+    window.addEventListener('resize', onClose)
+    window.addEventListener('scroll', onClose, true)
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown)
+      document.removeEventListener('touchstart', onPointerDown)
+      document.removeEventListener('keydown', onKey)
+      window.removeEventListener('resize', onClose)
+      window.removeEventListener('scroll', onClose, true)
+    }
+  }, [onClose])
+
+  return createPortal(
+    <div
+      ref={ref}
+      role="menu"
+      style={{ left: pos.left, top: pos.top }}
+      className={`fixed z-[300] min-w-[9.5rem] overflow-hidden rounded-xl border ${NAVY.border} ${NAVY.headerBg} py-1 text-xs text-white shadow-2xl`}
+    >
+      <button role="menuitem" onClick={onEdit} className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-[#25376e] focus:bg-[#25376e] focus:outline-none">
+        <Pencil className="h-3.5 w-3.5" /> Edit message
+      </button>
+    </div>,
+    document.body,
+  )
+}
+
+// One message in the staff thread. Messages the CURRENT staff member sent get
+// the edit gesture (right-click on desktop, press-and-hold on touch) and an
+// inline editor; everyone else's are inert. Nothing here ever renders an
+// "edited" marker, a timestamp change or the previous text — after saving, the
+// bubble simply shows the new wording. The backend is what actually decides
+// who may edit (author-only + permission); this only decides who is OFFERED it.
+function MessageBubble({
+  message, ticketId, customerName, isCustomer, canEdit, displayBody, onEdited,
+}: {
+  message: SupportMessage
+  ticketId: string
+  customerName: string
+  isCustomer: boolean
+  canEdit: boolean
+  displayBody: string
+  onEdited: (id: string, from: string, to: string) => void
+}) {
   const { push } = useToast()
+  const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null)
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState('')
+  const [saving, setSaving] = useState(false)
+  const press = useLongPress((at) => setMenuAt(at), canEdit && !editing)
+
+  function startEdit() {
+    setMenuAt(null)
+    setDraft(displayBody)
+    setEditing(true)
+  }
+
+  async function save() {
+    const next = draft.trim()
+    if (!next || saving) return
+    if (next === displayBody.trim()) { setEditing(false); return }
+    setSaving(true)
+    const res = await tryAction(() => api.patch<{ id: string; body: string }>(`/admin/support/tickets/${ticketId}/messages/${message.id}`, { body: next }))
+    setSaving(false)
+    if (res.ok) {
+      onEdited(message.id, message.body, res.data.body)
+      setEditing(false)
+    } else {
+      push('error', res.error)
+    }
+  }
+
+  // Enter saves; Shift+Enter keeps multi-line messages usable. On touch
+  // devices (no hover) Enter stays a newline — there's no Shift key on a
+  // phone keyboard, so Save is the button.
+  function onEditorKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key === 'Escape') { e.stopPropagation(); setEditing(false); return }
+    const touchOnly = typeof window.matchMedia === 'function' && window.matchMedia('(hover: none)').matches
+    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && !touchOnly) {
+      e.preventDefault()
+      void save()
+    }
+  }
+
+  return (
+    <div className={`flex min-w-0 ${isCustomer ? 'justify-start' : 'justify-end'}`}>
+      <div
+        {...(canEdit ? press : {})}
+        data-editable={canEdit ? 'true' : undefined}
+        className={`min-w-0 rounded-xl px-3 py-2 text-xs ${editing ? 'w-full max-w-[85%] sm:max-w-[75%]' : 'max-w-[85%] sm:max-w-[75%]'} ${
+          canEdit ? '[-webkit-touch-callout:none] [@media(hover:none)]:select-none' : ''
+        } ${
+          message.visibility === 'INTERNAL'
+            ? 'border border-[#f0c23a]/40 bg-[#4a3a12] text-[#f0c23a]'
+            : isCustomer
+              ? 'bg-[#16224f] text-white'
+              : 'bg-[#3576f0] text-white'
+        }`}
+      >
+        <div className="mb-0.5 flex min-w-0 items-center gap-1.5">
+          <span className="min-w-0 font-semibold [overflow-wrap:anywhere]">{message.author?.fullName ?? (isCustomer ? customerName : 'Support')}</span>
+          {message.visibility === 'INTERNAL' && <span className="shrink-0 text-[#f0c23a]">(internal)</span>}
+        </div>
+        {editing ? (
+          <div>
+            <textarea
+              autoFocus
+              aria-label="Edit message"
+              rows={3}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={onEditorKeyDown}
+              className="block w-full min-w-0 resize-none rounded-lg border-none bg-[#0b1636] px-2.5 py-1.5 text-base text-white outline-none focus:ring-1 focus:ring-[#6ea1ff] sm:text-xs"
+            />
+            <div className="mt-1.5 flex justify-end gap-1.5">
+              <button onClick={() => setEditing(false)} disabled={saving} className="rounded-full px-2.5 py-1 text-[11px] font-medium text-[#cddcff] hover:text-white disabled:opacity-50">Cancel</button>
+              <button onClick={() => void save()} disabled={saving || !draft.trim()} className="rounded-full bg-white px-3 py-1 text-[11px] font-semibold text-[#142a68] disabled:opacity-50">{saving ? 'Saving…' : 'Save'}</button>
+            </div>
+          </div>
+        ) : (
+          <p className="whitespace-pre-wrap [overflow-wrap:anywhere] [word-break:break-word]">{displayBody}</p>
+        )}
+        {(message.attachments ?? []).map((a) => (
+          <a key={a.id} href={attachmentUrl(a.id)} target="_blank" rel="noreferrer" className="mt-1 block min-w-0 max-w-full">
+            {a.mimeType.startsWith('image/') ? (
+              <img src={attachmentUrl(a.id)} alt={a.filename} className="block h-auto max-h-64 w-auto max-w-full rounded-lg object-cover" />
+            ) : (
+              <span className="flex min-w-0 items-start gap-1.5 text-[#cddcff] hover:text-white">
+                <Paperclip className="mt-0.5 h-3 w-3 shrink-0" />
+                <span className="min-w-0 [overflow-wrap:anywhere] [word-break:break-word]">{a.filename}</span>
+              </span>
+            )}
+          </a>
+        ))}
+        <p className="mt-1 text-right text-[10px] text-[#cddcff]/70">{new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+      </div>
+      {menuAt && <MessageContextMenu at={menuAt} onEdit={startEdit} onClose={() => setMenuAt(null)} />}
+    </div>
+  )
+}
+
+function SupportTicketDetail({ ticket, onBack, onChanged, onMessageEdited }: { ticket: SupportTicket; onBack: () => void; onChanged: () => void; onMessageEdited: (id: string, from: string, to: string) => void }) {
+  const { push } = useToast()
+  const { user: currentUser } = useAuth()
   const { data, loading, error, refetch } = useAdmin<SupportTicket>(`/admin/support/tickets/${ticket.id}`)
+  // Edits made in this open thread, applied in place. Same `from` guard as the
+  // list preview: an override only applies while the server's body is still
+  // the one it was made against.
+  const [edits, setEdits] = useState<Record<string, { from: string; to: string }>>({})
+  const bodyOf = (m: SupportMessage) => {
+    const edit = edits[m.id]
+    return edit && edit.from === m.body ? edit.to : m.body
+  }
   const [reply, setReply] = useState('')
   const [internal, setInternal] = useState(false)
   const [file, setFile] = useState<File | null>(null)
@@ -388,44 +587,35 @@ function SupportTicketDetail({ ticket, onBack, onChanged }: { ticket: SupportTic
           )}
 
           {/* Message thread */}
-          <div className={`flex-1 space-y-3 overflow-y-auto ${NAVY.panel} px-4 py-4`}>
+          {/* min-w-0/min-h-0 at every flex level: without them one long
+              unbroken string, filename or wide image widens its row past the
+              phone instead of wrapping. */}
+          <div data-testid="support-thread" className={`min-h-0 min-w-0 flex-1 space-y-3 overflow-y-auto overscroll-contain ${NAVY.panel} px-3 py-4 sm:px-4`}>
             {(data.messages ?? []).map((m) => {
               const isCustomer = m.author?.role === 'USER' || (!m.author?.role && m.authorId === data.userId)
               return (
-                <div key={m.id} className={`flex ${isCustomer ? 'justify-start' : 'justify-end'}`}>
-                  <div className={`max-w-[75%] rounded-xl px-3 py-2 text-xs ${
-                    m.visibility === 'INTERNAL'
-                      ? 'border border-[#f0c23a]/40 bg-[#4a3a12] text-[#f0c23a]'
-                      : isCustomer
-                        ? 'bg-[#16224f] text-white'
-                        : 'bg-[#3576f0] text-white'
-                  }`}>
-                    <div className="mb-0.5 flex items-center gap-1.5">
-                      <span className="font-semibold">{m.author?.fullName ?? (isCustomer ? customerName : 'Support')}</span>
-                      {m.visibility === 'INTERNAL' && <span className="text-[#f0c23a]">(internal)</span>}
-                    </div>
-                    <p className="whitespace-pre-wrap break-words">{m.body}</p>
-                    {(m.attachments ?? []).map((a) => (
-                      <a key={a.id} href={attachmentUrl(a.id)} target="_blank" rel="noreferrer" className="mt-1 block">
-                        {a.mimeType.startsWith('image/') ? (
-                          <img src={attachmentUrl(a.id)} alt={a.filename} className="max-h-64 max-w-full rounded-lg object-cover" />
-                        ) : (
-                          <span className="flex items-center gap-1.5 text-[#cddcff] hover:text-white"><Paperclip className="h-3 w-3" /> {a.filename}</span>
-                        )}
-                      </a>
-                    ))}
-                    <p className="mt-1 text-right text-[10px] text-[#cddcff]/70">{new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
-                  </div>
-                </div>
+                <MessageBubble
+                  key={m.id}
+                  message={m}
+                  ticketId={ticket.id}
+                  customerName={customerName}
+                  isCustomer={isCustomer}
+                  canEdit={!!currentUser && m.authorId === currentUser.id}
+                  displayBody={bodyOf(m)}
+                  onEdited={(id, from, to) => {
+                    setEdits((prev) => ({ ...prev, [id]: { from, to } }))
+                    onMessageEdited(id, from, to)
+                  }}
+                />
               )
             })}
           </div>
 
           {/* Reply box */}
-          <div className={`border-t ${NAVY.border} ${NAVY.panel} p-3`}>
-            <div className="flex items-center gap-2">
+          <div className={`min-w-0 shrink-0 border-t ${NAVY.border} ${NAVY.panel} p-3`}>
+            <div className="flex min-w-0 items-center gap-2">
               <input
-                className="flex-1 rounded-full border-none bg-white px-4 py-2.5 text-sm text-[#1a1a2e] placeholder-[#8291c4] outline-none"
+                className="min-w-0 flex-1 rounded-full border-none bg-white px-4 py-2.5 text-base text-[#1a1a2e] placeholder-[#8291c4] outline-none sm:text-sm"
                 value={reply}
                 onChange={(e) => setReply(e.target.value)}
                 placeholder="Type a reply…"
@@ -441,11 +631,14 @@ function SupportTicketDetail({ ticket, onBack, onChanged }: { ticket: SupportTic
                 <Send className="h-4 w-4" />
               </button>
             </div>
-            <div className="mt-2 flex items-center gap-3 text-[11px] text-[#8291c4]">
-              <label className="flex items-center gap-1.5"><input type="checkbox" checked={internal} onChange={(e) => setInternal(e.target.checked)} /> Internal note</label>
-              <label className="flex items-center gap-1.5">
-                <Paperclip className="h-3.5 w-3.5" />
-                <input type="file" accept="image/png,image/jpeg,image/webp,image/gif,application/pdf" onChange={(e) => setFile(e.target.files?.[0] ?? null)} className="text-[11px]" />
+            {/* A native file input has a wide intrinsic width (and grows with a
+                long chosen filename) — cap it to the row instead of letting it
+                push the composer wider than the phone. */}
+            <div className="mt-2 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5 text-[11px] text-[#8291c4]">
+              <label className="flex shrink-0 items-center gap-1.5"><input type="checkbox" checked={internal} onChange={(e) => setInternal(e.target.checked)} /> Internal note</label>
+              <label className="flex min-w-0 flex-1 basis-40 items-center gap-1.5">
+                <Paperclip className="h-3.5 w-3.5 shrink-0" />
+                <input type="file" accept="image/png,image/jpeg,image/webp,image/gif,application/pdf" onChange={(e) => setFile(e.target.files?.[0] ?? null)} className="w-full min-w-0 max-w-full text-[11px]" />
               </label>
             </div>
           </div>

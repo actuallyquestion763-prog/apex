@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common'
 import { FileInterceptor } from '@nestjs/platform-express'
 import { SupportService } from '../support/support.service'
-import { CreateMessageDto, CreateStaffTicketDto, UpdateStatusDto, UpdatePriorityDto, AssignTicketDto, AttachmentBodyDto } from '../support/dto/ticket.dto'
+import { CreateMessageDto, CreateStaffTicketDto, EditMessageDto, UpdateStatusDto, UpdatePriorityDto, AssignTicketDto, AttachmentBodyDto } from '../support/dto/ticket.dto'
 import { CreateCategoryDto, UpdateCategoryDto } from '../support/dto/category.dto'
 import { SessionAuthGuard } from '../common/guards/session-auth.guard'
 import { RolesGuard } from '../common/guards/roles.guard'
@@ -72,6 +72,17 @@ export class AdminSupportController {
   @Post('tickets/:id/messages')
   addMessage(@Param('id') id: string, @Body() dto: CreateMessageDto, @CurrentUser() admin: AuthenticatedUser) {
     return this.support.addStaffMessage(admin.id, id, dto)
+  }
+
+  // Editing a message you previously sent. No route-level
+  // @RequirePermissions() for the same reason as addMessage above — the real
+  // check (support.tickets.reply vs support.tickets.internal_note) depends on
+  // the stored message's visibility, and the author-only rule needs the
+  // stored authorId; both are enforced in SupportService.editStaffMessage().
+  // There is deliberately no customer-facing counterpart on SupportController.
+  @Patch('tickets/:ticketId/messages/:messageId')
+  editMessage(@Param('ticketId') ticketId: string, @Param('messageId') messageId: string, @Body() dto: EditMessageDto, @CurrentUser() admin: AuthenticatedUser) {
+    return this.support.editStaffMessage(admin.id, ticketId, messageId, dto)
   }
 
   // Same deliberate absence of a route-level @RequirePermissions() as

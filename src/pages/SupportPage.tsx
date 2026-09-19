@@ -4,6 +4,7 @@ import { api, ApiError, attachmentUrl } from '../lib/api'
 import { useToast } from '../components/Toast'
 import { EmptyState } from '../components/EmptyState'
 import { NotificationBell } from '../components/NotificationBell'
+import { useVisualViewportBox } from '../lib/useVisualViewport'
 import type { SupportTicket, SupportCategory } from '../types'
 import { Headset, Send, ArrowLeft, Paperclip, X } from 'lucide-react'
 
@@ -166,9 +167,17 @@ function SupportChat({
 
   const timeLabel = (iso: string) => new Date(iso).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
 
+  // When a mobile on-screen keyboard is open, pin this full-screen layer to
+  // the part of the screen that's actually visible so the composer stays
+  // above the keyboard instead of behind it (null = ordinary `inset-0`).
+  const visible = useVisualViewportBox()
+
   return (
-    <div className="fixed inset-0 z-[60] flex flex-col bg-gradient-to-b from-ink-900 via-ink-850 to-ink-950">
-      <div className="flex items-center justify-between border-b border-ink-700/60 bg-ink-900/90 px-4 py-3 backdrop-blur-md">
+    <div
+      className="fixed inset-0 z-[60] flex w-full max-w-full flex-col bg-gradient-to-b from-ink-900 via-ink-850 to-ink-950"
+      style={visible ? { top: visible.top, height: visible.height, bottom: 'auto' } : undefined}
+    >
+      <div className="flex shrink-0 items-center justify-between border-b border-ink-700/60 bg-ink-900/90 px-4 py-3 backdrop-blur-md">
         <button onClick={() => navigate('/home')} className="flex items-center gap-1.5 text-sm font-bold text-ocean-300 transition hover:text-ocean-200">
           <ArrowLeft className="h-4 w-4" /> Back
         </button>
@@ -182,22 +191,29 @@ function SupportChat({
         <NotificationBell />
       </div>
 
-      <div className="flex-1 space-y-3 overflow-y-auto p-4">
+      {/* Every level from here down is min-w-0 / min-h-0 on purpose: a flex
+          child defaults to min-width:auto (= its content's width), so without
+          it one long unbroken string, filename or wide image forces its whole
+          row — and the page — wider than the phone instead of wrapping. */}
+      <div data-testid="support-thread" className="min-h-0 min-w-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-3 py-4 sm:px-4">
         {(detail?.messages ?? []).length === 0 ? (
           <EmptyState icon={Headset} title="No messages yet" hint="Send a message below to reach our support team." />
         ) : (detail?.messages ?? []).map((m) => {
           const own = m.authorId === detail?.userId
           return (
-            <div key={m.id} className={`flex ${own ? 'justify-end' : 'justify-start'}`}>
-              <div className={`max-w-[78%] rounded-2xl px-3.5 py-2.5 text-sm ${own ? 'bg-gradient-to-br from-ocean-500 to-ocean-600 text-white' : 'bg-ink-800 text-slate-200'}`}>
-                <p className={`mb-0.5 text-[11px] font-bold ${own ? 'text-white/85' : 'text-ocean-300'}`}>{m.author?.fullName ?? (own ? 'You' : 'Support')}</p>
-                <p className="whitespace-pre-wrap break-words">{m.body}</p>
+            <div key={m.id} className={`flex min-w-0 ${own ? 'justify-end' : 'justify-start'}`}>
+              <div className={`min-w-0 max-w-[85%] rounded-2xl px-3.5 py-2.5 text-sm sm:max-w-[78%] ${own ? 'bg-gradient-to-br from-ocean-500 to-ocean-600 text-white' : 'bg-ink-800 text-slate-200'}`}>
+                <p className={`mb-0.5 text-[11px] font-bold [overflow-wrap:anywhere] ${own ? 'text-white/85' : 'text-ocean-300'}`}>{m.author?.fullName ?? (own ? 'You' : 'Support')}</p>
+                <p className="whitespace-pre-wrap [overflow-wrap:anywhere] [word-break:break-word]">{m.body}</p>
                 {(m.attachments ?? []).map((a) => (
-                  <a key={a.id} href={attachmentUrl(a.id)} target="_blank" rel="noreferrer" className="mt-1.5 block">
+                  <a key={a.id} href={attachmentUrl(a.id)} target="_blank" rel="noreferrer" className="mt-1.5 block min-w-0 max-w-full">
                     {a.mimeType.startsWith('image/') ? (
-                      <img src={attachmentUrl(a.id)} alt={a.filename} className="max-h-64 max-w-full rounded-lg object-cover" />
+                      <img src={attachmentUrl(a.id)} alt={a.filename} className="block h-auto max-h-64 w-auto max-w-full rounded-lg object-cover" />
                     ) : (
-                      <span className="flex items-center gap-1.5 text-xs underline opacity-90 hover:opacity-100"><Paperclip className="h-3 w-3" /> {a.filename}</span>
+                      <span className="flex min-w-0 items-start gap-1.5 text-xs underline opacity-90 hover:opacity-100">
+                        <Paperclip className="mt-0.5 h-3 w-3 shrink-0" />
+                        <span className="min-w-0 [overflow-wrap:anywhere] [word-break:break-word]">{a.filename}</span>
+                      </span>
                     )}
                   </a>
                 ))}
@@ -208,7 +224,7 @@ function SupportChat({
         })}
       </div>
 
-      <div className="border-t border-ink-700/60 bg-ink-900/90 p-3">
+      <div className="min-w-0 shrink-0 border-t border-ink-700/60 bg-ink-900/90 p-3">
         {detail?.status === 'CLOSED' && (
           <p className="mb-2 text-center text-[11px] text-slate-500">That conversation was closed — sending a message starts a new one.</p>
         )}
@@ -219,13 +235,17 @@ function SupportChat({
             <button onClick={() => setFile(null)} aria-label="Remove attachment" className="text-slate-500 hover:text-white"><X className="h-3.5 w-3.5" /></button>
           </div>
         )}
-        <div className="flex items-center gap-2">
+        <div className="flex min-w-0 items-center gap-2">
           <label className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full text-slate-400 transition hover:text-white" aria-label="Attach a file">
             <Paperclip className="h-5 w-5" />
             <input type="file" accept="image/png,image/jpeg,image/webp,image/gif,application/pdf" onChange={(e) => setFile(e.target.files?.[0] ?? null)} className="hidden" />
           </label>
+          {/* min-w-0: an <input> has an intrinsic width that flex won't shrink
+              below by default. text-base on phones: iOS zooms the whole page
+              when a focused field's font is under 16px, which is itself a
+              cause of "the chat is wider than the screen". */}
           <input
-            className="flex-1 rounded-full border border-ink-600 bg-ink-800 px-4 py-2.5 text-sm text-white placeholder-slate-500 outline-none focus:border-ocean-500"
+            className="min-w-0 flex-1 rounded-full border border-ink-600 bg-ink-800 px-4 py-2.5 text-base text-white placeholder-slate-500 outline-none focus:border-ocean-500 sm:text-sm"
             value={reply}
             onChange={(e) => setReply(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && send()}

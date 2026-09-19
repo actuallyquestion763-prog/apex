@@ -142,6 +142,11 @@ export const AuditEvent = {
   TICKET_STATUS_CHANGED: 'TICKET_STATUS_CHANGED',
   TICKET_PRIORITY_CHANGED: 'TICKET_PRIORITY_CHANGED',
   INTERNAL_NOTE_CREATED: 'INTERNAL_NOTE_CREATED',
+  // A staff member editing their own previously-sent message. The ONLY place
+  // the pre-edit text survives — previousState/newState carry the full body
+  // before/after, so the original is never lost even though the visible
+  // SupportMessage.body is replaced. See SupportService.editStaffMessage().
+  SUPPORT_MESSAGE_EDITED: 'SUPPORT_MESSAGE_EDITED',
   SUPPORT_CATEGORY_CHANGED: 'SUPPORT_CATEGORY_CHANGED',
   SUPPORT_AUTO_GREETING_CHANGED: 'SUPPORT_AUTO_GREETING_CHANGED',
   SUPPORT_NOTIFICATION_EMAIL_CHANGED: 'SUPPORT_NOTIFICATION_EMAIL_CHANGED',

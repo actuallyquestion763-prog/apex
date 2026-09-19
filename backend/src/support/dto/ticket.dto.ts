@@ -58,6 +58,16 @@ export class CreateMessageDto {
   visibility?: 'PUBLIC' | 'INTERNAL'
 }
 
+// Staff editing one of their OWN previously-sent messages. Same length bounds
+// as CreateMessageDto.body; deliberately no `visibility` field — an edit can
+// never move a message between PUBLIC and INTERNAL.
+export class EditMessageDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(4000)
+  body!: string
+}
+
 export class UpdateStatusDto {
   @IsIn(['OPEN', 'IN_PROGRESS', 'WAITING_FOR_CUSTOMER', 'WAITING_INTERNAL', 'RESOLVED', 'CLOSED'])
   status!: string

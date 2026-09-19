@@ -581,4 +581,184 @@ describe('Customer Support (real PostgreSQL)', () => {
       .send({ userId: customer.userId, message: 'hi' }).expect(201)
     expect(res.body.categoryId).toBeTruthy()
   })
+
+  // ---- 30: staff message editing ----------------------------------------
+  // The visible thread must stay clean (no edited flag/timestamp/history in
+  // any normal conversation payload); the original text must survive
+  // internally, in the append-only AuditLog.
+
+  async function ticketWithAgentMessage(agentPerms: string[] = ['support.tickets.read', 'support.tickets.reply'], body = 'Your withdrawal is being processed.') {
+    const customer = await makeCustomer('edit-cust')
+    const ticket = await request(server).post('/support/tickets').set('Cookie', customer.cookie).send({ categoryId, subject: 'Q', message: 'Where is my money?' }).expect(201)
+    const agent = await makeAgentWith(...agentPerms)
+    const sent = await request(server).post(`/admin/support/tickets/${ticket.body.id}/messages`).set('Cookie', agent.cookie).send({ body }).expect(201)
+    return { customer, agent, ticketId: ticket.body.id as string, messageId: sent.body.id as string, originalBody: body }
+  }
+
+  const editUrl = (ticketId: string, messageId: string) => `/admin/support/tickets/${ticketId}/messages/${messageId}`
+
+  it('30. an agent can edit a message they sent: the customer and admin views both show only the updated text, with no duplicate, no reorder, no edited marker', async () => {
+    const { customer, agent, ticketId, messageId, originalBody } = await ticketWithAgentMessage()
+    // A later customer message so ordering is observable.
+    await request(server).post(`/support/tickets/${ticketId}/messages`).set('Cookie', customer.cookie).send({ body: 'Thanks, any ETA?' }).expect(201)
+    const ticketBefore = await prisma.supportTicket.findUniqueOrThrow({ where: { id: ticketId } })
+    const orderBefore = (await prisma.supportMessage.findMany({ where: { ticketId }, orderBy: { createdAt: 'asc' } })).map((m) => m.id)
+
+    const res = await request(server).patch(editUrl(ticketId, messageId)).set('Cookie', agent.cookie).send({ body: 'Your withdrawal was approved and sent.' }).expect(200)
+    expect(res.body.id).toBe(messageId)
+    expect(res.body.body).toBe('Your withdrawal was approved and sent.')
+
+    for (const view of [
+      await request(server).get(`/support/tickets/${ticketId}`).set('Cookie', customer.cookie).expect(200),
+      await request(server).get(`/admin/support/tickets/${ticketId}`).set('Cookie', agent.cookie).expect(200),
+    ]) {
+      const bodies = view.body.messages.map((m: any) => m.body)
+      expect(bodies).toContain('Your withdrawal was approved and sent.')
+      expect(bodies).not.toContain(originalBody)
+      const edited = view.body.messages.find((m: any) => m.id === messageId)
+      expect(edited.editedAt).toBeNull() // no edit timestamp/flag anywhere in the normal payload
+      expect(view.body.messages.map((m: any) => m.id)).toEqual(orderBefore) // same messages, same order, no duplicate
+    }
+
+    const ticketAfter = await prisma.supportTicket.findUniqueOrThrow({ where: { id: ticketId } })
+    expect(ticketAfter.updatedAt.getTime()).toBe(ticketBefore.updatedAt.getTime()) // the edit did not touch the ticket
+    expect(ticketAfter.assignedAgentId).toBe(ticketBefore.assignedAgentId)
+  })
+
+  it('30b. the original text and edit metadata are preserved internally (AuditLog), across repeated edits', async () => {
+    const { agent, ticketId, messageId, originalBody } = await ticketWithAgentMessage()
+    await request(server).patch(editUrl(ticketId, messageId)).set('Cookie', agent.cookie).send({ body: 'Second version.' }).expect(200)
+    await request(server).patch(editUrl(ticketId, messageId)).set('Cookie', agent.cookie).send({ body: 'Third version.' }).expect(200)
+
+    const rows = await prisma.auditLog.findMany({ where: { action: 'SUPPORT_MESSAGE_EDITED', targetId: messageId }, orderBy: { createdAt: 'asc' } })
+    expect(rows).toHaveLength(2)
+    expect(rows[0].actorId).toBe(agent.userId)
+    expect(rows[0].targetType).toBe('SUPPORT_MESSAGE')
+    expect((rows[0].previousState as any).body).toBe(originalBody) // the true original survives
+    expect((rows[0].newState as any).body).toBe('Second version.')
+    expect((rows[1].previousState as any).body).toBe('Second version.') // every intermediate version too
+    expect((rows[1].newState as any).body).toBe('Third version.')
+    expect(rows[0].createdAt).toBeInstanceOf(Date) // edit timestamp
+    expect((rows[0].metadata as any).ticketId).toBe(ticketId)
+
+    // The visible message row itself only ever holds the latest text.
+    const stored = await prisma.supportMessage.findUniqueOrThrow({ where: { id: messageId } })
+    expect(stored.body).toBe('Third version.')
+    expect(stored.editedAt).toBeNull()
+  })
+
+  it('30c. no normal customer or admin conversation payload exposes the original text or any edit-history field', async () => {
+    const { customer, agent, ticketId, messageId, originalBody } = await ticketWithAgentMessage(undefined, 'ORIGINAL-SECRET-WORDING-123')
+    await request(server).patch(editUrl(ticketId, messageId)).set('Cookie', agent.cookie).send({ body: 'Corrected wording.' }).expect(200)
+
+    const customerView = await request(server).get(`/support/tickets/${ticketId}`).set('Cookie', customer.cookie).expect(200)
+    const adminView = await request(server).get(`/admin/support/tickets/${ticketId}`).set('Cookie', agent.cookie).expect(200)
+    const adminList = await request(server).get('/admin/support/tickets').set('Cookie', agent.cookie).expect(200)
+    const patchRes = await request(server).patch(editUrl(ticketId, messageId)).set('Cookie', agent.cookie).send({ body: 'Corrected wording.' }).expect(200)
+
+    for (const payload of [customerView.body, adminView.body, adminList.body, patchRes.body]) {
+      const json = JSON.stringify(payload)
+      expect(json).not.toContain(originalBody)
+      expect(json).not.toMatch(/previousBody|originalBody|editHistory|history|previousState/i)
+    }
+  })
+
+  it('30d. editing keeps the message\'s attachments intact', async () => {
+    const customer = await makeCustomer('edit-attach')
+    const ticket = await request(server).post('/support/tickets').set('Cookie', customer.cookie).send({ categoryId, subject: 'Q', message: 'hi' }).expect(201)
+    const agent = await makeAgentWith('support.tickets.read', 'support.tickets.reply')
+    const upload = await request(server).post(`/admin/support/tickets/${ticket.body.id}/attachments`).set('Cookie', agent.cookie)
+      .field('body', 'Here is the receipt').attach('file', PNG_BYTES, { filename: 'receipt.png', contentType: 'image/png' }).expect(201)
+    const attachmentId = upload.body.attachments[0].id
+
+    const res = await request(server).patch(editUrl(ticket.body.id, upload.body.id)).set('Cookie', agent.cookie).send({ body: 'Here is the corrected receipt' }).expect(200)
+    expect(res.body.attachments).toHaveLength(1)
+    expect(res.body.attachments[0].id).toBe(attachmentId)
+
+    const customerView = await request(server).get(`/support/tickets/${ticket.body.id}`).set('Cookie', customer.cookie).expect(200)
+    const msg = customerView.body.messages.find((m: any) => m.id === upload.body.id)
+    expect(msg.body).toBe('Here is the corrected receipt')
+    expect(msg.attachments.map((a: any) => a.id)).toEqual([attachmentId])
+    await request(server).get(`/support/attachments/${attachmentId}`).set('Cookie', customer.cookie).expect(200) // still downloadable
+  })
+
+  it('30e. a customer cannot edit an admin message — the admin route rejects them and no customer edit route exists', async () => {
+    const { customer, agent, ticketId, messageId, originalBody } = await ticketWithAgentMessage()
+    await request(server).patch(editUrl(ticketId, messageId)).set('Cookie', customer.cookie).send({ body: 'hacked' }).expect(403)
+    // There is deliberately no customer-facing edit route at all.
+    await request(server).patch(`/support/tickets/${ticketId}/messages/${messageId}`).set('Cookie', customer.cookie).send({ body: 'hacked' }).expect(404)
+    await request(server).patch(editUrl(ticketId, messageId)).send({ body: 'anon' }).expect(401)
+
+    const stored = await prisma.supportMessage.findUniqueOrThrow({ where: { id: messageId } })
+    expect(stored.body).toBe(originalBody)
+    expect(await prisma.auditLog.count({ where: { action: 'SUPPORT_MESSAGE_EDITED', targetId: messageId } })).toBe(0)
+    expect(agent.userId).toBe(stored.authorId)
+  })
+
+  it('30f. a different admin — even one with support.tickets.reply — cannot edit another author\'s message, and neither can anyone edit a customer\'s message', async () => {
+    const { customer, ticketId, messageId, originalBody } = await ticketWithAgentMessage()
+    const otherAgent = await makeAgentWith('support.tickets.read', 'support.tickets.reply', 'support.tickets.internal_note')
+    await request(server).patch(editUrl(ticketId, messageId)).set('Cookie', otherAgent.cookie).send({ body: 'not yours' }).expect(403)
+
+    const customerMsg = await prisma.supportMessage.findFirstOrThrow({ where: { ticketId, authorId: customer.userId } })
+    await request(server).patch(editUrl(ticketId, customerMsg.id)).set('Cookie', otherAgent.cookie).send({ body: 'rewriting the customer' }).expect(403)
+
+    expect((await prisma.supportMessage.findUniqueOrThrow({ where: { id: messageId } })).body).toBe(originalBody)
+    expect((await prisma.supportMessage.findUniqueOrThrow({ where: { id: customerMsg.id } })).body).toBe('Where is my money?')
+    expect(await prisma.auditLog.count({ where: { action: 'SUPPORT_MESSAGE_EDITED', targetId: { in: [messageId, customerMsg.id] } } })).toBe(0)
+  })
+
+  it('30g. the author loses the ability to edit if the required permission is revoked, and an admin with no support permission can\'t edit at all', async () => {
+    const { agent, ticketId, messageId, originalBody } = await ticketWithAgentMessage()
+    await prisma.userPermission.deleteMany({ where: { userId: agent.userId } })
+    await request(server).patch(editUrl(ticketId, messageId)).set('Cookie', agent.cookie).send({ body: 'after revoke' }).expect(403)
+
+    const noPerm = await makeAgentWith()
+    await request(server).patch(editUrl(ticketId, messageId)).set('Cookie', noPerm.cookie).send({ body: 'no perm' }).expect(403)
+    expect((await prisma.supportMessage.findUniqueOrThrow({ where: { id: messageId } })).body).toBe(originalBody)
+  })
+
+  it('30h. invalid edits are rejected: empty body, tags-only body, over-long body, wrong ticket, unknown message', async () => {
+    const { agent, ticketId, messageId, originalBody } = await ticketWithAgentMessage()
+    const other = await ticketWithAgentMessage()
+    await request(server).patch(editUrl(ticketId, messageId)).set('Cookie', agent.cookie).send({ body: '' }).expect(400)
+    await request(server).patch(editUrl(ticketId, messageId)).set('Cookie', agent.cookie).send({ body: '<b></b>' }).expect(400) // sanitizes to empty
+    await request(server).patch(editUrl(ticketId, messageId)).set('Cookie', agent.cookie).send({ body: 'x'.repeat(4001) }).expect(400)
+    await request(server).patch(editUrl(other.ticketId, messageId)).set('Cookie', agent.cookie).send({ body: 'wrong ticket' }).expect(404)
+    await request(server).patch(editUrl(ticketId, '00000000-0000-4000-8000-000000000000')).set('Cookie', agent.cookie).send({ body: 'ghost' }).expect(404)
+    expect((await prisma.supportMessage.findUniqueOrThrow({ where: { id: messageId } })).body).toBe(originalBody)
+  })
+
+  it('30i. an edit sends no customer notification and writes no audit row when the text is unchanged', async () => {
+    const { customer, agent, ticketId, messageId, originalBody } = await ticketWithAgentMessage()
+    const notesBefore = await prisma.supportNotification.count({ where: { userId: customer.userId } })
+
+    await request(server).patch(editUrl(ticketId, messageId)).set('Cookie', agent.cookie).send({ body: 'A corrected reply.' }).expect(200)
+    expect(await prisma.supportNotification.count({ where: { userId: customer.userId } })).toBe(notesBefore)
+
+    // Re-submitting identical text is a no-op: no extra audit row.
+    await request(server).patch(editUrl(ticketId, messageId)).set('Cookie', agent.cookie).send({ body: 'A corrected reply.' }).expect(200)
+    expect(await prisma.auditLog.count({ where: { action: 'SUPPORT_MESSAGE_EDITED', targetId: messageId } })).toBe(1)
+    expect(originalBody).not.toBe('A corrected reply.')
+  })
+
+  it('30j. an INTERNAL note can be edited by its own author (with the internal_note permission) and stays invisible to the customer', async () => {
+    const customer = await makeCustomer('edit-internal')
+    const ticket = await request(server).post('/support/tickets').set('Cookie', customer.cookie).send({ categoryId, subject: 'Q', message: 'hi' }).expect(201)
+    const agent = await makeAgentWith('support.tickets.read', 'support.tickets.internal_note')
+    const note = await request(server).post(`/admin/support/tickets/${ticket.body.id}/messages`).set('Cookie', agent.cookie).send({ body: 'Escalate to finance', visibility: 'INTERNAL' }).expect(201)
+
+    await request(server).patch(editUrl(ticket.body.id, note.body.id)).set('Cookie', agent.cookie).send({ body: 'Escalate to compliance' }).expect(200)
+    const stored = await prisma.supportMessage.findUniqueOrThrow({ where: { id: note.body.id } })
+    expect(stored.body).toBe('Escalate to compliance')
+    expect(stored.visibility).toBe('INTERNAL') // an edit can never change visibility
+
+    const customerView = await request(server).get(`/support/tickets/${ticket.body.id}`).set('Cookie', customer.cookie).expect(200)
+    expect(JSON.stringify(customerView.body)).not.toMatch(/Escalate to (finance|compliance)/)
+
+    // An agent holding only .reply (not .internal_note) can't edit an internal note.
+    await prisma.userPermission.deleteMany({ where: { userId: agent.userId } })
+    await grantPermissionDirect(prisma, agent.userId, 'support.tickets.reply')
+    await request(server).patch(editUrl(ticket.body.id, note.body.id)).set('Cookie', agent.cookie).send({ body: 'sneaky' }).expect(403)
+  })
 })

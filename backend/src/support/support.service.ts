@@ -7,7 +7,7 @@ import { sanitizeText } from '../cms/cms.validation'
 import { MediaStorageService } from '../cms/media-storage.service'
 import { PlatformSettingsService } from '../platform-settings/platform-settings.service'
 import { EmailService } from '../email/email.service'
-import type { CreateTicketDto, CreateMessageDto, CreateStaffTicketDto } from './dto/ticket.dto'
+import type { CreateTicketDto, CreateMessageDto, CreateStaffTicketDto, EditMessageDto } from './dto/ticket.dto'
 import type { CreateCategoryDto, UpdateCategoryDto } from './dto/category.dto'
 
 type UploadedFileLike = { originalname: string; mimetype: string; buffer: Buffer }
@@ -320,6 +320,57 @@ export class SupportService {
       await this.notify(ticket.userId, ticketId, 'AGENT_REPLIED', `Support replied on "${ticket.subject}".`)
     }
     return message
+  }
+
+  // A staff member correcting a message THEY sent. Only SupportMessage.body
+  // is rewritten — attachments, createdAt (so ordering), visibility, author
+  // and the ticket itself are untouched, and no new message row is created.
+  //
+  // Deliberately leaves SupportMessage.editedAt NULL: that column travels in
+  // every customer/admin conversation payload, so setting it would hand the
+  // "this was edited" signal (and its timestamp) to exactly the surfaces that
+  // must show a clean, natural thread. The accountability record lives in the
+  // append-only AuditLog instead (previousState.body = text before,
+  // newState.body = text after, createdAt = when, actorId = who), which no
+  // Support endpoint returns. Chaining edits therefore preserves EVERY
+  // version, and the first row's previousState is always the original.
+  //
+  // No customer notification and no admin email: an edit is a correction to
+  // an existing message, not new activity on the ticket.
+  //
+  // Authorization is enforced here, not just by the frontend: the required
+  // permission depends on the message's visibility (same split as
+  // addStaffMessage), and on top of it the caller must be the message's own
+  // author — the permission model has no "edit someone else's message"
+  // capability, so no role (SUPER_ADMIN included) can edit another author's.
+  async editStaffMessage(adminId: string, ticketId: string, messageId: string, dto: EditMessageDto) {
+    const message = await this.prisma.supportMessage.findUnique({ where: { id: messageId } })
+    if (!message || message.ticketId !== ticketId) throw new NotFoundException('Message not found.')
+
+    await this.assertPermission(adminId, message.visibility === 'INTERNAL' ? 'support.tickets.internal_note' : 'support.tickets.reply')
+    if (message.authorId !== adminId) throw new ForbiddenException('You can only edit messages you sent.')
+
+    const newBody = sanitizeText(dto.body)
+    if (!newBody) throw new BadRequestException('Message cannot be empty.')
+
+    const include = { attachments: true, author: { select: { id: true, email: true, fullName: true, role: true } } } as const
+    if (newBody === message.body) {
+      return this.prisma.supportMessage.findUniqueOrThrow({ where: { id: messageId }, include })
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.supportMessage.update({ where: { id: messageId }, data: { body: newBody }, include })
+      await this.audit.record({
+        actorId: adminId,
+        action: AuditEvent.SUPPORT_MESSAGE_EDITED,
+        targetType: 'SUPPORT_MESSAGE',
+        targetId: messageId,
+        previousState: { body: message.body },
+        newState: { body: newBody },
+        metadata: { ticketId, visibility: message.visibility },
+      }, tx)
+      return updated
+    })
   }
 
   async updateStatus(adminId: string, ticketId: string, status: string, reason?: string) {
