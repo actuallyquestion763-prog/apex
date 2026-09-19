@@ -163,8 +163,9 @@ export function TradingPage() {
           <div className="admin-card border-bear/30 p-3">
             <div className="flex items-center gap-1.5">
               <FlaskConical className="h-3.5 w-3.5 text-bear" />
-              <h3 className="text-xs font-bold uppercase tracking-wide text-bear">All User Control</h3>
+              <h3 className="text-xs font-bold uppercase tracking-wide text-bear">LOCAL / SANDBOX</h3>
             </div>
+            <p className="mt-1 text-[10px] font-bold uppercase tracking-wide text-admin-mutedDim">ALL USER CONTROL</p>
             <p className="mt-1 text-[10px] text-admin-mutedDim">
               Platform-wide, no user selection. WIN ALL / LOSE ALL only take effect in a dedicated sandbox/test environment — the server independently rejects them for real production trading. NORMAL always works and simply restores real price-derived settlement. Every change is audit logged.
             </p>
@@ -173,7 +174,7 @@ export function TradingPage() {
                 onClick={() => settingsRes.data?.sandboxControlsAvailable ? setStepUp({ kind: 'settings', patch: { sandboxOutcomeMode: 'FORCE_WIN' } }) : setSandboxBlockedAction('FORCE_WIN')}
                 className={`relative flex-1 rounded-lg px-4 py-2 text-xs font-bold ${settingsRes.data.sandboxOutcomeMode === 'FORCE_WIN' ? 'bg-bull text-white' : 'border border-bull/30 text-bull hover:bg-bull/10'}`}
               >
-                WIN ALL
+                [ WIN ALL ]
                 {!settingsRes.data.sandboxControlsAvailable && (
                   <span className="absolute -top-1.5 -right-1.5 rounded-full border border-admin-border bg-admin-surface2 px-1 py-0.5 text-[8px] font-bold uppercase tracking-wide text-admin-mutedDim">Sandbox only</span>
                 )}
@@ -182,7 +183,7 @@ export function TradingPage() {
                 onClick={() => settingsRes.data?.sandboxControlsAvailable ? setStepUp({ kind: 'settings', patch: { sandboxOutcomeMode: 'FORCE_LOSS' } }) : setSandboxBlockedAction('FORCE_LOSS')}
                 className={`relative flex-1 rounded-lg px-4 py-2 text-xs font-bold ${settingsRes.data.sandboxOutcomeMode === 'FORCE_LOSS' ? 'bg-bear text-white' : 'border border-bear/30 text-bear hover:bg-bear/10'}`}
               >
-                LOSE ALL
+                [ LOSE ALL ]
                 {!settingsRes.data.sandboxControlsAvailable && (
                   <span className="absolute -top-1.5 -right-1.5 rounded-full border border-admin-border bg-admin-surface2 px-1 py-0.5 text-[8px] font-bold uppercase tracking-wide text-admin-mutedDim">Sandbox only</span>
                 )}
@@ -191,7 +192,7 @@ export function TradingPage() {
                 onClick={() => setStepUp({ kind: 'settings', patch: { sandboxOutcomeMode: 'RANDOM' } })}
                 className={`rounded-lg px-3 py-2 text-xs font-bold ${settingsRes.data.sandboxOutcomeMode === 'RANDOM' ? 'border border-admin-borderLight bg-admin-surface text-admin-text' : 'border border-admin-border text-admin-mutedDim hover:text-admin-text'}`}
               >
-                NORMAL
+                [ NORMAL ]
               </button>
             </div>
           </div>
@@ -205,7 +206,7 @@ export function TradingPage() {
             every other selected user the buttons render disabled with an
             explanation — there is no way to force a real customer's trade. */}
         <div className="admin-card p-3">
-          <h3 className="text-xs font-bold uppercase tracking-wide text-admin-gold">User Control</h3>
+          <h3 className="text-xs font-bold uppercase tracking-wide text-admin-gold">USER CONTROL</h3>
           <div className="mt-2 flex flex-wrap gap-2">
             <div className="relative flex-1 min-w-[160px]">
               <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3 w-3 -translate-y-1/2 text-admin-mutedDim" />
@@ -241,27 +242,27 @@ export function TradingPage() {
                     onClick={() => setStepUp({ kind: 'testUserOutcome', userId: selectedUser.id, testOutcomeMode: 'FORCE_WIN' })}
                     className={`flex-1 rounded-lg px-4 py-2 text-xs font-bold ${selectedUser.testOutcomeMode === 'FORCE_WIN' ? 'bg-bull text-white' : 'border border-bull/30 text-bull hover:bg-bull/10'}`}
                   >
-                    USER WIN
+                    [ USER WIN ]
                   </button>
                   <button
                     onClick={() => setStepUp({ kind: 'testUserOutcome', userId: selectedUser.id, testOutcomeMode: 'FORCE_LOSS' })}
                     className={`flex-1 rounded-lg px-4 py-2 text-xs font-bold ${selectedUser.testOutcomeMode === 'FORCE_LOSS' ? 'bg-bear text-white' : 'border border-bear/30 text-bear hover:bg-bear/10'}`}
                   >
-                    USER LOSE
+                    [ USER LOSE ]
                   </button>
                   <button
                     onClick={() => setStepUp({ kind: 'testUserOutcome', userId: selectedUser.id, testOutcomeMode: 'NORMAL' })}
                     className={`rounded-lg px-3 py-2 text-xs font-bold ${selectedUser.testOutcomeMode === 'NORMAL' ? 'border border-admin-borderLight bg-admin-surface text-admin-text' : 'border border-admin-border text-admin-mutedDim hover:text-admin-text'}`}
                   >
-                    NORMAL
+                    [ NORMAL ]
                   </button>
                 </div>
               ) : (
                 <div className="mt-2.5">
                   <div className="flex gap-2.5 opacity-40" title="Unavailable — this is not a designated test/sandbox user">
-                    <button disabled className="admin-btn-success flex-1 px-4 py-2 text-xs">USER WIN</button>
-                    <button disabled className="admin-btn-danger flex-1 px-4 py-2 text-xs">USER LOSE</button>
-                    <button disabled className="admin-btn-secondary px-3 py-2 text-xs">NORMAL</button>
+                    <button disabled className="admin-btn-success flex-1 px-4 py-2 text-xs">[ USER WIN ]</button>
+                    <button disabled className="admin-btn-danger flex-1 px-4 py-2 text-xs">[ USER LOSE ]</button>
+                    <button disabled className="admin-btn-secondary px-3 py-2 text-xs">[ NORMAL ]</button>
                   </div>
                   <p className="mt-1.5 text-[10px] text-admin-mutedDim">Not a designated test/sandbox user — outcome controls unavailable. A real customer's account can never be converted into one.</p>
                 </div>
@@ -269,9 +270,9 @@ export function TradingPage() {
             ) : (
               <div className="mt-2.5">
                 <div className="flex gap-2.5 opacity-40" title="Select a user above first">
-                  <button disabled className="admin-btn-success flex-1 px-4 py-2 text-xs">USER WIN</button>
-                  <button disabled className="admin-btn-danger flex-1 px-4 py-2 text-xs">USER LOSE</button>
-                  <button disabled className="admin-btn-secondary px-3 py-2 text-xs">NORMAL</button>
+                  <button disabled className="admin-btn-success flex-1 px-4 py-2 text-xs">[ USER WIN ]</button>
+                  <button disabled className="admin-btn-danger flex-1 px-4 py-2 text-xs">[ USER LOSE ]</button>
+                  <button disabled className="admin-btn-secondary px-3 py-2 text-xs">[ NORMAL ]</button>
                 </div>
                 <p className="mt-1.5 text-[10px] text-admin-mutedDim">Select a designated test/sandbox user above to enable outcome controls — 🧪 marks test users in the list.</p>
               </div>
@@ -292,7 +293,7 @@ export function TradingPage() {
                   onClick={() => setStepUp({ kind: 'testUserOutcome', userId: selectedUser.id, testOutcomeMode: 'NORMAL' })}
                   className={`rounded-lg px-3 py-2 text-xs font-bold ${selectedUser.testOutcomeMode === 'NORMAL' ? 'border border-admin-borderLight bg-admin-surface text-admin-text' : 'border border-admin-border text-admin-mutedDim hover:text-admin-text'}`}
                 >
-                  NORMAL
+                  [ NORMAL ]
                 </button>
               </div>
             )
@@ -329,7 +330,7 @@ export function TradingPage() {
 
         {/* Current Trading — real active trades, all customers */}
         <div>
-          <h3 className="mb-1.5 text-[11px] font-bold uppercase tracking-wide text-admin-gold">🔥 Current Trading</h3>
+          <h3 className="mb-1.5 text-[11px] font-bold uppercase tracking-wide text-admin-gold">CURRENT TRADING</h3>
           <AdminPanel loading={activeTradesRes.loading} error={activeTradesRes.error} refetch={activeTradesRes.refetch}>
             {(activeTradesRes.data ?? []).length === 0 ? (
               <div className="admin-card p-4 text-center text-xs text-admin-mutedDim">No active trades</div>
@@ -361,7 +362,7 @@ export function TradingPage() {
 
         {/* Trade List — real trade history, all customers */}
         <div>
-          <h3 className="mb-1.5 text-[11px] font-bold uppercase tracking-wide text-admin-gold">Trade List</h3>
+          <h3 className="mb-1.5 text-[11px] font-bold uppercase tracking-wide text-admin-gold">TRADE LIST</h3>
           <AdminPanel loading={allTradesRes.loading} error={allTradesRes.error} refetch={allTradesRes.refetch}>
             {(allTradesRes.data ?? []).length === 0 ? (
               <div className="admin-card p-4 text-center text-xs text-admin-mutedDim">No trades found</div>
@@ -396,7 +397,7 @@ export function TradingPage() {
           {settingsRes.data && (
             <div className="admin-card p-3">
               <div className="flex items-center justify-between">
-                <h3 className="text-xs font-bold uppercase tracking-wide text-admin-gold">Kill Switch</h3>
+                <h3 className="text-xs font-bold uppercase tracking-wide text-admin-gold">KILL SWITCH</h3>
                 <button
                   onClick={() => setStepUp({ kind: 'settings', patch: { tradingEnabled: !settingsRes.data!.tradingEnabled } })}
                   className={`rounded-full px-3 py-1 text-[11px] font-bold ${settingsRes.data.tradingEnabled ? 'bg-bear/15 text-bear' : 'border border-admin-border bg-admin-surface2 text-admin-mutedDim'}`}
@@ -539,9 +540,9 @@ export function TradingPage() {
                 <button onClick={() => setSandboxBlockedAction(null)} aria-label="Close" className="text-slate-500 hover:text-white"><X className="h-4 w-4" /></button>
               </div>
               <div className="space-y-3 p-5">
-                <p className="text-sm font-semibold text-bear">SANDBOX ONLY — This action is available only in the development/test environment.</p>
+                <p className="text-sm font-semibold text-bear">This control is available for sandbox testing only. It cannot be used for live production trading.</p>
                 <p className="text-xs text-slate-400">
-                  {sandboxBlockedAction === 'FORCE_WIN' ? 'WIN ALL' : 'LOSE ALL'} forces every trade&rsquo;s outcome, so it can never run against real production trading. The server rejects it here independently of this screen — there is nothing to confirm.
+                  {sandboxBlockedAction === 'FORCE_WIN' ? 'WIN ALL' : 'LOSE ALL'} are test controls for the sandbox environment. Live production trades continue to use the normal settlement rules.
                 </p>
                 <button onClick={() => setSandboxBlockedAction(null)} className="btn-gold w-full py-2.5">Close</button>
               </div>
