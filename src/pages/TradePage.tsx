@@ -230,7 +230,7 @@ export default function TradePage() {
                     selectedDirection === 'BUY' ? 'bg-bull shadow-glow-sm ring-2 ring-white/40' : 'bg-bull/70 hover:brightness-105'
                   }`}
                 >
-                  UP
+                  BUY UP
                 </button>
                 <button
                   disabled={!canSelectDirection || submittingOption}
@@ -242,7 +242,7 @@ export default function TradePage() {
                     selectedDirection === 'SELL' ? 'bg-bear shadow-glow-sm ring-2 ring-white/40' : 'bg-bear/70 hover:brightness-95'
                   }`}
                 >
-                  DOWN
+                  BUY DOWN
                 </button>
               </div>
               <p className="text-center text-[11px] text-slate-600">UP predicts the price will be HIGHER at expiry. DOWN predicts LOWER. An exact match at expiry is a DRAW — your investment is returned.</p>
