@@ -5,6 +5,7 @@ import { AuditService } from '../audit/audit.service'
 import { AuditEvent } from '../audit/audit-events'
 import { MediaStorageService } from '../cms/media-storage.service'
 import { validateReceivingAddress } from './address-validation.util'
+import { getProtectedDepositAddress, isDepositWalletProtectionActive } from './protected-deposit-wallets'
 import type { CreateCryptoAssetDto, UpdateCryptoAssetDto, UpsertCryptoDepositAddressDto } from './dto/admin-crypto-dtos'
 
 interface UploadedFileLike {
@@ -36,20 +37,29 @@ export class CryptoDepositsService {
       include: { networks: { where: { enabled: true }, orderBy: { sortOrder: 'asc' } } },
       orderBy: { sortOrder: 'asc' },
     })
-    return assets.map((a) => ({
-      symbol: a.symbol,
-      name: a.name,
-      networks: a.networks.map((n) => ({
-        networkCode: n.networkCode,
-        networkName: n.networkName,
-        minimumDeposit: n.minimumDeposit,
-        // The receiving address itself is intentionally NOT included in
-        // this general "what's supported" list — a real address is only
-        // ever handed to a signed-in user for a SPECIFIC (asset, network)
-        // pair they've actually selected, via the controller's dedicated
-        // resolveAddress endpoint (which calls resolveForDeposit below).
-      })),
-    }))
+    const protectedOnly = isDepositWalletProtectionActive()
+    return assets
+      .map((a) => ({
+        symbol: a.symbol,
+        name: a.name,
+        // With protection active, a customer is only ever offered a pair that
+        // has a protected wallet (see protected-deposit-wallets.ts) — a CMS
+        // row for any other pair (e.g. a network an attacker just added) is
+        // simply not offered, since it has no trusted address to show.
+        networks: a.networks
+          .filter((n) => !protectedOnly || getProtectedDepositAddress(a.symbol, n.networkCode) !== null)
+          .map((n) => ({
+            networkCode: n.networkCode,
+            networkName: n.networkName,
+            minimumDeposit: n.minimumDeposit,
+            // The receiving address itself is intentionally NOT included in
+            // this general "what's supported" list — a real address is only
+            // ever handed to a signed-in user for a SPECIFIC (asset, network)
+            // pair they've actually selected, via the controller's dedicated
+            // resolveAddress endpoint (which calls resolveForDeposit below).
+          })),
+      }))
+      .filter((a) => a.networks.length > 0)
   }
 
   // The single place that turns (symbol, networkCode) into a validated,
@@ -66,6 +76,22 @@ export class CryptoDepositsService {
     })
     if (!network || !network.enabled) {
       return { ok: false as const, reason: 'NETWORK_DISABLED', message: `${networkCode} is not currently available for ${symbol} deposits.` }
+    }
+
+    // PROTECTED PRODUCTION WALLETS — the CMS row above decides only whether
+    // this (asset, network) is switched on and its minimum; the ADDRESS a
+    // customer is told to send to comes from protected-deposit-wallets.ts,
+    // never from CryptoDepositAddress.receivingAddress. This is the one place
+    // that turns a pair into an address, and both the address-display endpoint
+    // and DepositsService.createDeposit() (which snapshots the result into
+    // Deposit.receivingAddress) call it, so neither can be handed a CMS value.
+    // A pair with no protected wallet fails closed rather than falling back.
+    if (isDepositWalletProtectionActive()) {
+      const protectedAddress = getProtectedDepositAddress(asset.symbol, network.networkCode)
+      if (!protectedAddress) {
+        return { ok: false as const, reason: 'NETWORK_UNAVAILABLE', message: `${networkCode} is not currently available for ${symbol} deposits.` }
+      }
+      return { ok: true as const, asset, network: { ...network, receivingAddress: protectedAddress } }
     }
     return { ok: true as const, asset, network }
   }
@@ -238,11 +264,18 @@ export class CryptoDepositsService {
     return { ok: true }
   }
 
-  // Serves the admin-uploaded QR image for one (asset, network) pair.
-  // Reachable by any signed-in user (see crypto-deposits.controller.ts) —
-  // same trust boundary as the receiving address itself (Part 24: not a
-  // secret, meant to be shown to whoever is depositing that asset).
-  async getQrStream(symbol: string, networkCode: string) {
+  // Serves the admin-uploaded QR image for one (asset, network) pair. This is
+  // CMS content, so with protected wallets active it is staff-only: the
+  // admin Deposit Wallet screen previews it through this same route and keeps
+  // working, but a customer is never handed an image an admin uploaded (it
+  // could encode any address). The customer-facing QR is rendered client-side
+  // from the protected address returned by resolveForDeposit(), so it can
+  // never disagree with the address shown next to it. The 404 message matches
+  // the "nothing uploaded" case so it doesn't reveal whether one exists.
+  async getQrStream(symbol: string, networkCode: string, requesterIsStaff: boolean) {
+    if (isDepositWalletProtectionActive() && !requesterIsStaff) {
+      throw new NotFoundException('No QR code uploaded for this network.')
+    }
     const asset = await this.prisma.cryptoAsset.findUnique({ where: { symbol } })
     if (!asset) throw new NotFoundException(`No crypto asset "${symbol}".`)
     const network = await this.prisma.cryptoDepositAddress.findUnique({

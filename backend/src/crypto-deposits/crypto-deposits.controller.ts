@@ -1,6 +1,8 @@
 import { BadRequestException, Controller, Get, Param, StreamableFile, UseGuards } from '@nestjs/common'
 import { CryptoDepositsService } from './crypto-deposits.service'
 import { SessionAuthGuard } from '../common/guards/session-auth.guard'
+import { CurrentUser } from '../common/decorators/current-user.decorator'
+import type { AuthenticatedUser } from '../common/types/authenticated-user'
 
 const EXT_TO_MIME: Record<string, string> = {
   png: 'image/png', jpg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif', pdf: 'application/pdf',
@@ -39,9 +41,11 @@ export class CryptoDepositsController {
     }
   }
 
+  // Serves the admin-UPLOADED QR image (CMS content) — staff-only while
+  // protected deposit wallets are active; see CryptoDepositsService.getQrStream.
   @Get('assets/:symbol/networks/:networkCode/qr')
-  async getQr(@Param('symbol') symbol: string, @Param('networkCode') networkCode: string) {
-    const { stream, storageKey } = await this.cryptoDeposits.getQrStream(decodeURIComponent(symbol), decodeURIComponent(networkCode))
+  async getQr(@CurrentUser() user: AuthenticatedUser, @Param('symbol') symbol: string, @Param('networkCode') networkCode: string) {
+    const { stream, storageKey } = await this.cryptoDeposits.getQrStream(decodeURIComponent(symbol), decodeURIComponent(networkCode), user.role === 'ADMIN' || user.role === 'SUPER_ADMIN')
     const ext = storageKey.split('.').pop() ?? ''
     return new StreamableFile(stream, { type: EXT_TO_MIME[ext] ?? 'application/octet-stream' })
   }
